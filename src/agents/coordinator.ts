@@ -23,8 +23,8 @@ export class CoordinatorAgent extends Agent<Env, CoordinatorState> {
         if (request.method === "POST") {
             const body = await request.json().catch(() => ({ urls: [] })) as { urls?: unknown };
             const urls: string[] = Array.isArray(body?.urls) ? body.urls : [];
-            await this.bootstrap(urls);
-            return Response.json({ ok: true, started: true, city: this.state.city, count: urls.length });
+            const results = await this.bootstrap(urls);
+            return Response.json({ ok: true, city: this.state.city, results });
         }
 
         return new Response("Method not supported", { status: 405 });

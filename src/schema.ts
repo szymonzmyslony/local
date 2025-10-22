@@ -7,8 +7,10 @@ export const EventSchema = z.object({
     start: z.string(),                    // normalize to epoch later
     end: z.string().optional().nullable(),
     artists: z.array(z.string()).default([]),
-    image: z.string().url().optional()
+    image: z.string().optional()
 });
+
+export type Event = z.infer<typeof EventSchema>;
 
 export const GallerySchema = z.object({
     name: z.string().optional(),
@@ -19,7 +21,19 @@ export const GallerySchema = z.object({
     tz: z.string().optional()
 });
 
+export type Gallery = z.infer<typeof GallerySchema>;
+
 export const PageExtractSchema = z.object({
-    gallery: GallerySchema.partial().extend({ website: z.string().url() }),
+    gallery: GallerySchema.partial().extend({ website: z.string() }),
     events: z.array(EventSchema)
+});
+
+export type PageExtract = z.infer<typeof PageExtractSchema>;
+
+export const PageClassificationEnum = z.enum(['event', 'general', 'other']);
+
+export type PageClassification = z.infer<typeof PageClassificationEnum>;
+
+export const PageClassificationSchema = z.object({
+    classification: PageClassificationEnum
 });

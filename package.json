@@ -5,6 +5,7 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "build": "vite build",
     "start": "vite dev",
     "deploy": "vite build && wrangler deploy",
     "test": "vitest",

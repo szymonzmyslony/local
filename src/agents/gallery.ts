@@ -1,88 +1,107 @@
-// src/agents/gallery.ts
 import { Agent } from "agents";
+import type { Gallery, Event } from "../schema";
 
 type GalleryState = {
     url: string;
-    lastScraped: number | null;
+    lastScraped: number;
     htmlLength: number;
-    workflowId: string | null;
+    workflowId: string;
+    cachedGallery: Gallery;
+    cachedEvents: Event[];
+    lastSuccessfulScrape: number;
 };
 
 export class GalleryAgent extends Agent<Env, GalleryState> {
     initialState: GalleryState = {
         url: "",
-        lastScraped: null,
+        lastScraped: 0,
         htmlLength: 0,
-        workflowId: null
+        workflowId: "",
+        cachedGallery: { website: "" },
+        cachedEvents: [],
+        lastSuccessfulScrape: 0
     };
 
     async onRequest(request: Request): Promise<Response> {
-        // Initialize state on first request
-        if (!this.state.url) {
-            this.setState({ url: this.name, lastScraped: null, htmlLength: 0, workflowId: null });
-        }
-
         if (request.method === "GET") {
-            return Response.json({ ok: true, agent: "GalleryAgent", state: this.state });
+            return Response.json({
+                ok: true,
+                agent: "GalleryAgent",
+                state: this.state,
+                gallery: this.state.cachedGallery,
+                events: this.state.cachedEvents
+            });
         }
 
         return new Response("Method not supported", { status: 405 });
     }
 
-    /**
-     * Triggers the scraping workflow for this gallery
-     * This method is called by the CoordinatorAgent to start async scraping
-     */
-    async startScraping(url: string) {
+    async startScraping(url: string, forceRefresh: boolean = false) {
         console.log(`[GalleryAgent:${this.name}] Starting scraping workflow for: ${url}`);
 
-        try {
-            // Create a workflow instance for this gallery's scraping task
-            const instance = await this.env.SCRAPE_WORKFLOW.create({
-                id: `${this.name}-${Date.now()}`,
-                params: {
-                    galleryId: this.name,
-                    url
-                }
-            });
+        const cacheThreshold = 3600000;
 
-            // Update state to track the workflow
-            this.setState({
-                url,
-                workflowId: instance.id,
-                lastScraped: null, // Will be updated when workflow completes
-                htmlLength: 0
-            });
-
-            console.log(`[GalleryAgent:${this.name}] Workflow created: ${instance.id}`);
-
+        if (!forceRefresh && this.state.lastSuccessfulScrape && (Date.now() - this.state.lastSuccessfulScrape) < cacheThreshold) {
+            console.log(`[GalleryAgent:${this.name}] Returning cached results`);
             return {
                 ok: true,
-                workflowId: instance.id,
-                message: "Scraping workflow started"
-            };
-        } catch (error) {
-            console.error(`[GalleryAgent:${this.name}] Error starting workflow:`, error);
-            return {
-                ok: false,
-                error: error instanceof Error ? error.message : "Unknown error"
+                cached: true,
+                gallery: this.state.cachedGallery,
+                events: this.state.cachedEvents,
+                lastScraped: this.state.lastSuccessfulScrape
             };
         }
+
+        const instance = await this.env.SCRAPE_WORKFLOW.create({
+            id: `${this.name}-${Date.now()}`,
+            params: {
+                galleryId: this.name,
+                url
+            }
+        });
+
+        this.setState({
+            ...this.state,
+            url,
+            workflowId: instance.id,
+            lastScraped: Date.now()
+        });
+
+        console.log(`[GalleryAgent:${this.name}] Workflow created: ${instance.id}`);
+
+        return {
+            ok: true,
+            cached: false,
+            workflowId: instance.id,
+            message: "Scraping workflow started"
+        };
     }
 
-    /**
-     * Called by the workflow to update the agent's state after scraping completes
-     */
-    async updateScrapingResult(htmlLength: number, error?: string) {
+    async updateScrapingResult(result: {
+        gallery: Gallery;
+        events: Event[];
+        timestamp: number;
+    }) {
         console.log(`[GalleryAgent:${this.name}] Updating scraping result`);
 
         this.setState({
             ...this.state,
-            lastScraped: Date.now(),
-            htmlLength: error ? 0 : htmlLength
+            cachedGallery: result.gallery,
+            cachedEvents: result.events,
+            lastSuccessfulScrape: result.timestamp,
+            lastScraped: result.timestamp
         });
 
         return { ok: true };
     }
-}
 
+    async getResults() {
+        return {
+            ok: true,
+            gallery: this.state.cachedGallery,
+            events: this.state.cachedEvents,
+            lastScraped: this.state.lastSuccessfulScrape,
+            url: this.state.url
+        };
+    }
+}
