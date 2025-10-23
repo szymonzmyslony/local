@@ -1,33 +1,63 @@
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "gallery-agents",
-	"main": "src/server.ts",
-	"compatibility_date": "2025-10-01",
-	"compatibility_flags": ["nodejs_compat"],
-  
-	"ai": { "binding": "AI", "remote": true },
-	"browser": {
-		"binding": "MYBROWSER",
-	  },
-  
-	"durable_objects": {
-	  "bindings": [
-		{ "name": "CoordinatorAgent", "class_name": "CoordinatorAgent" },
-		{ "name": "GalleryAgent", "class_name": "GalleryAgent" },
-	  ]
-	},
-  
-	"migrations": [
-	  { "tag": "v1", "new_sqlite_classes": ["CoordinatorAgent", "GalleryAgent"] }
-	],
-	
-	"workflows": [
-	  {
-		"binding": "SCRAPE_WORKFLOW",
-		"name": "SCRAPE_WORKFLOW",
-		"class_name": "ScrapeWorkflow"
-	  }
-	],
-	
-	"observability": { "enabled": true }
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gallery-agents",
+  "main": "src/server.ts",
+  "compatibility_date": "2025-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "ai": {
+    "binding": "AI",
+    "remote": true
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CoordinatorAgent",
+        "class_name": "CoordinatorAgent"
+      },
+      {
+        "name": "GalleryAgent",
+        "class_name": "GalleryAgent"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["CoordinatorAgent", "GalleryAgent"]
+    }
+  ],
+  "workflows": [
+    {
+      "binding": "SCRAPE_WORKFLOW",
+      "name": "SCRAPE_WORKFLOW",
+      "class_name": "ScrapeWorkflow"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "gallery-db",
+      "database_id": "6071db0b-b4a2-4298-82f2-4257e204ec1c"
+    }
+  ],
+  "vectorize": [
+    {
+      "binding": "VECTORIZE_EVENTS",
+      "index_name": "gallery-events",
+      "remote": true
+    },
+    {
+      "binding": "VECTORIZE_GALLERIES",
+      "index_name": "gallery-list",
+      "remote": true
+    },
+    {
+      "binding": "VECTORIZE_ARTISTS",
+      "index_name": "gallery-artists",
+      "remote": true
+    }
+  ],
+  "observability": {
+    "enabled": true
   }
+}

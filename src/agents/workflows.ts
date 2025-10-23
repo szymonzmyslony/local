@@ -1,264 +1,542 @@
-import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
+import {
+  WorkflowEntrypoint,
+  type WorkflowEvent,
+  type WorkflowStep
+} from "cloudflare:workers";
 import { getAgentByName } from "agents";
-import Cloudflare from "cloudflare";
-import { generateObject } from "ai";
-import { openai } from "@ai-sdk/openai";
-import { z } from "zod";
-import { PageClassificationSchema, GallerySchema, EventSchema, type PageClassification, type Gallery, type Event } from "../schema";
+import Firecrawl from "@mendable/firecrawl-js";
+import type { Gallery } from "../schema";
+import { extractGalleryData, calculateDefaultEnd } from "../utils/extraction";
+import {
+  upsertGallery,
+  insertScrapedPages,
+  upsertArtists,
+  insertEvents,
+  linkEventsToArtists
+} from "../utils/db";
+import { embedEvents, embedGallery, embedArtists } from "../utils/embeddings";
+import {
+  insertEventEmbeddings,
+  insertGalleryEmbedding,
+  insertArtistEmbeddings
+} from "../utils/vectorize";
 
-type CorrectScrapeResponseItem = {
-    selector: string;
-    results: Array<{
-        html: string;
-        text: string;
-        attributes: Array<{ name: string; value: string }>;
-        height: number;
-        width: number;
-        top: number;
-        left: number;
-    }>;
-};
-
-type CorrectScrapeResponse = CorrectScrapeResponseItem[];
+// Scraping configuration constants
+const SCRAPE_CONFIG = {
+  MAX_PAGES: 5,
+  MAX_DISCOVERY_DEPTH: 2,
+  WAIT_FOR_DYNAMIC_MS: 1000,
+  POLL_INTERVAL_SEC: 3,
+  TIMEOUT_SEC: 180,
+  WORKFLOW_STEP_TIMEOUT_MS: 600000 // 10 minutes for workflow steps
+} as const;
 
 export interface ScrapeParams {
-    galleryId: string;
-    url: string;
-    maxDepth?: number;
-    concurrency?: number;
-}
-
-interface CrawledPage {
-    url: string;
-    depth: number;
-    links: string[];
-}
-
-interface ClassifiedPage extends CrawledPage {
-    classification: PageClassification;
-    content: string;
+  galleryId: string;
+  url: string;
+  maxPages?: number;
 }
 
 export class ScrapeWorkflow extends WorkflowEntrypoint<Env> {
-    private client: Cloudflare;
+  private firecrawl: Firecrawl;
 
-    constructor(ctx: ExecutionContext, env: Env) {
-        super(ctx, env);
-        this.client = new Cloudflare();
-    }
+  constructor(ctx: ExecutionContext, env: Env) {
+    super(ctx, env);
+    this.firecrawl = new Firecrawl({ apiKey: env.FIRECRAWL_API_KEY });
+  }
 
-    async run(event: WorkflowEvent<ScrapeParams>, step: WorkflowStep) {
-        const { galleryId, url, maxDepth = 2, concurrency = 50 } = event.payload;
+  async run(event: WorkflowEvent<ScrapeParams>, step: WorkflowStep) {
+    const {
+      galleryId,
+      url,
+      maxPages = SCRAPE_CONFIG.MAX_PAGES
+    } = event.payload;
+    const currentDate = new Date().toISOString();
+    const workflowStartTime = Date.now();
 
-        console.log(`[ScrapeWorkflow:${event.instanceId}] Starting scrape for gallery: ${galleryId}`);
-        console.log(`[ScrapeWorkflow:${event.instanceId}] URL: ${url}, maxDepth: ${maxDepth}, concurrency: ${concurrency}`);
+    console.log(`[WORKFLOW START] Gallery: ${galleryId}, URL: ${url}, MaxPages: ${maxPages}`);
 
-        const crawlResults = await step.do("crawl-links", async () => {
-            console.log(`[ScrapeWorkflow:${event.instanceId}] Step 1: Crawling links...`);
-            const results = await this.crawlRecursive(url, maxDepth, concurrency);
-            console.log(`[ScrapeWorkflow:${event.instanceId}] Found ${results.size} unique URLs`);
-            return results;
+    // ========================================
+    // STEP 1: Crawl website (Firecrawl only)
+    // ========================================
+    const crawledPages = await step.do(
+      "crawl-website",
+      { timeout: SCRAPE_CONFIG.WORKFLOW_STEP_TIMEOUT_MS },
+      async () => {
+        const stepStart = Date.now();
+        console.log(
+          `[Step 1 - START] Crawling ${url} (max ${maxPages} pages, depth ${SCRAPE_CONFIG.MAX_DISCOVERY_DEPTH})`
+        );
+
+        const crawlResult = await this.firecrawl.crawl(url, {
+          maxDiscoveryDepth: SCRAPE_CONFIG.MAX_DISCOVERY_DEPTH,
+          limit: maxPages,
+          scrapeOptions: {
+            formats: ["markdown"],
+            onlyMainContent: false,
+            waitFor: SCRAPE_CONFIG.WAIT_FOR_DYNAMIC_MS
+          },
+          pollInterval: SCRAPE_CONFIG.POLL_INTERVAL_SEC,
+          timeout: SCRAPE_CONFIG.TIMEOUT_SEC
         });
 
-        const classified = await step.do("classify-pages", async () => {
-            console.log(`[ScrapeWorkflow:${event.instanceId}] Step 2: Classifying ${crawlResults.size} pages...`);
-            const results = await this.classifyPages(crawlResults, concurrency);
-            const eventPages = Array.from(results.values()).filter(r => r.classification === 'event').length;
-            const generalPages = Array.from(results.values()).filter(r => r.classification === 'general').length;
-            const otherPages = Array.from(results.values()).filter(r => r.classification === 'other').length;
-            console.log(`[ScrapeWorkflow:${event.instanceId}] Classification: ${eventPages} event, ${generalPages} general, ${otherPages} other`);
-            return results;
-        });
+        const rawPageCount = crawlResult.data?.length || 0;
+        console.log(`[Step 1] Firecrawl returned ${rawPageCount} pages`);
 
-        const extracted = await step.do("extract-data", async () => {
-            console.log(`[ScrapeWorkflow:${event.instanceId}] Step 3: Extracting structured data...`);
-            const results = await this.extractGalleryData(classified);
-            console.log(`[ScrapeWorkflow:${event.instanceId}] Extracted gallery:`, JSON.stringify(results.gallery, null, 2));
-            console.log(`[ScrapeWorkflow:${event.instanceId}] Extracted ${results.events.length} events`);
-            results.events.forEach((event, i) => {
-                console.log(`[ScrapeWorkflow:] Event ${i + 1}:`, JSON.stringify(event, null, 2));
-            });
-            return results;
-        });
+        // Structure crawled data
+        const pages = (crawlResult.data || [])
+          .filter((doc) => doc.metadata?.url)
+          .map((doc) => {
+            const pageUrl = doc.metadata!.url!;
+            const metadata = doc.metadata!;
+            const imageValue = metadata.ogImage || metadata.image;
+            const imageString =
+              typeof imageValue === "string" ? imageValue : "";
 
-        await step.do("update-agent", async () => {
-            console.log(`[ScrapeWorkflow:${event.instanceId}] Step 4: Updating agent state...`);
-            const galleryAgent = await getAgentByName(this.env.GalleryAgent, galleryId);
-            await galleryAgent.updateScrapingResult({
-                gallery: extracted.gallery,
-                events: extracted.events,
-                timestamp: Date.now()
-            });
-            console.log(`[ScrapeWorkflow:${event.instanceId}] Agent state updated`);
-        });
+            return {
+              id: `${galleryId}:${Buffer.from(pageUrl).toString("base64").substring(0, 16)}`,
+              url: pageUrl,
+              markdown: doc.markdown || "",
+              metadata: {
+                title: metadata.title || "",
+                description: metadata.description || "",
+                image: imageString,
+                language: metadata.language || "",
+                statusCode: metadata.statusCode || 200
+              }
+            };
+          });
 
-        console.log(`[ScrapeWorkflow:${event.instanceId}] Workflow completed successfully`);
+        const totalMarkdownChars = pages.reduce(
+          (sum, p) => sum + p.markdown.length,
+          0
+        );
+        console.log(
+          `[Step 1] Structured ${pages.length} pages, ${totalMarkdownChars} chars total`
+        );
+        console.log(
+          `[Step 1] Sample URLs:`,
+          pages.slice(0, 3).map((p) => p.url)
+        );
+        console.log(`[Step 1 - DONE] ${Date.now() - stepStart}ms`);
 
-        return {
-            galleryId,
-            url,
-            ok: true,
-            gallery: extracted.gallery,
-            events: extracted.events,
-            pagesScraped: crawlResults.size,
-            completedAt: Date.now()
+        return pages;
+      }
+    );
+
+    // ========================================
+    // STEP 2: Save scraped pages (D1 only, idempotent)
+    // ========================================
+    await step.do(
+      "save-scraped-pages",
+      { timeout: SCRAPE_CONFIG.WORKFLOW_STEP_TIMEOUT_MS },
+      async () => {
+        const stepStart = Date.now();
+        console.log(
+          `[Step 2 - START] Saving ${crawledPages.length} pages to D1 (INSERT OR REPLACE)`
+        );
+        console.log(
+          `[Step 2] Page IDs:`,
+          crawledPages.slice(0, 3).map((p) => p.id)
+        );
+
+        try {
+          console.log(`[Step 2] Calling insertScrapedPages...`);
+
+          await insertScrapedPages(this.env.DB, galleryId, crawledPages);
+
+          console.log(
+            `[Step 2 - DONE] ✅ D1: Saved ${crawledPages.length} scraped_pages - ${Date.now() - stepStart}ms`
+          );
+        } catch (error) {
+          console.error(`[Step 2 ERROR]`, error);
+          console.error(
+            `[Step 2 ERROR] Error name: ${(error as Error)?.name}`
+          );
+          console.error(
+            `[Step 2 ERROR] Error message: ${(error as Error)?.message}`
+          );
+          console.error(
+            `[Step 2 ERROR] Error stack:`,
+            (error as Error)?.stack
+          );
+          throw error; // Re-throw to trigger retry
+        }
+      }
+    );
+
+    // ========================================
+    // STEP 3: Extract data (OpenAI only)
+    // ========================================
+    const extracted = await step.do(
+      "extract-data",
+      { timeout: SCRAPE_CONFIG.WORKFLOW_STEP_TIMEOUT_MS },
+      async () => {
+        const stepStart = Date.now();
+        const totalChars = crawledPages.reduce(
+          (sum, p) => sum + p.markdown.length,
+          0
+        );
+        console.log(
+          `[Step 3 - START] Extracting via OpenAI from ${crawledPages.length} pages (${totalChars} chars)`
+        );
+        console.log(`[Step 3] Current date filter: ${currentDate}`);
+
+        const data = await extractGalleryData(crawledPages, currentDate);
+
+        console.log(
+          `[Step 3] ✅ LLM Response: gallery="${data.gallery.name}", ${data.events.length} events, ${data.artists.length} artists`
+        );
+        console.log(
+          `[Step 3] Event titles:`,
+          data.events.slice(0, 3).map((e) => e.title)
+        );
+        console.log(
+          `[Step 3] Artist names:`,
+          data.artists.slice(0, 5).map((a) => a.name)
+        );
+        console.log(`[Step 3 - DONE] ${Date.now() - stepStart}ms`);
+
+        return data;
+      }
+    );
+
+    // ========================================
+    // STEP 4: Upsert gallery (D1 only, idempotent)
+    // ========================================
+    const gallery = await step.do(
+      "upsert-gallery",
+      { timeout: SCRAPE_CONFIG.WORKFLOW_STEP_TIMEOUT_MS },
+      async () => {
+        const stepStart = Date.now();
+        console.log(
+          `[Step 4 - START] Upserting gallery "${extracted.gallery.name}" to D1`
+        );
+
+        const now = Date.now();
+        const gallery: Gallery = {
+          id: galleryId,
+          name: extracted.gallery.name,
+          website: extracted.gallery.website,
+          galleryType: extracted.gallery.galleryType ?? null,
+          city: extracted.gallery.city,
+          neighborhood: extracted.gallery.neighborhood ?? null,
+          tz: extracted.gallery.tz,
+          createdAt: now,
+          updatedAt: now
         };
-    }
 
-    async crawlRecursive(startUrl: string, maxDepth: number, concurrency: number): Promise<Map<string, CrawledPage>> {
-        const visited = new Set<string>();
-        const results = new Map<string, CrawledPage>();
-        const queue = [{ url: startUrl, depth: 0 }];
+        console.log(
+          `[Step 4] Gallery data: ${gallery.name} (${gallery.city}), type: ${gallery.galleryType}`
+        );
+        await upsertGallery(this.env.DB, galleryId, gallery);
 
-        console.log(`[Crawl] Starting from: ${startUrl}`);
+        console.log(
+          `[Step 4 - DONE] ✅ D1: Upserted gallery "${gallery.name}" - ${Date.now() - stepStart}ms`
+        );
+        return gallery;
+      }
+    );
 
-        while (queue.length > 0) {
-            const batch = queue.splice(0, concurrency);
-            console.log(`[Crawl] Processing batch of ${batch.length} URLs, ${queue.length} remaining in queue`);
+    // ========================================
+    // STEP 5: Upsert artists (D1 only, idempotent)
+    // ========================================
+    const artistMap = await step.do(
+      "upsert-artists",
+      { timeout: SCRAPE_CONFIG.WORKFLOW_STEP_TIMEOUT_MS },
+      async () => {
+        const stepStart = Date.now();
+        console.log(
+          `[Step 5 - START] Upserting ${extracted.artists.length} artists to D1`
+        );
+        console.log(
+          `[Step 5] Artist names:`,
+          extracted.artists.slice(0, 5).map((a) => a.name)
+        );
 
-            await Promise.all(batch.map(async ({ url, depth }) => {
-                if (visited.has(url)) return;
-                visited.add(url);
+        const artistMap = await upsertArtists(this.env.DB, extracted.artists);
 
-                console.log(`[Crawl] Depth ${depth}: Fetching links from ${url}`);
+        const sampleIds = Array.from(artistMap.entries()).slice(0, 3);
+        console.log(
+          `[Step 5] Generated IDs:`,
+          sampleIds.map(([name, id]) => `${name}→${id}`)
+        );
+        console.log(
+          `[Step 5 - DONE] ✅ D1: Upserted ${artistMap.size} artists - ${Date.now() - stepStart}ms`
+        );
 
-                const links = await this.client.browserRendering.links.create({
-                    account_id: this.env.CLOUDFLARE_ACCOUNT_ID,
-                    url: url,
-                    excludeExternalLinks: true,
-                    visibleLinksOnly: true
-                });
+        return artistMap;
+      }
+    );
 
-                console.log(`[Crawl] Found ${links.length} links at ${url}`);
+    // ========================================
+    // STEP 6: Insert events (D1 only, idempotent)
+    // ========================================
+    const eventMap = await step.do(
+      "insert-events",
+      { timeout: SCRAPE_CONFIG.WORKFLOW_STEP_TIMEOUT_MS },
+      async () => {
+        const stepStart = Date.now();
+        console.log(
+          `[Step 6 - START] Inserting ${extracted.events.length} events to D1`
+        );
+        console.log(
+          `[Step 6] Event date range:`,
+          extracted.events.length > 0
+            ? `${extracted.events[0].start} to ${extracted.events[extracted.events.length - 1].start}`
+            : "none"
+        );
 
-                results.set(url, { url, depth, links });
+        try {
+          console.log(`[Step 6] Calling insertEvents...`);
+          console.log(`[Step 6] Sample event:`, extracted.events[0]);
 
-                if (depth < maxDepth) {
-                    for (const link of links) {
-                        if (!visited.has(link)) {
-                            queue.push({ url: link, depth: depth + 1 });
-                        }
-                    }
-                }
-            }));
+          const eventMap = await insertEvents(
+            this.env.DB,
+            extracted.events,
+            galleryId
+          );
+
+          const sampleIds = Array.from(eventMap.entries()).slice(0, 3);
+          console.log(
+            `[Step 6] Generated event IDs:`,
+            sampleIds.map(([key, id]) => `${key.substring(0, 30)}...→${id}`)
+          );
+          console.log(
+            `[Step 6 - DONE] ✅ D1: Inserted ${eventMap.size} events - ${Date.now() - stepStart}ms`
+          );
+
+          return eventMap;
+        } catch (error) {
+          console.error(`[Step 6 ERROR]`, error);
+          console.error(
+            `[Step 6 ERROR] Error name: ${(error as Error)?.name}`
+          );
+          console.error(
+            `[Step 6 ERROR] Error message: ${(error as Error)?.message}`
+          );
+          console.error(
+            `[Step 6 ERROR] Error stack:`,
+            (error as Error)?.stack
+          );
+          console.error(
+            `[Step 6 ERROR] Gallery ID: ${galleryId}`
+          );
+          console.error(
+            `[Step 6 ERROR] Event count: ${extracted.events.length}`
+          );
+          console.error(
+            `[Step 6 ERROR] First event:`,
+            extracted.events[0]
+          );
+          throw error;
+        }
+      }
+    );
+
+    // ========================================
+    // STEP 7: Link events to artists (D1 only, idempotent)
+    // ========================================
+    await step.do(
+      "link-events-to-artists",
+      { timeout: SCRAPE_CONFIG.WORKFLOW_STEP_TIMEOUT_MS },
+      async () => {
+        const stepStart = Date.now();
+        const totalLinks = extracted.events.reduce(
+          (sum, e) => sum + e.artistNames.length,
+          0
+        );
+        console.log(
+          `[Step 7 - START] Linking ${extracted.events.length} events to artists (${totalLinks} relationships)`
+        );
+
+        await linkEventsToArtists(
+          this.env.DB,
+          extracted.events,
+          eventMap,
+          artistMap
+        );
+
+        console.log(
+          `[Step 7 - DONE] ✅ D1: Created ${totalLinks} event_artists relationships - ${Date.now() - stepStart}ms`
+        );
+      }
+    );
+
+    // ========================================
+    // STEP 8: Embed and save gallery (OpenAI + Vectorize, idempotent)
+    // ========================================
+    await step.do(
+      "embed-and-save-gallery",
+      { timeout: SCRAPE_CONFIG.WORKFLOW_STEP_TIMEOUT_MS },
+      async () => {
+        const stepStart = Date.now();
+        console.log(
+          `[Step 8 - START] Embedding gallery "${gallery.name}" via OpenAI`
+        );
+
+        const galleryEmbedding = await embedGallery(gallery);
+        console.log(
+          `[Step 8] Generated embedding: ${galleryEmbedding.length} dimensions`
+        );
+
+        await insertGalleryEmbedding(
+          this.env.VECTORIZE_GALLERIES,
+          galleryId,
+          gallery,
+          galleryEmbedding
+        );
+
+        console.log(
+          `[Step 8 - DONE] ✅ Vectorize: Upserted gallery embedding - ${Date.now() - stepStart}ms`
+        );
+      }
+    );
+
+    // ========================================
+    // STEP 9: Embed and save events (OpenAI + Vectorize, idempotent)
+    // ========================================
+    await step.do(
+      "embed-and-save-events",
+      { timeout: SCRAPE_CONFIG.WORKFLOW_STEP_TIMEOUT_MS },
+      async () => {
+        if (extracted.events.length === 0) {
+          console.log(`[Step 9] No events to embed, skipping`);
+          return;
         }
 
-        console.log(`[Crawl] Completed: ${results.size} total URLs discovered`);
-        return results;
-    }
+        const stepStart = Date.now();
+        console.log(
+          `[Step 9 - START] Embedding ${extracted.events.length} events via OpenAI`
+        );
 
-    async classifyPages(crawlResults: Map<string, CrawledPage>, concurrency: number): Promise<Map<string, ClassifiedPage>> {
-        const urls = Array.from(crawlResults.keys());
-        const classified = new Map<string, ClassifiedPage>();
-        console.log(`[Classify] Starting classification for ${urls.length} pages`);
+        const now = Date.now();
+        const events = extracted.events.map((event) => ({
+          ...event,
+          id: eventMap.get(`${event.title}:${event.start}`)!,
+          galleryId,
+          end: event.end || calculateDefaultEnd(event.start, event.eventType),
+          price: event.price ?? 0,
+          createdAt: now,
+          updatedAt: now
+        }));
 
-        for (let i = 0; i < urls.length; i += concurrency) {
-            const chunk = urls.slice(i, i + concurrency);
-            console.log(`[Classify] Processing batch ${Math.floor(i / concurrency) + 1}/${Math.ceil(urls.length / concurrency)} (${chunk.length} pages)`);
+        console.log(
+          `[Step 9] Event IDs being embedded:`,
+          events.slice(0, 3).map((e) => e.id)
+        );
 
-            await Promise.all(chunk.map(async (url) => {
-                const crawled = crawlResults.get(url)!;
+        const eventEmbeddings = await embedEvents(events);
+        console.log(
+          `[Step 9] Generated ${eventEmbeddings.length} embeddings (${eventEmbeddings[0]?.length || 0} dims each)`
+        );
 
-                console.log(`[Classify] Scraping content for: ${url}`);
-                const scraped = await this.client.browserRendering.scrape.create({
-                    account_id: this.env.CLOUDFLARE_ACCOUNT_ID,
-                    url: url,
-                    elements: [
-                        { selector: 'main' },
-                        { selector: 'article' },
-                        { selector: 'section' },
-                        { selector: 'nav' },
-                        { selector: 'h1, h2, h3' },
-                        { selector: 'time, [datetime]' },
-                        { selector: '[class*="event"]' },
-                        { selector: '[class*="exhibition"]' },
-                        { selector: '[class*="show"]' },
-                        { selector: '[class*="gallery"]' }
-                    ]
-                }) as unknown as CorrectScrapeResponse;
+        await insertEventEmbeddings(
+          this.env.VECTORIZE_EVENTS,
+          events,
+          eventEmbeddings,
+          gallery
+        );
 
-                const content = scraped
-                    .flatMap(item => item.results)
-                    .map(r => r.html || r.text)
-                    .join('\n\n');
+        console.log(
+          `[Step 9 - DONE] ✅ Vectorize: Upserted ${events.length} event embeddings - ${Date.now() - stepStart}ms`
+        );
+      }
+    );
 
-                console.log(`[Classify] Content scraped (${content.length} chars), classifying...`);
-                const { object } = await generateObject({
-                    model: openai('gpt-5'),
-                    schema: PageClassificationSchema,
-                    prompt: `Classify this webpage content from a gallery website.
-
-URL: ${url}
-Content preview: ${content.substring(0, 2000)}
-
-Classify as:
-- "event": Pages about specific exhibitions, openings, receptions, talks, or workshops
-- "general": General gallery information (about, contact, artists, etc.)
-- "other": Anything else (press, shop, etc.)`,
-                });
-
-                console.log(`[Classify] ${url} -> ${object.classification}`);
-
-                classified.set(url, {
-                    ...crawled,
-                    classification: object.classification,
-                    content
-                });
-            }));
+    // ========================================
+    // STEP 10: Embed and save artists (OpenAI + Vectorize, idempotent)
+    // ========================================
+    await step.do(
+      "embed-and-save-artists",
+      { timeout: SCRAPE_CONFIG.WORKFLOW_STEP_TIMEOUT_MS },
+      async () => {
+        if (extracted.artists.length === 0) {
+          console.log(`[Step 10] No artists to embed, skipping`);
+          return;
         }
 
-        console.log(`[Classify] Classification complete`);
-        return classified;
-    }
+        const stepStart = Date.now();
+        console.log(
+          `[Step 10 - START] Embedding ${extracted.artists.length} artists via OpenAI`
+        );
 
-    async extractGalleryData(classified: Map<string, ClassifiedPage>): Promise<{
-        gallery: Gallery;
-        events: Event[];
-    }> {
-        const generalPages = Array.from(classified.values())
-            .filter(r => r.classification === 'general')
-            .sort((a, b) => a.depth - b.depth);
+        const now = Date.now();
+        const artists = extracted.artists.map((artist) => ({
+          id: artistMap.get(artist.name)!,
+          name: artist.name,
+          bio: artist.bio ?? null,
+          website: artist.website ?? null,
+          createdAt: now,
+          updatedAt: now
+        }));
 
-        console.log(`[Extract] Found ${generalPages.length} general pages for gallery info extraction`);
+        console.log(
+          `[Step 10] Artist IDs:`,
+          artists.slice(0, 3).map((a) => `${a.name}→${a.id}`)
+        );
 
-        const concatenatedContent = generalPages
-            .map(page => `=== ${page.url} ===\n${page.content.substring(0, 10000)}`)
-            .join('\n\n');
+        const artistEmbeddings = await embedArtists(artists);
+        console.log(
+          `[Step 10] Generated ${artistEmbeddings.length} embeddings (${artistEmbeddings[0]?.length || 0} dims each)`
+        );
 
-        console.log(`[Extract] Extracting gallery info from ${generalPages.length} general pages (total content: ${concatenatedContent.length} chars)`);
-        const galleryStartTime = Date.now();
-        const { object: gallery } = await generateObject({
-            model: openai('gpt-5'),
-            schema: GallerySchema,
-            prompt: `Extract gallery information from these gallery pages:\n\n${concatenatedContent}`
+        await insertArtistEmbeddings(
+          this.env.VECTORIZE_ARTISTS,
+          artists,
+          artistEmbeddings
+        );
+
+        console.log(
+          `[Step 10 - DONE] ✅ Vectorize: Upserted ${artists.length} artist embeddings - ${Date.now() - stepStart}ms`
+        );
+      }
+    );
+
+    // ========================================
+    // STEP 11: Update agent state (Durable Object only)
+    // ========================================
+    await step.do(
+      "update-agent-state",
+      { timeout: SCRAPE_CONFIG.WORKFLOW_STEP_TIMEOUT_MS },
+      async () => {
+        const stepStart = Date.now();
+        console.log(`[Step 11 - START] Updating GalleryAgent state`);
+
+        const galleryAgent = await getAgentByName(
+          this.env.GalleryAgent,
+          galleryId
+        );
+        await galleryAgent.updateScrapingResult({
+          success: true,
+          timestamp: Date.now()
         });
-        const galleryDuration = Date.now() - galleryStartTime;
-        console.log(`[Extract] Gallery extracted: ${gallery.name || 'unnamed'} (took ${galleryDuration}ms)`);
 
-        const eventPages = Array.from(classified.values())
-            .filter(r => r.classification === 'event');
+        console.log(
+          `[Step 11 - DONE] ✅ Agent: Updated scraping status - ${Date.now() - stepStart}ms`
+        );
+      }
+    );
 
-        console.log(`[Extract] Found ${eventPages.length} event pages for event extraction`);
+    const totalTime = Date.now() - workflowStartTime;
+    const result = {
+      galleryId,
+      url,
+      ok: true,
+      gallery: gallery,
+      eventsCount: extracted.events.length,
+      artistsCount: extracted.artists.length,
+      pagesScraped: crawledPages.length,
+      completedAt: Date.now()
+    };
 
-        const events: Event[] = [];
-        for (const page of eventPages) {
-            const contentLength = page.content.length;
-            const truncatedLength = Math.min(contentLength, 50000);
-            console.log(`[Extract] Extracting events from: ${page.url} (content: ${contentLength} chars, using: ${truncatedLength} chars)`);
+    console.log(
+      `[WORKFLOW END] ✅ Completed in ${totalTime}ms (${(totalTime / 1000).toFixed(2)}s)`
+    );
+    console.log(
+      `[WORKFLOW SUMMARY] ${crawledPages.length} pages → ${extracted.events.length} events, ${extracted.artists.length} artists`
+    );
 
-            const startTime = Date.now();
-            const { object } = await generateObject({
-                model: openai('gpt-5'),
-                schema: z.object({ events: z.array(EventSchema) }),
-                prompt: `Extract all events from this gallery page content. Include exhibitions, openings, receptions, talks, and workshops:\n\n${page.content.substring(0, 50000)}`
-            });
-            const duration = Date.now() - startTime;
-
-            console.log(`[Extract] Extracted ${object.events.length} events from ${page.url} (took ${duration}ms)`);
-            events.push(...object.events);
-        }
-
-        console.log(`[Extract] Total events extracted: ${events.length}`);
-        return { gallery, events };
-    }
+    return result;
+  }
 }

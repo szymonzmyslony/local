@@ -5,10 +5,10 @@ import { cloudflare } from "@cloudflare/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
-    plugins: [cloudflare(), react(), tailwindcss()],
-    resolve: {
-        alias: {
-            "@": path.resolve(__dirname, "./src")
-        }
+  plugins: [cloudflare(), react(), tailwindcss()],
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src")
     }
+  }
 });
