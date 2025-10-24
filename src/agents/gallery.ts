@@ -1,5 +1,6 @@
 import { Agent } from "agents";
 import { getEventsByGallery, getScrapedPagesByGallery } from "../utils/db";
+import type { ScrapedPage, Event } from "@/schema";
 
 type GalleryState = {
   url: string;
@@ -23,35 +24,18 @@ export class GalleryAgent extends Agent<Env, GalleryState> {
     const url = new URL(request.url);
 
     if (request.method === "GET") {
-      // Check workflow status if requested
       if (url.searchParams.has("workflow") && this.state.workflowId) {
         try {
-          const instance = await this.env.SCRAPE_WORKFLOW.get(
-            this.state.workflowId
-          );
+          const instance = await this.env.SCRAPE_WORKFLOW.get(this.state.workflowId);
           const status = await instance.status();
-          return Response.json({
-            ok: true,
-            workflowId: this.state.workflowId,
-            status: status
-          });
+          return Response.json({ ok: true, workflowId: this.state.workflowId, status });
         } catch (error) {
-          return Response.json(
-            {
-              ok: false,
-              error: `Failed to get workflow status: ${error}`
-            },
-            { status: 500 }
-          );
+          return Response.json({ ok: false, error: `Failed to get workflow status: ${error}` }, { status: 500 });
         }
       }
 
-      // Return agent state + query D1 for current data
-      const events = await getEventsByGallery(this.env.DB, this.name);
-      const scrapedPages = await getScrapedPagesByGallery(
-        this.env.DB,
-        this.name
-      );
+      const events = await getEventsByGallery(this.env, this.name);
+      const scrapedPages = await getScrapedPagesByGallery(this.env, this.name);
 
       return Response.json({
         ok: true,
@@ -71,69 +55,28 @@ export class GalleryAgent extends Agent<Env, GalleryState> {
   }
 
   async startScraping(url: string, forceRefresh: boolean = false) {
-    const cacheThreshold = 3600000; // 1 hour
-
-    if (
-      !forceRefresh &&
-      this.state.lastSuccessfulScrape &&
-      Date.now() - this.state.lastSuccessfulScrape < cacheThreshold
-    ) {
-      console.log(`[Gallery:${this.name}] Returning cached results`);
-      return {
-        ok: true,
-        cached: true,
-        lastScraped: this.state.lastSuccessfulScrape
-      };
+    const cacheThreshold = 60 * 60 * 1000; // 1 hour
+    if (!forceRefresh && this.state.lastSuccessfulScrape && Date.now() - this.state.lastSuccessfulScrape < cacheThreshold) {
+      return { ok: true, cached: true, lastScraped: this.state.lastSuccessfulScrape };
     }
 
-    console.log(`[Gallery:${this.name}] Creating workflow for ${url}`);
     const instance = await this.env.SCRAPE_WORKFLOW.create({
       id: `${this.name}-${Date.now()}`,
-      params: {
-        galleryId: this.name,
-        url
-      }
+      params: { galleryId: this.name, url }
     });
 
-    this.setState({
-      ...this.state,
-      url,
-      workflowId: instance.id,
-      lastScraped: Date.now(),
-      status: "scraping"
-    });
-
-    console.log(`[Gallery:${this.name}] Workflow created: ${instance.id}`);
-    return {
-      ok: true,
-      cached: false,
-      workflowId: instance.id,
-      message: "Scraping workflow started"
-    };
+    this.setState({ ...this.state, url, workflowId: instance.id, lastScraped: Date.now(), status: "scraping" });
+    return { ok: true, cached: false, workflowId: instance.id, message: "Scraping workflow started" };
   }
 
   async updateScrapingResult(result: { success: boolean; timestamp: number }) {
-    this.setState({
-      ...this.state,
-      lastSuccessfulScrape: result.timestamp,
-      status: result.success ? "idle" : "failed"
-    });
-
+    this.setState({ ...this.state, lastSuccessfulScrape: result.timestamp, status: result.success ? "idle" : "failed" });
     return { ok: true };
   }
 
-  async getResults() {
-    // Query D1 for fresh data
-    const events = await getEventsByGallery(this.env.DB, this.name);
-    const scrapedPages = await getScrapedPagesByGallery(this.env.DB, this.name);
-
-    return {
-      ok: true,
-      galleryId: this.name,
-      events,
-      scrapedPages,
-      lastScraped: this.state.lastSuccessfulScrape,
-      url: this.state.url
-    };
+  async getResults(): Promise<{ ok: boolean; galleryId: string; events: Event[]; scrapedPages: ScrapedPage[]; lastScraped: number; url: string }> {
+    const events = await getEventsByGallery(this.env, this.name);
+    const scrapedPages = await getScrapedPagesByGallery(this.env, this.name);
+    return { ok: true, galleryId: this.name, events, scrapedPages, lastScraped: this.state.lastSuccessfulScrape, url: this.state.url };
   }
 }

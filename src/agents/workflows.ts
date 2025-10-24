@@ -5,30 +5,38 @@ import {
 } from "cloudflare:workers";
 import { getAgentByName } from "agents";
 import Firecrawl from "@mendable/firecrawl-js";
-import type { Gallery } from "../schema";
-import { extractGalleryData, calculateDefaultEnd } from "../utils/extraction";
+import type { Event } from "../schema";
+import {
+  classifyPages,
+  extractGalleryInfoOnly,
+  extractArtistsOnly,
+  extractEventsOnly
+} from "../utils/extraction";
 import {
   upsertGallery,
   insertScrapedPages,
+  updatePageClassifications,
+  getPagesByClassification,
   upsertArtists,
   insertEvents,
   linkEventsToArtists
 } from "../utils/db";
-import { embedEvents, embedGallery, embedArtists } from "../utils/embeddings";
 import {
-  insertEventEmbeddings,
-  insertGalleryEmbedding,
-  insertArtistEmbeddings
-} from "../utils/vectorize";
+  embedEvents,
+  embedGallery,
+  embedArtists
+} from "../utils/embeddings";
+import { createSupabaseClient } from "../utils/supabase";
+import { getEventsByGallery, getArtistsByEvent } from "../utils/db";
+import type { Database } from "../types/database_types";
 
-// Scraping configuration constants
 const SCRAPE_CONFIG = {
   MAX_PAGES: 5,
   MAX_DISCOVERY_DEPTH: 2,
-  WAIT_FOR_DYNAMIC_MS: 1000,
+  WAIT_FOR_DYNAMIC_MS: 1500,
   POLL_INTERVAL_SEC: 3,
   TIMEOUT_SEC: 180,
-  WORKFLOW_STEP_TIMEOUT_MS: 600000 // 10 minutes for workflow steps
+  STEP_TIMEOUT_MS: 600_000
 } as const;
 
 export interface ScrapeParams {
@@ -46,497 +54,421 @@ export class ScrapeWorkflow extends WorkflowEntrypoint<Env> {
   }
 
   async run(event: WorkflowEvent<ScrapeParams>, step: WorkflowStep) {
-    const {
-      galleryId,
-      url,
-      maxPages = SCRAPE_CONFIG.MAX_PAGES
-    } = event.payload;
-    const currentDate = new Date().toISOString();
-    const workflowStartTime = Date.now();
+    const { galleryId, url, maxPages = SCRAPE_CONFIG.MAX_PAGES } = event.payload;
+    const nowTimestamp = Math.floor(Date.now() / 1000);
 
-    console.log(`[WORKFLOW START] Gallery: ${galleryId}, URL: ${url}, MaxPages: ${maxPages}`);
+    // ===== 1) Crawl
+    const crawledPages = await step.do("crawl", { timeout: SCRAPE_CONFIG.STEP_TIMEOUT_MS }, async () => {
+      console.log("[workflow] start:crawl", { galleryId, url, maxPages });
+      const result = await this.firecrawl.crawl(url, {
+        maxDiscoveryDepth: SCRAPE_CONFIG.MAX_DISCOVERY_DEPTH,
+        limit: maxPages,
+        scrapeOptions: { formats: ["markdown"], onlyMainContent: false, waitFor: SCRAPE_CONFIG.WAIT_FOR_DYNAMIC_MS },
+        pollInterval: SCRAPE_CONFIG.POLL_INTERVAL_SEC,
+        timeout: SCRAPE_CONFIG.TIMEOUT_SEC
+      });
 
-    // ========================================
-    // STEP 1: Crawl website (Firecrawl only)
-    // ========================================
-    const crawledPages = await step.do(
-      "crawl-website",
-      { timeout: SCRAPE_CONFIG.WORKFLOW_STEP_TIMEOUT_MS },
-      async () => {
-        const stepStart = Date.now();
-        console.log(
-          `[Step 1 - START] Crawling ${url} (max ${maxPages} pages, depth ${SCRAPE_CONFIG.MAX_DISCOVERY_DEPTH})`
-        );
+      const pages = (result.data || [])
+        .filter((doc): doc is typeof doc & { metadata: NonNullable<typeof doc.metadata> & { url: string } } =>
+          Boolean(doc.metadata?.url)
+        )
+        .map((doc) => {
+          const md = doc.metadata;
+          const pageUrl = md.url;
+          const imageValue = md.ogImage || md.image;
+          const imageString = typeof imageValue === "string" ? imageValue : "";
+          const id = `${galleryId}:${Buffer.from(pageUrl).toString("base64").substring(0, 16)}`;
 
-        const crawlResult = await this.firecrawl.crawl(url, {
-          maxDiscoveryDepth: SCRAPE_CONFIG.MAX_DISCOVERY_DEPTH,
-          limit: maxPages,
-          scrapeOptions: {
-            formats: ["markdown"],
-            onlyMainContent: false,
-            waitFor: SCRAPE_CONFIG.WAIT_FOR_DYNAMIC_MS
-          },
-          pollInterval: SCRAPE_CONFIG.POLL_INTERVAL_SEC,
-          timeout: SCRAPE_CONFIG.TIMEOUT_SEC
+          return {
+            id,
+            url: pageUrl,
+            markdown: doc.markdown || "",
+            metadata: {
+              title: md.title || "",
+              description: md.description || "",
+              image: imageString,
+              language: md.language || "",
+              statusCode: md.statusCode || 200
+            }
+          };
         });
 
-        const rawPageCount = crawlResult.data?.length || 0;
-        console.log(`[Step 1] Firecrawl returned ${rawPageCount} pages`);
+      const totalMarkdownSize = pages.reduce((sum, p) => sum + p.markdown.length, 0);
+      const avgPageSize = pages.length > 0 ? Math.round(totalMarkdownSize / pages.length) : 0;
 
-        // Structure crawled data
-        const pages = (crawlResult.data || [])
-          .filter((doc) => doc.metadata?.url)
-          .map((doc) => {
-            const pageUrl = doc.metadata!.url!;
-            const metadata = doc.metadata!;
-            const imageValue = metadata.ogImage || metadata.image;
-            const imageString =
-              typeof imageValue === "string" ? imageValue : "";
+      console.log("[workflow] end:crawl", {
+        pages: pages.length,
+        totalMarkdownSize,
+        avgPageSize
+      });
+      return pages;
+    });
 
-            return {
-              id: `${galleryId}:${Buffer.from(pageUrl).toString("base64").substring(0, 16)}`,
-              url: pageUrl,
-              markdown: doc.markdown || "",
-              metadata: {
-                title: metadata.title || "",
-                description: metadata.description || "",
-                image: imageString,
-                language: metadata.language || "",
-                statusCode: metadata.statusCode || 200
-              }
-            };
-          });
+    // ===== 2) Persist pages (idempotent)
+    await step.do("save-pages", { timeout: SCRAPE_CONFIG.STEP_TIMEOUT_MS }, async () => {
+      console.log("[workflow] start:save-pages", { galleryId, pages: crawledPages.length });
+      await insertScrapedPages(this.env, galleryId, crawledPages);
+      console.log("[workflow] end:save-pages", { galleryId });
+    });
 
-        const totalMarkdownChars = pages.reduce(
-          (sum, p) => sum + p.markdown.length,
-          0
-        );
-        console.log(
-          `[Step 1] Structured ${pages.length} pages, ${totalMarkdownChars} chars total`
-        );
-        console.log(
-          `[Step 1] Sample URLs:`,
-          pages.slice(0, 3).map((p) => p.url)
-        );
-        console.log(`[Step 1 - DONE] ${Date.now() - stepStart}ms`);
+    // ===== 3) Classify pages by content type
+    const classifiedPages = await step.do("classify-pages", { timeout: SCRAPE_CONFIG.STEP_TIMEOUT_MS }, async () => {
+      console.log("[workflow] start:classify", { pages: crawledPages.length });
+      const currentDate = new Date(nowTimestamp * 1000).toISOString();
+      const classified = await classifyPages(crawledPages, currentDate);
 
-        return pages;
+      const breakdown: Record<string, number> = {};
+      for (const page of classified) {
+        breakdown[page.classification] = (breakdown[page.classification] || 0) + 1;
       }
-    );
 
-    // ========================================
-    // STEP 2: Save scraped pages (D1 only, idempotent)
-    // ========================================
-    await step.do(
-      "save-scraped-pages",
-      { timeout: SCRAPE_CONFIG.WORKFLOW_STEP_TIMEOUT_MS },
-      async () => {
-        const stepStart = Date.now();
-        console.log(
-          `[Step 2 - START] Saving ${crawledPages.length} pages to D1 (INSERT OR REPLACE)`
-        );
-        console.log(
-          `[Step 2] Page IDs:`,
-          crawledPages.slice(0, 3).map((p) => p.id)
-        );
+      console.log("[workflow] end:classify", {
+        total: classified.length,
+        breakdown
+      });
+      return classified;
+    });
 
-        try {
-          console.log(`[Step 2] Calling insertScrapedPages...`);
+    // ===== 4) Save classifications
+    await step.do("save-classifications", { timeout: SCRAPE_CONFIG.STEP_TIMEOUT_MS }, async () => {
+      console.log("[workflow] start:save-classifications", { pages: classifiedPages.length });
+      await updatePageClassifications(
+        this.env,
+        classifiedPages.map(p => ({
+          id: p.id,
+          classification: p.classification as Database["public"]["Enums"]["page_classification"]
+        }))
+      );
+      console.log("[workflow] end:save-classifications");
+    });
 
-          await insertScrapedPages(this.env.DB, galleryId, crawledPages);
+    // ===== 5) Query creator_info pages
+    const creatorInfoPages = await step.do("query-creator-info-pages", { timeout: SCRAPE_CONFIG.STEP_TIMEOUT_MS }, async () => {
+      console.log("[workflow] start:query-creator-info-pages");
+      const pages = await getPagesByClassification(this.env, galleryId, "creator_info");
+      const totalContentSize = pages.reduce((sum, p) => sum + p.markdown.length, 0);
+      console.log("[workflow] end:query-creator-info-pages", {
+        count: pages.length,
+        totalContentSize
+      });
+      return pages;
+    });
 
-          console.log(
-            `[Step 2 - DONE] ✅ D1: Saved ${crawledPages.length} scraped_pages - ${Date.now() - stepStart}ms`
-          );
-        } catch (error) {
-          console.error(`[Step 2 ERROR]`, error);
-          console.error(
-            `[Step 2 ERROR] Error name: ${(error as Error)?.name}`
-          );
-          console.error(
-            `[Step 2 ERROR] Error message: ${(error as Error)?.message}`
-          );
-          console.error(
-            `[Step 2 ERROR] Error stack:`,
-            (error as Error)?.stack
-          );
-          throw error; // Re-throw to trigger retry
-        }
-      }
-    );
+    // ===== 6) Extract gallery info from creator_info pages
+    const galleryInfo = await step.do("extract-gallery-info", { timeout: SCRAPE_CONFIG.STEP_TIMEOUT_MS }, async () => {
+      console.log("[workflow] start:extract-gallery-info", {
+        pagesCount: creatorInfoPages.length
+      });
 
-    // ========================================
-    // STEP 3: Extract data (OpenAI only)
-    // ========================================
-    const extracted = await step.do(
-      "extract-data",
-      { timeout: SCRAPE_CONFIG.WORKFLOW_STEP_TIMEOUT_MS },
-      async () => {
-        const stepStart = Date.now();
-        const totalChars = crawledPages.reduce(
-          (sum, p) => sum + p.markdown.length,
-          0
-        );
-        console.log(
-          `[Step 3 - START] Extracting via OpenAI from ${crawledPages.length} pages (${totalChars} chars)`
-        );
-        console.log(`[Step 3] Current date filter: ${currentDate}`);
-
-        const data = await extractGalleryData(crawledPages, currentDate);
-
-        console.log(
-          `[Step 3] ✅ LLM Response: gallery="${data.gallery.name}", ${data.events.length} events, ${data.artists.length} artists`
-        );
-        console.log(
-          `[Step 3] Event titles:`,
-          data.events.slice(0, 3).map((e) => e.title)
-        );
-        console.log(
-          `[Step 3] Artist names:`,
-          data.artists.slice(0, 5).map((a) => a.name)
-        );
-        console.log(`[Step 3 - DONE] ${Date.now() - stepStart}ms`);
-
-        return data;
-      }
-    );
-
-    // ========================================
-    // STEP 4: Upsert gallery (D1 only, idempotent)
-    // ========================================
-    const gallery = await step.do(
-      "upsert-gallery",
-      { timeout: SCRAPE_CONFIG.WORKFLOW_STEP_TIMEOUT_MS },
-      async () => {
-        const stepStart = Date.now();
-        console.log(
-          `[Step 4 - START] Upserting gallery "${extracted.gallery.name}" to D1`
-        );
-
-        const now = Date.now();
-        const gallery: Gallery = {
-          id: galleryId,
-          name: extracted.gallery.name,
-          website: extracted.gallery.website,
-          galleryType: extracted.gallery.galleryType ?? null,
-          city: extracted.gallery.city,
-          neighborhood: extracted.gallery.neighborhood ?? null,
-          tz: extracted.gallery.tz,
-          createdAt: now,
-          updatedAt: now
+      if (creatorInfoPages.length === 0) {
+        console.log("[workflow] No creator_info pages found, using defaults");
+        return {
+          name: "Unknown Gallery",
+          website: url,
+          galleryType: null,
+          city: "Unknown",
+          neighborhood: null,
+          tz: "Europe/Warsaw"
         };
-
-        console.log(
-          `[Step 4] Gallery data: ${gallery.name} (${gallery.city}), type: ${gallery.galleryType}`
-        );
-        await upsertGallery(this.env.DB, galleryId, gallery);
-
-        console.log(
-          `[Step 4 - DONE] ✅ D1: Upserted gallery "${gallery.name}" - ${Date.now() - stepStart}ms`
-        );
-        return gallery;
       }
-    );
 
-    // ========================================
-    // STEP 5: Upsert artists (D1 only, idempotent)
-    // ========================================
-    const artistMap = await step.do(
-      "upsert-artists",
-      { timeout: SCRAPE_CONFIG.WORKFLOW_STEP_TIMEOUT_MS },
-      async () => {
-        const stepStart = Date.now();
-        console.log(
-          `[Step 5 - START] Upserting ${extracted.artists.length} artists to D1`
-        );
-        console.log(
-          `[Step 5] Artist names:`,
-          extracted.artists.slice(0, 5).map((a) => a.name)
-        );
+      const currentDate = new Date(nowTimestamp * 1000).toISOString();
+      const contentSize = creatorInfoPages.reduce((sum, p) => sum + p.markdown.length, 0);
+      const info = await extractGalleryInfoOnly(creatorInfoPages, currentDate);
+      console.log("[workflow] end:extract-gallery-info", {
+        name: info.name,
+        city: info.city,
+        contentProcessed: contentSize
+      });
+      return info;
+    });
 
-        const artistMap = await upsertArtists(this.env.DB, extracted.artists);
+    // ===== 7) Upsert gallery
+    const gallery = await step.do("upsert-gallery", { timeout: SCRAPE_CONFIG.STEP_TIMEOUT_MS }, async () => {
+      console.log("[workflow] start:upsert-gallery");
+      await upsertGallery(this.env, galleryId, {
+        name: galleryInfo.name,
+        website: galleryInfo.website,
+        gallery_type: galleryInfo.galleryType ?? null,
+        city: galleryInfo.city,
+        neighborhood: galleryInfo.neighborhood ?? null,
+        tz: galleryInfo.tz ?? "Europe/Warsaw"
+      });
 
-        const sampleIds = Array.from(artistMap.entries()).slice(0, 3);
-        console.log(
-          `[Step 5] Generated IDs:`,
-          sampleIds.map(([name, id]) => `${name}→${id}`)
-        );
-        console.log(
-          `[Step 5 - DONE] ✅ D1: Upserted ${artistMap.size} artists - ${Date.now() - stepStart}ms`
-        );
+      const events = await getEventsByGallery(this.env, galleryId);
+      console.log("[workflow] end:upsert-gallery", { eventsCount: events.length });
 
-        return artistMap;
+      // Return a Gallery object
+      return {
+        id: galleryId,
+        name: galleryInfo.name,
+        website: galleryInfo.website,
+        gallery_type: galleryInfo.galleryType ?? null,
+        city: galleryInfo.city,
+        neighborhood: galleryInfo.neighborhood ?? null,
+        tz: galleryInfo.tz ?? "Europe/Warsaw",
+        embedding: null,
+        created_at: Date.now(),
+        updated_at: Date.now()
+      };
+    });
+
+    // ===== 8) Query artist pages
+    const artistPages = await step.do("query-artist-pages", { timeout: SCRAPE_CONFIG.STEP_TIMEOUT_MS }, async () => {
+      console.log("[workflow] start:query-artist-pages");
+      const pages = await getPagesByClassification(this.env, galleryId, "artists");
+      const totalContentSize = pages.reduce((sum, p) => sum + p.markdown.length, 0);
+      console.log("[workflow] end:query-artist-pages", {
+        count: pages.length,
+        totalContentSize
+      });
+      return pages;
+    });
+
+    // ===== 9) Extract artists (AI)
+    const extractedArtists = await step.do("extract-artists-ai", { timeout: SCRAPE_CONFIG.STEP_TIMEOUT_MS }, async () => {
+      console.log("[workflow] start:extract-artists-ai", {
+        pagesCount: artistPages.length
+      });
+      if (artistPages.length === 0) {
+        console.log("[workflow] No artist pages, skipping");
+        return [];
       }
-    );
+      const currentDate = new Date(nowTimestamp * 1000).toISOString();
+      const contentSize = artistPages.reduce((sum, p) => sum + p.markdown.length, 0);
+      const artists = await extractArtistsOnly(artistPages, currentDate);
+      console.log("[workflow] end:extract-artists-ai", {
+        extracted: artists.length,
+        contentProcessed: contentSize
+      });
+      return artists;
+    });
 
-    // ========================================
-    // STEP 6: Insert events (D1 only, idempotent)
-    // ========================================
-    const eventMap = await step.do(
-      "insert-events",
-      { timeout: SCRAPE_CONFIG.WORKFLOW_STEP_TIMEOUT_MS },
-      async () => {
-        const stepStart = Date.now();
-        console.log(
-          `[Step 6 - START] Inserting ${extracted.events.length} events to D1`
-        );
-        console.log(
-          `[Step 6] Event date range:`,
-          extracted.events.length > 0
-            ? `${extracted.events[0].start} to ${extracted.events[extracted.events.length - 1].start}`
-            : "none"
-        );
+    // ===== 10) Save artists
+    const artistMap = await step.do("save-artists", { timeout: SCRAPE_CONFIG.STEP_TIMEOUT_MS }, async () => {
+      console.log("[workflow] start:save-artists", {
+        extractedCount: extractedArtists.length
+      });
+      if (extractedArtists.length === 0) {
+        console.log("[workflow] No artists to save");
+        return new Map<string, string>();
+      }
+      const map = await upsertArtists(this.env, extractedArtists);
+      const deduped = extractedArtists.length - map.size;
+      console.log("[workflow] end:save-artists", {
+        extracted: extractedArtists.length,
+        saved: map.size,
+        deduped
+      });
+      return map;
+    });
 
-        try {
-          console.log(`[Step 6] Calling insertEvents...`);
-          console.log(`[Step 6] Sample event:`, extracted.events[0]);
+    // ===== 11) Query event pages
+    const eventPages = await step.do("query-event-pages", { timeout: SCRAPE_CONFIG.STEP_TIMEOUT_MS }, async () => {
+      console.log("[workflow] start:query-event-pages");
+      const pages = await getPagesByClassification(this.env, galleryId, "event");
+      const totalContentSize = pages.reduce((sum, p) => sum + p.markdown.length, 0);
+      console.log("[workflow] end:query-event-pages", {
+        count: pages.length,
+        totalContentSize,
+        pageUrls: pages.map(p => p.url)
+      });
+      return pages;
+    });
 
-          const eventMap = await insertEvents(
-            this.env.DB,
-            extracted.events,
-            galleryId
-          );
+    // ===== 12) Extract events (AI)
+    const extractedEvents = await step.do("extract-events-ai", { timeout: SCRAPE_CONFIG.STEP_TIMEOUT_MS }, async () => {
+      console.log("[workflow] start:extract-events-ai", {
+        pagesCount: eventPages.length,
+        currentTimestamp: nowTimestamp,
+        currentDate: new Date(nowTimestamp * 1000).toISOString()
+      });
+      if (eventPages.length === 0) {
+        console.log("[workflow] No event pages, skipping");
+        return [];
+      }
+      const contentSize = eventPages.reduce((sum, p) => sum + p.markdown.length, 0);
+      const events = await extractEventsOnly(eventPages, nowTimestamp);
 
-          const sampleIds = Array.from(eventMap.entries()).slice(0, 3);
-          console.log(
-            `[Step 6] Generated event IDs:`,
-            sampleIds.map(([key, id]) => `${key.substring(0, 30)}...→${id}`)
-          );
-          console.log(
-            `[Step 6 - DONE] ✅ D1: Inserted ${eventMap.size} events - ${Date.now() - stepStart}ms`
-          );
+      let dateRange = null;
+      if (events.length > 0) {
+        const starts = events.map(e => e.start);
+        dateRange = {
+          earliest: Math.min(...starts),
+          latest: Math.max(...starts)
+        };
+      }
 
-          return eventMap;
-        } catch (error) {
-          console.error(`[Step 6 ERROR]`, error);
-          console.error(
-            `[Step 6 ERROR] Error name: ${(error as Error)?.name}`
-          );
-          console.error(
-            `[Step 6 ERROR] Error message: ${(error as Error)?.message}`
-          );
-          console.error(
-            `[Step 6 ERROR] Error stack:`,
-            (error as Error)?.stack
-          );
-          console.error(
-            `[Step 6 ERROR] Gallery ID: ${galleryId}`
-          );
-          console.error(
-            `[Step 6 ERROR] Event count: ${extracted.events.length}`
-          );
-          console.error(
-            `[Step 6 ERROR] First event:`,
-            extracted.events[0]
-          );
-          throw error;
+      console.log("[workflow] end:extract-events-ai", {
+        extracted: events.length,
+        contentProcessed: contentSize,
+        dateRange
+      });
+      return events;
+    });
+
+    // ===== 13) Save events
+    const eventMap = await step.do("save-events", { timeout: SCRAPE_CONFIG.STEP_TIMEOUT_MS }, async () => {
+      console.log("[workflow] start:save-events", {
+        extractedCount: extractedEvents.length
+      });
+      if (extractedEvents.length === 0) {
+        console.log("[workflow] No events to save");
+        return new Map<string, string>();
+      }
+
+      const map = await insertEvents(this.env, extractedEvents, galleryId);
+
+      console.log("[workflow] end:save-events", {
+        extracted: extractedEvents.length,
+        saved: map.size
+      });
+      return map;
+    });
+
+    // ===== 14) Link events to artists
+    await step.do("link-events-to-artists", { timeout: SCRAPE_CONFIG.STEP_TIMEOUT_MS }, async () => {
+      console.log("[workflow] start:link-events-to-artists", {
+        eventsCount: extractedEvents.length,
+        artistsCount: artistMap.size
+      });
+      if (extractedEvents.length === 0 || artistMap.size === 0) {
+        console.log("[workflow] No events or artists to link, skipping");
+        return;
+      }
+
+      let linksCreated = 0;
+      for (const e of extractedEvents) {
+        for (const artistName of e.artistNames) {
+          if (artistMap.get(artistName.trim())) {
+            linksCreated++;
+          }
         }
       }
-    );
 
-    // ========================================
-    // STEP 7: Link events to artists (D1 only, idempotent)
-    // ========================================
-    await step.do(
-      "link-events-to-artists",
-      { timeout: SCRAPE_CONFIG.WORKFLOW_STEP_TIMEOUT_MS },
-      async () => {
-        const stepStart = Date.now();
-        const totalLinks = extracted.events.reduce(
-          (sum, e) => sum + e.artistNames.length,
-          0
-        );
-        console.log(
-          `[Step 7 - START] Linking ${extracted.events.length} events to artists (${totalLinks} relationships)`
-        );
+      await linkEventsToArtists(this.env, extractedEvents, eventMap, artistMap);
+      console.log("[workflow] end:link-events-to-artists", {
+        linksCreated
+      });
+    });
 
-        await linkEventsToArtists(
-          this.env.DB,
-          extracted.events,
-          eventMap,
-          artistMap
-        );
+    // ===== 15) Query events for embedding
+    const events = await step.do('query', async () => {
+      const eventsList = await getEventsByGallery(this.env, galleryId);
+      return eventsList as any;
+    }) as Event[];
 
-        console.log(
-          `[Step 7 - DONE] ✅ D1: Created ${totalLinks} event_artists relationships - ${Date.now() - stepStart}ms`
-        );
-      }
-    );
+    // ===== 16) Query artists for embedding
+    const artists = await step.do("query-artists-for-embedding", { timeout: SCRAPE_CONFIG.STEP_TIMEOUT_MS }, async () => {
+      console.log("[workflow] start:query-artists-for-embedding");
 
-    // ========================================
-    // STEP 8: Embed and save gallery (OpenAI + Vectorize, idempotent)
-    // ========================================
-    await step.do(
-      "embed-and-save-gallery",
-      { timeout: SCRAPE_CONFIG.WORKFLOW_STEP_TIMEOUT_MS },
-      async () => {
-        const stepStart = Date.now();
-        console.log(
-          `[Step 8 - START] Embedding gallery "${gallery.name}" via OpenAI`
-        );
-
-        const galleryEmbedding = await embedGallery(gallery);
-        console.log(
-          `[Step 8] Generated embedding: ${galleryEmbedding.length} dimensions`
-        );
-
-        await insertGalleryEmbedding(
-          this.env.VECTORIZE_GALLERIES,
-          galleryId,
-          gallery,
-          galleryEmbedding
-        );
-
-        console.log(
-          `[Step 8 - DONE] ✅ Vectorize: Upserted gallery embedding - ${Date.now() - stepStart}ms`
-        );
-      }
-    );
-
-    // ========================================
-    // STEP 9: Embed and save events (OpenAI + Vectorize, idempotent)
-    // ========================================
-    await step.do(
-      "embed-and-save-events",
-      { timeout: SCRAPE_CONFIG.WORKFLOW_STEP_TIMEOUT_MS },
-      async () => {
-        if (extracted.events.length === 0) {
-          console.log(`[Step 9] No events to embed, skipping`);
-          return;
+      // Get all unique artists for all events of this gallery
+      const artistIds = new Set<string>();
+      for (const event of events) {
+        const eventArtists = await getArtistsByEvent(this.env, event.id);
+        for (const a of eventArtists) {
+          artistIds.add(a.id);
         }
-
-        const stepStart = Date.now();
-        console.log(
-          `[Step 9 - START] Embedding ${extracted.events.length} events via OpenAI`
-        );
-
-        const now = Date.now();
-        const events = extracted.events.map((event) => ({
-          ...event,
-          id: eventMap.get(`${event.title}:${event.start}`)!,
-          galleryId,
-          end: event.end || calculateDefaultEnd(event.start, event.eventType),
-          price: event.price ?? 0,
-          createdAt: now,
-          updatedAt: now
-        }));
-
-        console.log(
-          `[Step 9] Event IDs being embedded:`,
-          events.slice(0, 3).map((e) => e.id)
-        );
-
-        const eventEmbeddings = await embedEvents(events);
-        console.log(
-          `[Step 9] Generated ${eventEmbeddings.length} embeddings (${eventEmbeddings[0]?.length || 0} dims each)`
-        );
-
-        await insertEventEmbeddings(
-          this.env.VECTORIZE_EVENTS,
-          events,
-          eventEmbeddings,
-          gallery
-        );
-
-        console.log(
-          `[Step 9 - DONE] ✅ Vectorize: Upserted ${events.length} event embeddings - ${Date.now() - stepStart}ms`
-        );
       }
-    );
 
-    // ========================================
-    // STEP 10: Embed and save artists (OpenAI + Vectorize, idempotent)
-    // ========================================
-    await step.do(
-      "embed-and-save-artists",
-      { timeout: SCRAPE_CONFIG.WORKFLOW_STEP_TIMEOUT_MS },
-      async () => {
-        if (extracted.artists.length === 0) {
-          console.log(`[Step 10] No artists to embed, skipping`);
-          return;
-        }
-
-        const stepStart = Date.now();
-        console.log(
-          `[Step 10 - START] Embedding ${extracted.artists.length} artists via OpenAI`
-        );
-
-        const now = Date.now();
-        const artists = extracted.artists.map((artist) => ({
-          id: artistMap.get(artist.name)!,
-          name: artist.name,
-          bio: artist.bio ?? null,
-          website: artist.website ?? null,
-          createdAt: now,
-          updatedAt: now
-        }));
-
-        console.log(
-          `[Step 10] Artist IDs:`,
-          artists.slice(0, 3).map((a) => `${a.name}→${a.id}`)
-        );
-
-        const artistEmbeddings = await embedArtists(artists);
-        console.log(
-          `[Step 10] Generated ${artistEmbeddings.length} embeddings (${artistEmbeddings[0]?.length || 0} dims each)`
-        );
-
-        await insertArtistEmbeddings(
-          this.env.VECTORIZE_ARTISTS,
-          artists,
-          artistEmbeddings
-        );
-
-        console.log(
-          `[Step 10 - DONE] ✅ Vectorize: Upserted ${artists.length} artist embeddings - ${Date.now() - stepStart}ms`
-        );
+      // Fetch all unique artists
+      const artists = [];
+      for (const artistId of artistIds) {
+        const eventArtists = await getArtistsByEvent(this.env, events.find(e => e.id)!.id);
+        const artist = eventArtists.find(a => a.id === artistId);
+        if (artist) artists.push(artist);
       }
-    );
 
-    // ========================================
-    // STEP 11: Update agent state (Durable Object only)
-    // ========================================
-    await step.do(
-      "update-agent-state",
-      { timeout: SCRAPE_CONFIG.WORKFLOW_STEP_TIMEOUT_MS },
-      async () => {
-        const stepStart = Date.now();
-        console.log(`[Step 11 - START] Updating GalleryAgent state`);
+      console.log("[workflow] end:query-artists-for-embedding", { count: artists.length });
+      return artists;
+    });
 
-        const galleryAgent = await getAgentByName(
-          this.env.GalleryAgent,
-          galleryId
-        );
-        await galleryAgent.updateScrapingResult({
-          success: true,
-          timestamp: Date.now()
-        });
+    // ===== 17) Embed & save gallery
+    await step.do("embed-gallery", { timeout: SCRAPE_CONFIG.STEP_TIMEOUT_MS }, async () => {
+      console.log("[workflow] start:embed-gallery");
+      const gVec = await embedGallery(gallery);
 
-        console.log(
-          `[Step 11 - DONE] ✅ Agent: Updated scraping status - ${Date.now() - stepStart}ms`
-        );
-      }
-    );
+      const client = createSupabaseClient(this.env.SUPABASE_URL, this.env.SUPABASE_ANON_KEY);
+      await client
+        .from('galleries')
+        .update({ embedding: JSON.stringify(gVec) })
+        .eq('id', galleryId);
 
-    const totalTime = Date.now() - workflowStartTime;
-    const result = {
+      console.log("[workflow] end:embed-gallery", {
+        vectorDimensions: gVec.length
+      });
+    });
+
+    // ===== 18) Embed & save events
+    await step.do("embed-events", { timeout: SCRAPE_CONFIG.STEP_TIMEOUT_MS }, async () => {
+      console.log("[workflow] start:embed-events", { count: events.length });
+      if (events.length === 0) return;
+
+      const eventsWithArtistNames = await Promise.all(
+        events.map(async (event) => {
+          const eventArtists = await getArtistsByEvent(this.env, event.id);
+          return {
+            ...event,
+            artistNames: eventArtists.map(a => a.name)
+          };
+        })
+      );
+
+      const eVecs = await embedEvents(eventsWithArtistNames);
+
+      const client = createSupabaseClient(this.env.SUPABASE_URL, this.env.SUPABASE_ANON_KEY);
+      await Promise.all(
+        eventsWithArtistNames.map((event, i) =>
+          client
+            .from('events')
+            .update({ embedding: JSON.stringify(eVecs[i]) })
+            .eq('id', event.id)
+        )
+      );
+
+      console.log("[workflow] end:embed-events", {
+        vectorsCreated: eVecs.length,
+        vectorDimensions: eVecs[0]?.length || 0
+      });
+    });
+
+    // ===== 19) Embed & save artists
+    await step.do("embed-artists", { timeout: SCRAPE_CONFIG.STEP_TIMEOUT_MS }, async () => {
+      console.log("[workflow] start:embed-artists", { count: artists.length });
+      if (artists.length === 0) return;
+
+      const aVecs = await embedArtists(artists);
+
+      const client = createSupabaseClient(this.env.SUPABASE_URL, this.env.SUPABASE_ANON_KEY);
+      await Promise.all(
+        artists.map((artist, i) =>
+          client
+            .from('artists')
+            .update({ embedding: JSON.stringify(aVecs[i]) })
+            .eq('id', artist.id)
+        )
+      );
+
+      console.log("[workflow] end:embed-artists", {
+        vectorsCreated: aVecs.length,
+        vectorDimensions: aVecs[0]?.length || 0
+      });
+    });
+
+    // ===== 20) Update agent state
+    await step.do("agent-state", { timeout: SCRAPE_CONFIG.STEP_TIMEOUT_MS }, async () => {
+      const galleryAgent = await getAgentByName(this.env.GalleryAgent, galleryId);
+      await galleryAgent.updateScrapingResult({ success: true, timestamp: Date.now() });
+    });
+
+    return {
+      ok: true,
       galleryId,
       url,
-      ok: true,
-      gallery: gallery,
-      eventsCount: extracted.events.length,
-      artistsCount: extracted.artists.length,
       pagesScraped: crawledPages.length,
+      eventsCount: events.length,
+      artistsCount: artists.length,
       completedAt: Date.now()
     };
-
-    console.log(
-      `[WORKFLOW END] ✅ Completed in ${totalTime}ms (${(totalTime / 1000).toFixed(2)}s)`
-    );
-    console.log(
-      `[WORKFLOW SUMMARY] ${crawledPages.length} pages → ${extracted.events.length} events, ${extracted.artists.length} artists`
-    );
-
-    return result;
   }
 }

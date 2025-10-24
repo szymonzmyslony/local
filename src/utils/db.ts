@@ -1,78 +1,52 @@
+import type { Database, TablesInsert } from "../types/database_types";
 import type {
-  Gallery,
   Event,
   ScrapedPage,
   ScrapedPageMetadata,
   Artist,
   EventExtraction
 } from "../schema";
-import type {
-  D1EventRow,
-  D1ArtistRow,
-  D1ScrapedPageRow
-} from "../types/d1";
 import { calculateDefaultEnd } from "./extraction";
+import { generateEventId, generateArtistId } from "./identity";
+import { createSupabaseClient } from "./supabase";
 
 /**
- * Generate deterministic IDs
- */
-export function generateEventId(
-  galleryId: string,
-  title: string,
-  start: string
-): string {
-  const uniqueString = `${galleryId}:${title}:${start}`;
-  return Buffer.from(uniqueString).toString("base64").substring(0, 16);
-}
-
-export function generateArtistId(name: string): string {
-  return Buffer.from(name.toLowerCase().trim())
-    .toString("base64")
-    .substring(0, 16);
-}
-
-/**
- * Insert or update gallery in D1
+ * GALLERY
  */
 export async function upsertGallery(
-  db: D1Database,
+  env: { SUPABASE_URL: string; SUPABASE_ANON_KEY: string },
   galleryId: string,
-  gallery: Gallery
+  gallery: Omit<TablesInsert<"galleries">, "id" | "created_at" | "updated_at">
 ): Promise<void> {
+  const client = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
   const now = Date.now();
 
-  await db
-    .prepare(
-      `INSERT INTO galleries (id, name, website, gallery_type, city, neighborhood, tz, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-       ON CONFLICT(id) DO UPDATE SET
-         name = ?2,
-         website = ?3,
-         gallery_type = ?4,
-         city = ?5,
-         neighborhood = ?6,
-         tz = ?7,
-         updated_at = ?9`
-    )
-    .bind(
-      galleryId,
-      gallery.name,
-      gallery.website,
-      gallery.galleryType ?? null,
-      gallery.city,
-      gallery.neighborhood ?? null,
-      gallery.tz,
-      now,
-      now
-    )
-    .run();
+  const { error } = await client
+    .from('galleries')
+    .upsert({
+      id: galleryId,
+      name: gallery.name,
+      website: gallery.website,
+      gallery_type: gallery.gallery_type ?? null,
+      city: gallery.city,
+      neighborhood: gallery.neighborhood ?? null,
+      tz: gallery.tz ?? 'Europe/Warsaw',
+      embedding: gallery.embedding ?? null,
+      created_at: now,
+      updated_at: now
+    });
+
+  if (error) {
+    console.error("[db] upsertGallery error", { galleryId, error });
+    throw error;
+  }
 }
 
 /**
- * Insert scraped pages in batch (idempotent - uses INSERT OR REPLACE)
+ * SCRAPED PAGES
  */
 export async function insertScrapedPages(
-  db: D1Database,
+  env: { SUPABASE_URL: string; SUPABASE_ANON_KEY: string },
   galleryId: string,
   pages: Array<{
     id: string;
@@ -82,283 +56,275 @@ export async function insertScrapedPages(
   }>
 ): Promise<void> {
   if (pages.length === 0) return;
-
+  const client = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
   const scrapedAt = Date.now();
-  console.log(
-    `[insertScrapedPages] Building ${pages.length} SQL statements...`
-  );
 
-  const statements = pages.map((page) =>
-    db
-      .prepare(
-        `INSERT OR REPLACE INTO scraped_pages
-         (id, url, gallery_id, markdown, metadata, scraped_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
-      )
-      .bind(
-        page.id,
-        page.url,
-        galleryId,
-        page.markdown,
-        JSON.stringify(page.metadata),
-        scrapedAt
-      )
-  );
-
-  console.log(
-    `[insertScrapedPages] Executing D1 batch (${statements.length} statements)...`
-  );
-
-  try {
-    const result = await db.batch(statements);
-    console.log(
-      `[insertScrapedPages] ✅ Batch complete, results:`,
-      result?.length || 0
+  const { error } = await client
+    .from('scraped_pages')
+    .upsert(
+      pages.map(p => ({
+        id: p.id,
+        url: p.url,
+        gallery_id: galleryId,
+        markdown: p.markdown,
+        metadata: p.metadata,
+        classification: null,
+        scraped_at: scrapedAt
+      }))
     );
-  } catch (error) {
-    console.error(`[insertScrapedPages ERROR]`, error);
-    console.error(`[insertScrapedPages ERROR] Gallery ID: ${galleryId}`);
-    console.error(`[insertScrapedPages ERROR] Page count: ${pages.length}`);
-    console.error(`[insertScrapedPages ERROR] Sample page:`, pages[0]);
+
+  if (error) {
+    console.error("[db] insertScrapedPages error", { galleryId, count: pages.length, error });
     throw error;
   }
 }
 
 /**
- * Insert or update artists, return name->id map
+ * Update classifications for scraped pages
+ */
+export async function updatePageClassifications(
+  env: { SUPABASE_URL: string; SUPABASE_ANON_KEY: string },
+  pages: Array<{ id: string; classification: Database["public"]["Enums"]["page_classification"] }>
+): Promise<void> {
+  if (pages.length === 0) return;
+  const client = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
+
+  const promises = pages.map(p =>
+    client
+      .from('scraped_pages')
+      .update({ classification: p.classification })
+      .eq('id', p.id)
+  );
+
+  const results = await Promise.all(promises);
+  const errors = results.filter((r: { error: any }) => r.error);
+
+  if (errors.length > 0) {
+    console.error("[db] updatePageClassifications errors", { count: errors.length, errors });
+    throw errors[0].error;
+  }
+}
+
+/**
+ * Get pages by classification type
+ */
+export async function getPagesByClassification(
+  env: { SUPABASE_URL: string; SUPABASE_ANON_KEY: string },
+  galleryId: string,
+  classification: Database["public"]["Enums"]["page_classification"]
+): Promise<Array<{ id: string; url: string; markdown: string }>> {
+  const client = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
+  const { data, error } = await client
+    .from('scraped_pages')
+    .select('id, url, markdown')
+    .eq('gallery_id', galleryId)
+    .eq('classification', classification);
+
+  if (error) {
+    console.error("[db] getPagesByClassification error", { galleryId, classification, error });
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * ARTISTS (global dedupe by normalized name + website host)
  */
 export async function upsertArtists(
-  db: D1Database,
-  artists: Array<{ name: string; bio?: string | null; website?: string | null }>
+  env: { SUPABASE_URL: string; SUPABASE_ANON_KEY: string },
+  artists: Array<{ name: string; bio?: string | null; website?: string | null; aliases?: string[]; sourceUrl?: string }>
 ): Promise<Map<string, string>> {
   if (artists.length === 0) return new Map();
 
+  const client = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
   const now = Date.now();
   const artistMap = new Map<string, string>();
 
-  // Deduplicate by name
-  const uniqueArtists = Array.from(
-    new Map(artists.map((a) => [a.name.trim(), a])).values()
-  );
-
-  for (const artist of uniqueArtists) {
-    const id = generateArtistId(artist.name);
-
-    await db
-      .prepare(
-        `INSERT INTO artists (id, name, bio, website, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-         ON CONFLICT(name) DO UPDATE SET
-           bio = COALESCE(?3, bio),
-           website = COALESCE(?4, website),
-           updated_at = ?6`
-      )
-      .bind(
-        id,
-        artist.name.trim(),
-        artist.bio ?? null,
-        artist.website ?? null,
-        now,
-        now
-      )
-      .run();
-
-    artistMap.set(artist.name.trim(), id);
+  const byId = new Map<string, { name: string; bio?: string | null; website?: string | null; aliases?: string[]; sourceUrl?: string }>();
+  for (const a of artists) {
+    const id = generateArtistId(a.name, a.website ?? null);
+    if (!byId.has(id)) byId.set(id, a);
   }
 
-  console.log(`[upsertArtists] Upserted ${artistMap.size} artists`);
+  for (const [id, artist] of byId) {
+    const { error } = await client
+      .from('artists')
+      .upsert({
+        id,
+        name: artist.name.trim(),
+        bio: artist.bio ?? null,
+        website: artist.website ?? null,
+        embedding: null,
+        created_at: now,
+        updated_at: now
+      });
+
+    if (error) {
+      console.error("[db] upsertArtists error", { id, name: artist.name, error });
+      throw error;
+    }
+
+    artistMap.set(artist.name.trim(), id);
+    for (const alias of artist.aliases || []) {
+      artistMap.set(alias.trim(), id);
+    }
+  }
+
   return artistMap;
 }
 
 /**
- * Insert events and return title+start->id map
+ * EVENTS (per-gallery dedupe by title+start)
  */
 export async function insertEvents(
-  db: D1Database,
+  env: { SUPABASE_URL: string; SUPABASE_ANON_KEY: string },
   events: Array<EventExtraction & { artistNames: string[] }>,
   galleryId: string
 ): Promise<Map<string, string>> {
   if (events.length === 0) return new Map();
 
+  const client = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
   const now = Date.now();
   const eventMap = new Map<string, string>();
 
-  console.log(`[insertEvents] Starting insertion of ${events.length} events`);
+  for (const event of events) {
+    const id = generateEventId(galleryId, event.title, event.start);
+    const end = event.end || calculateDefaultEnd(event.start, event.eventType);
+    const price = event.price ?? 0;
 
-  for (let i = 0; i < events.length; i++) {
-    const event = events[i];
-    try {
-      const id = generateEventId(galleryId, event.title, event.start);
-      const end = event.end || calculateDefaultEnd(event.start, event.eventType);
-      const price = event.price ?? 0;
+    const { error } = await client
+      .from('events')
+      .upsert({
+        id,
+        gallery_id: galleryId,
+        title: event.title,
+        description: event.description,
+        event_type: event.eventType,
+        category: event.category,
+        tags: event.tags,
+        start: event.start,
+        end: end,
+        price: price,
+        embedding: null,
+        created_at: now,
+        updated_at: now
+      });
 
-      console.log(`[insertEvents] Inserting event ${i + 1}/${events.length}: "${event.title}"`);
-
-      await db
-        .prepare(
-          `INSERT INTO events (id, gallery_id, title, description, event_type, category, tags, start, end, price, created_at, updated_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-           ON CONFLICT(gallery_id, title, start) DO UPDATE SET
-             description = excluded.description,
-             event_type = excluded.event_type,
-             category = excluded.category,
-             tags = excluded.tags,
-             end = excluded.end,
-             price = excluded.price,
-             updated_at = excluded.updated_at`
-        )
-        .bind(
-          id,
-          galleryId,
-          event.title,
-          event.description,
-          event.eventType,
-          event.category,
-          JSON.stringify(event.tags),
-          event.start,
-          end,
-          price,
-          now,
-          now
-        )
-        .run();
-
-      eventMap.set(`${event.title}:${event.start}`, id);
-    } catch (error) {
-      console.error(`[insertEvents ERROR] Failed to insert event ${i + 1}/${events.length}`);
-      console.error(`[insertEvents ERROR] Event title: "${event.title}"`);
-      console.error(`[insertEvents ERROR] Event start: ${event.start}`);
-      console.error(`[insertEvents ERROR] Event end: ${event.end}`);
-      console.error(`[insertEvents ERROR] Event data:`, JSON.stringify(event, null, 2));
-      console.error(`[insertEvents ERROR] Error:`, error);
-      throw error; // Re-throw to trigger workflow retry
+    if (error) {
+      console.error("[db] insertEvents error", { id, title: event.title, start: event.start, error });
+      throw error;
     }
+
+    eventMap.set(`${event.title}:${event.start}`, id);
   }
 
-  console.log(`[insertEvents] Upserted ${eventMap.size} events`);
   return eventMap;
 }
 
 /**
- * Link events to artists via junction table
+ * EVENT ↔ ARTIST links
  */
 export async function linkEventsToArtists(
-  db: D1Database,
+  env: { SUPABASE_URL: string; SUPABASE_ANON_KEY: string },
   events: Array<EventExtraction & { artistNames: string[] }>,
   eventMap: Map<string, string>,
   artistMap: Map<string, string>
 ): Promise<void> {
-  const statements = [];
+  const links: TablesInsert<"event_artists">[] = [];
 
-  for (const event of events) {
-    const eventId = eventMap.get(`${event.title}:${event.start}`);
-    if (!eventId) {
-      console.warn(
-        `[linkEventsToArtists] Event ID not found for: ${event.title}`
-      );
-      continue;
-    }
+  for (const e of events) {
+    const eventId = eventMap.get(`${e.title}:${e.start}`);
+    if (!eventId) continue;
 
-    for (const artistName of event.artistNames) {
+    for (const artistName of e.artistNames) {
       const artistId = artistMap.get(artistName.trim());
-      if (!artistId) {
-        console.warn(
-          `[linkEventsToArtists] Artist ID not found for: ${artistName}`
-        );
-        continue;
-      }
+      if (!artistId) continue;
 
-      statements.push(
-        db
-          .prepare(
-            `INSERT OR IGNORE INTO event_artists (event_id, artist_id)
-             VALUES (?1, ?2)`
-          )
-          .bind(eventId, artistId)
-      );
+      links.push({
+        event_id: eventId,
+        artist_id: artistId
+      });
     }
   }
 
-  if (statements.length > 0) {
-    await db.batch(statements);
-    console.log(
-      `[linkEventsToArtists] Linked ${statements.length} event-artist relationships`
-    );
+  if (links.length === 0) return;
+
+  const client = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
+  const { error } = await client
+    .from('event_artists')
+    .upsert(links, { ignoreDuplicates: true });
+
+  if (error) {
+    console.error("[db] linkEventsToArtists error", { pairs: links.length, error });
+    throw error;
   }
 }
 
 /**
- * Get all events for a gallery (with artists populated)
+ * Reads
  */
 export async function getEventsByGallery(
-  db: D1Database,
+  env: { SUPABASE_URL: string; SUPABASE_ANON_KEY: string },
   galleryId: string
 ): Promise<Event[]> {
-  const { results } = await db
-    .prepare(`SELECT * FROM events WHERE gallery_id = ?1 ORDER BY start ASC`)
-    .bind(galleryId)
-    .all();
+  const client = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
+  const { data, error } = await client
+    .from('events')
+    .select('*')
+    .eq('gallery_id', galleryId)
+    .order('start', { ascending: true });
 
-  return ((results || []) as unknown as D1EventRow[]).map((row) => ({
-    id: row.id,
-    galleryId: row.gallery_id,
-    title: row.title,
-    description: row.description,
-    eventType: row.event_type as Event["eventType"],
-    category: row.category as Event["category"],
-    tags: JSON.parse(row.tags),
-    start: row.start,
-    end: row.end,
-    price: row.price,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
-  }));
+  if (error) {
+    console.error("[db] getEventsByGallery error", { galleryId, error });
+    throw error;
+  }
+
+  return data;
 }
 
-/**
- * Get artists for an event
- */
 export async function getArtistsByEvent(
-  db: D1Database,
+  env: { SUPABASE_URL: string; SUPABASE_ANON_KEY: string },
   eventId: string
 ): Promise<Artist[]> {
-  const { results } = await db
-    .prepare(
-      `SELECT a.* FROM artists a
-       JOIN event_artists ea ON a.id = ea.artist_id
-       WHERE ea.event_id = ?1`
-    )
-    .bind(eventId)
-    .all();
+  const client = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
+  const { data, error } = await client
+    .from('event_artists')
+    .select(`
+      artists (
+        id,
+        name,
+        bio,
+        website,
+        embedding,
+        created_at,
+        updated_at
+      )
+    `)
+    .eq('event_id', eventId);
 
-  return ((results || []) as unknown as D1ArtistRow[]).map((row) => ({
-    id: row.id,
-    name: row.name,
-    bio: row.bio,
-    website: row.website,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
-  }));
+  if (error) {
+    console.error("[db] getArtistsByEvent error", { eventId, error });
+    throw error;
+  }
+
+  return data.map((item: { artists: Artist }) => item.artists);
 }
 
-/**
- * Get scraped pages for a gallery
- */
 export async function getScrapedPagesByGallery(
-  db: D1Database,
+  env: { SUPABASE_URL: string; SUPABASE_ANON_KEY: string },
   galleryId: string
 ): Promise<ScrapedPage[]> {
-  const { results } = await db
-    .prepare(`SELECT * FROM scraped_pages WHERE gallery_id = ?1`)
-    .bind(galleryId)
-    .all();
+  const client = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
+  const { data, error} = await client
+    .from('scraped_pages')
+    .select('*')
+    .eq('gallery_id', galleryId);
 
-  return ((results || []) as unknown as D1ScrapedPageRow[]).map((row) => ({
-    id: row.id,
-    url: row.url,
-    galleryId: row.gallery_id,
-    markdown: row.markdown,
-    metadata: JSON.parse(row.metadata) as ScrapedPageMetadata,
-    scrapedAt: row.scraped_at
-  }));
+  if (error) {
+    console.error("[db] getScrapedPagesByGallery error", { galleryId, error });
+    throw error;
+  }
+
+  return data;
 }
