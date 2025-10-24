@@ -138,7 +138,6 @@ export type Database = {
           gallery_type: Database["public"]["Enums"]["gallery_type"] | null
           id: string
           name: string
-          neighborhood: string | null
           tz: string
           updated_at: number
           website: string
@@ -150,7 +149,6 @@ export type Database = {
           gallery_type?: Database["public"]["Enums"]["gallery_type"] | null
           id: string
           name: string
-          neighborhood?: string | null
           tz?: string
           updated_at: number
           website: string
@@ -162,7 +160,6 @@ export type Database = {
           gallery_type?: Database["public"]["Enums"]["gallery_type"] | null
           id?: string
           name?: string
-          neighborhood?: string | null
           tz?: string
           updated_at?: number
           website?: string

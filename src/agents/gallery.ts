@@ -1,6 +1,21 @@
+// agents/gallery.ts
 import { Agent } from "agents";
 import { getEventsByGallery, getScrapedPagesByGallery } from "../utils/db";
 import type { ScrapedPage, Event } from "@/schema";
+
+const RECRAWL_TTL_MS: Record<string, number> = {
+  event: 6 * 60 * 60 * 1000,            // 6h
+  artists: 7 * 24 * 60 * 60 * 1000,     // 7d
+  creator_info: 30 * 24 * 60 * 60 * 1000, // 30d
+  historical_event: 90 * 24 * 60 * 60 * 1000, // 90d
+  other: 7 * 24 * 60 * 60 * 1000        // 7d
+};
+
+function isDue(page: ScrapedPage): boolean {
+  const cls = page.classification || "other";
+  const ttl = RECRAWL_TTL_MS[cls] ?? RECRAWL_TTL_MS.other;
+  return Date.now() - page.scraped_at > ttl;
+}
 
 type GalleryState = {
   url: string;
@@ -55,9 +70,21 @@ export class GalleryAgent extends Agent<Env, GalleryState> {
   }
 
   async startScraping(url: string, forceRefresh: boolean = false) {
-    const cacheThreshold = 60 * 60 * 1000; // 1 hour
-    if (!forceRefresh && this.state.lastSuccessfulScrape && Date.now() - this.state.lastSuccessfulScrape < cacheThreshold) {
-      return { ok: true, cached: true, lastScraped: this.state.lastSuccessfulScrape };
+    console.log('[gallery-agent] startScraping called', { galleryId: this.name, url, forceRefresh });
+    // classification-aware scheduling
+    if (!forceRefresh) {
+      const pages = await getScrapedPagesByGallery(this.env, this.name);
+      const anyDue = pages.length === 0 || pages.some(isDue);
+      console.log('[gallery-agent] scheduling decision', {
+        galleryId: this.name,
+        pages: pages.length,
+        anyDue,
+        lastSuccessfulScrape: this.state.lastSuccessfulScrape
+      });
+      if (!anyDue) {
+        console.log('[gallery-agent] skip starting workflow (nothing due)', { galleryId: this.name });
+        return { ok: true, cached: true, lastScraped: this.state.lastSuccessfulScrape, reason: "nothing due" };
+      }
     }
 
     const instance = await this.env.SCRAPE_WORKFLOW.create({
@@ -66,6 +93,7 @@ export class GalleryAgent extends Agent<Env, GalleryState> {
     });
 
     this.setState({ ...this.state, url, workflowId: instance.id, lastScraped: Date.now(), status: "scraping" });
+    console.log('[gallery-agent] workflow started', { galleryId: this.name, workflowId: instance.id });
     return { ok: true, cached: false, workflowId: instance.id, message: "Scraping workflow started" };
   }
 

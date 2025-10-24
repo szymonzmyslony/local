@@ -10,7 +10,7 @@ export function eventToText(event: Event & { artistNames?: string[] }): string {
 }
 
 export function galleryToText(gallery: Gallery): string {
-  const parts = [gallery.name, gallery.gallery_type, gallery.city, gallery.neighborhood];
+  const parts = [gallery.name, gallery.gallery_type, gallery.city];
   return parts.filter(Boolean).join(" | ");
 }
 

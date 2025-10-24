@@ -2,11 +2,13 @@ import { generateObject } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
 import {
-  GalleryDataExtractionSchema,
-  ClassificationSchema,
-  type GalleryDataExtraction,
+  GalleryExtractionSchema,
   EventExtractionSchema,
-  ArtistExtractionSchema
+  ArtistExtractionSchema,
+  type PageClassification,
+  type GalleryType,
+  PageClassificationSchema,
+  type EventExtraction,
 } from "../schema";
 import { AI_CONFIG } from "../config/ai";
 
@@ -28,12 +30,12 @@ export function calculateDefaultEnd(start: number, eventType: string): number {
 export async function classifyPages<T extends { url: string; markdown: string }>(
   pages: Array<T>,
   currentDate: string
-): Promise<Array<T & { classification: string }>> {
-  const promises = pages.map(async (page, index) => {
+): Promise<Array<T & { classification: PageClassification }>> {
+  const promises: Array<Promise<T & { classification: PageClassification }>> = pages.map(async (page, index) => {
     try {
       const { object } = await generateObject({
         model: openai(AI_CONFIG.CHAT_MODEL),
-        schema: ClassificationSchema,
+        schema: z.object({ classification: PageClassificationSchema }),
         prompt: `Classify this page from a gallery website.
 
 Current date: ${currentDate}
@@ -63,33 +65,20 @@ CLASSIFICATION TYPES:
         } : error
       });
       // Continue processing other pages, fallback to "other"
-      return { ...page, classification: "other" };
+      return { ...page, classification: "other" as PageClassification };
     }
   });
 
   return await Promise.all(promises);
 }
 
-/**
- * Extract ONLY gallery info from creator_info pages
- */
-const GalleryInfoOnlySchema = z.object({
-  gallery: z.object({
-    name: z.string(),
-    website: z.string().url(),
-    galleryType: z.enum(["commercial", "non-profit", "museum", "artist-run", "project-space"]).nullable(),
-    city: z.string(),
-    neighborhood: z.string().nullable(),
-    tz: z.string().default("Europe/Warsaw")
-  })
-});
+
 
 export async function extractGalleryInfoOnly(
   pages: Array<{ url: string; markdown: string }>,
   currentDate: string
-): Promise<{ name: string; website: string; galleryType: "commercial" | "non-profit" | "museum" | "artist-run" | "project-space" | null; city: string; neighborhood: string | null; tz: string }> {
+): Promise<{ name: string; website: string; galleryType: GalleryType; city: string; tz: string }> {
   const fullContent = pages.map((p) => `=== ${p.url} ===\n${p.markdown}`).join("\n\n");
-  const startTime = Date.now();
 
   console.log("[ai] extractGalleryInfoOnly start", {
     model: AI_CONFIG.CHAT_MODEL,
@@ -100,7 +89,7 @@ export async function extractGalleryInfoOnly(
   try {
     const { object } = await generateObject({
       model: openai(AI_CONFIG.CHAT_MODEL),
-      schema: GalleryInfoOnlySchema,
+      schema: GalleryExtractionSchema,
       prompt: `Extract gallery information from these creator/about pages.
 
 Current date (ISO): ${currentDate}
@@ -114,18 +103,14 @@ REQUIREMENTS:
 3) Use the gallery types from the provided enum only.`
     });
 
-    const duration = Date.now() - startTime;
     console.log("[ai] extractGalleryInfoOnly success", {
-      duration: `${duration}ms`,
-      name: object.gallery.name
+      name: object.name
     });
 
-    return object.gallery;
+    return object;
   } catch (error) {
-    const duration = Date.now() - startTime;
     console.error("[ai] extractGalleryInfoOnly error", {
       pagesCount: pages.length,
-      duration: `${duration}ms`,
       error: error instanceof Error ? {
         message: error.message,
         name: error.name,
@@ -205,7 +190,7 @@ const EventsOnlySchema = z.object({
 export async function extractEventsOnly(
   pages: Array<{ url: string; markdown: string }>,
   currentTimestamp: number
-): Promise<Array<z.infer<typeof EventExtractionSchema>>> {
+): Promise<Array<EventExtraction>> {
   const fullContent = pages.map((p) => `=== ${p.url} ===\n${p.markdown}`).join("\n\n");
   const startTime = Date.now();
 
@@ -220,33 +205,14 @@ export async function extractEventsOnly(
     const { object } = await generateObject({
       model: openai(AI_CONFIG.CHAT_MODEL),
       schema: EventsOnlySchema,
-      prompt: `Extract event information from these event pages.
+      prompt: `Extract events information from these event pages.
 
 Current timestamp (Unix, seconds): ${currentTimestamp}
 Current date for reference: ${new Date(currentTimestamp * 1000).toISOString()}
 
 CONTENT (multiple pages; each section starts with "=== URL ==="):
 ${fullContent}
-
-CRITICAL DATE FORMAT REQUIREMENTS:
-- ALL dates MUST be Unix timestamps in SECONDS (not milliseconds)
-- Example: 1729764000 (not 1729764000000)
-- To convert: take date and convert to seconds since January 1, 1970 UTC
-- Example conversions:
-  * "October 24, 2024 10:00 AM CET" → 1729764000
-  * "December 31, 2024" → 1735689600
-- If time is not specified, use noon (12:00) of that day
-- If timezone is not specified, assume Europe/Warsaw timezone
-
-EXTRACTION REQUIREMENTS:
-1) Extract ONLY current/upcoming events (end >= currentTimestamp)
-2) For each event:
-   - start: Unix timestamp in SECONDS
-   - end: Unix timestamp in SECONDS (leave empty if not mentioned)
-   - artistNames: EXACT artist names mentioned
-   - price: default to 0 if not mentioned
-3) Use event types and categories from the provided enums only
-4) Do NOT extract gallery info or standalone artist bios`
+`
     });
 
     const duration = Date.now() - startTime;
@@ -272,51 +238,3 @@ EXTRACTION REQUIREMENTS:
   }
 }
 
-/**
- * Multi-page extractor (LEGACY - kept for gallery info extraction).
- * Extract gallery metadata from multiple pages.
- */
-export async function extractGalleryData(
-  allPages: Array<{ url: string; markdown: string }>,
-  currentDate: string
-): Promise<GalleryDataExtraction> {
-  const fullContent = allPages.map((p) => `=== ${p.url} ===\n${p.markdown}`).join("\n\n");
-  try {
-    const { object } = await generateObject({
-      model: openai(AI_CONFIG.CHAT_MODEL),
-      schema: GalleryDataExtractionSchema,
-      prompt: `You are extracting structured data from a gallery site.
-
-Current date (ISO): ${currentDate}
-
-CONTENT (multiple pages; each section starts with "=== URL ==="):
-${fullContent}
-
-REQUIREMENTS:
-1) Extract gallery info.
-2) Extract artists (include aliases if mentioned; add artist.sourceUrl = the most relevant page URL).
-3) Extract all current/upcoming events (end >= currentDate).
-   - For each event:
-     • Include event.sourceUrl: pick the single page URL where the info is stated most clearly.
-     • Use artistNames with EXACT artist names you produced.
-     • If end is missing, leave it empty (we will default).
-4) Prefer the gallery's own pages; avoid external press unless there is no gallery page and it's clearly about a concrete event at this gallery.
-5) Prices: default to 0 if not mentioned.
-6) Use categories/types from the provided enums only.`
-    });
-
-    return object;
-  } catch (error) {
-    console.error("[ai] extractGalleryData error", {
-      pagesCount: allPages.length,
-      urls: allPages.map(p => p.url),
-      contentLength: fullContent.length,
-      error: error instanceof Error ? {
-        message: error.message,
-        name: error.name,
-        stack: error.stack
-      } : error
-    });
-    throw error;
-  }
-}
