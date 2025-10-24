@@ -4,6 +4,20 @@
   "main": "src/server.ts",
   "compatibility_date": "2025-10-01",
   "compatibility_flags": ["nodejs_compat"],
+  "routes": [
+    {
+      "pattern": "zinelocal.com/*",
+      "zone_name": "zinelocal.com"
+    },
+    {
+      "pattern": "www.zinelocal.com/*",
+      "zone_name": "zinelocal.com"
+    }
+  ],
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS"
+  },
   "ai": {
     "binding": "AI",
     "remote": true
