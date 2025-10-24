@@ -13,18 +13,6 @@ import {
 import { AI_CONFIG } from "../config/ai";
 
 /**
- * Defaults for missing end date (Unix timestamps in seconds):
- * - Exhibitions: +3 months (~90 days)
- * - Others: +2 hours
- */
-export function calculateDefaultEnd(start: number, eventType: string): number {
-  if (eventType === "exhibition") {
-    return start + (90 * 24 * 60 * 60); // 90 days in seconds
-  }
-  return start + (2 * 60 * 60); // 2 hours in seconds
-}
-
-/**
  * Classify pages by content type. Returns pages enriched with classification.
  */
 export async function classifyPages<T extends { url: string; markdown: string }>(
@@ -45,11 +33,14 @@ CONTENT (first 2000 chars):
 ${page.markdown.substring(0, 2000)}
 
 CLASSIFICATION TYPES:
-- "event": Current or upcoming events
-- "historical_event": Past events
-- "creator_info": Gallery info, mission, contact
+- "event": A SINGLE current or upcoming event page
+- "historical_event": A SINGLE past event page
+- "multiple_events": Event calendar/listings with MULTIPLE events
+- "creator_info": Gallery info, mission, contact, about pages, general information
 - "artists": Artist bios, portfolios
-- "other": News, press, general info`
+- "other": News, press releases, blog posts
+
+IMPORTANT: If a page contains multiple events (calendar, schedule, event list), use "multiple_events" NOT "event".`
       });
 
       return { ...page, classification: object.classification };
@@ -181,58 +172,74 @@ REQUIREMENTS:
 }
 
 /**
- * Extract ONLY events from event pages
+ * Extract a single event from an event page
  */
-const EventsOnlySchema = z.object({
-  events: z.array(EventExtractionSchema)
-});
-
-export async function extractEventsOnly(
-  pages: Array<{ url: string; markdown: string }>,
+export async function extractEventOnly(
+  page: { url: string; markdown: string },
   currentTimestamp: number
-): Promise<Array<EventExtraction>> {
-  const fullContent = pages.map((p) => `=== ${p.url} ===\n${p.markdown}`).join("\n\n");
+): Promise<EventExtraction> {
   const startTime = Date.now();
 
-  console.log("[ai] extractEventsOnly start", {
+  console.log("[ai] extractEventOnly start", {
     model: AI_CONFIG.CHAT_MODEL,
-    pagesCount: pages.length,
-    contentLength: fullContent.length,
+    url: page.url,
+    contentLength: page.markdown.length,
     currentTimestamp
   });
 
   try {
     const { object } = await generateObject({
       model: openai(AI_CONFIG.CHAT_MODEL),
-      schema: EventsOnlySchema,
-      prompt: `Extract events information from these event pages.
+      schema: EventExtractionSchema,
+      prompt: `Extract event information from this event page. This page should contain information about a SINGLE event.
 
 Current timestamp (Unix, seconds): ${currentTimestamp}
 Current date for reference: ${new Date(currentTimestamp * 1000).toISOString()}
 
-CONTENT (multiple pages; each section starts with "=== URL ==="):
-${fullContent}
+Page URL: ${page.url}
+
+CONTENT:
+${page.markdown}
+
+IMPORTANT:
+- Extract information for ONE event only
+- eventType must be one of: "opening", "reception", "talk", "workshop", "exhibition"
+- category must be one of: "contemporary", "modern", "photography", "design_architecture", "digital_new_media", "performance_live_art", "social_critical_art", "emerging_artists"
+- start and end are Unix timestamps in seconds (optional)
+- artistNames should be an array of artist names (defaults to empty array if none)
 `
     });
 
     const duration = Date.now() - startTime;
-    console.log("[ai] extractEventsOnly success", {
+    console.log("[ai] extractEventOnly success", {
       duration: `${duration}ms`,
-      count: object.events.length
+      url: page.url,
+      title: object.title
     });
 
-    return object.events;
+    return object;
   } catch (error) {
     const duration = Date.now() - startTime;
-    console.error("[ai] extractEventsOnly error", {
-      pagesCount: pages.length,
-      pageUrls: pages.map(p => p.url),
+
+    // Try to extract raw response for debugging
+    let rawResponse = "Unable to capture raw response";
+    if (error && typeof error === "object" && "cause" in error) {
+      const cause = (error as any).cause;
+      if (cause && typeof cause === "object") {
+        rawResponse = JSON.stringify(cause, null, 2);
+      }
+    }
+
+    console.error("[ai] extractEventOnly error", {
+      url: page.url,
+      contentLength: page.markdown.length,
       duration: `${duration}ms`,
       error: error instanceof Error ? {
         message: error.message,
         name: error.name,
         stack: error.stack
-      } : error
+      } : error,
+      rawResponse
     });
     throw error;
   }

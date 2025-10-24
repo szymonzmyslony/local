@@ -7,7 +7,6 @@ import type {
   Artist,
   EventExtraction
 } from "../schema";
-import { calculateDefaultEnd } from "./extraction";
 import { generateEventId, generateArtistId } from "./identity";
 import { createSupabaseClient } from "./supabase";
 
@@ -22,19 +21,17 @@ export async function upsertGallery(
   const client = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
   const now = Date.now();
 
-  const { error } = await client
-    .from('galleries')
-    .upsert({
-      id: galleryId,
-      name: gallery.name,
-      website: gallery.website,
-      gallery_type: gallery.gallery_type ?? null,
-      city: gallery.city,
-      tz: gallery.tz ?? 'Europe/Warsaw',
-      embedding: gallery.embedding ?? null,
-      created_at: now,
-      updated_at: now
-    });
+  const { error } = await client.from("galleries").upsert({
+    id: galleryId,
+    name: gallery.name,
+    website: gallery.website,
+    gallery_type: gallery.gallery_type ?? null,
+    city: gallery.city,
+    tz: gallery.tz ?? "Europe/Warsaw",
+    embedding: gallery.embedding ?? null,
+    created_at: now,
+    updated_at: now
+  });
 
   if (error) {
     console.error("[db] upsertGallery error", { galleryId, error });
@@ -62,7 +59,7 @@ export async function insertScrapedPages(
   const client = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
   const scrapedAt = Date.now();
 
-  const rows = pages.map(p => ({
+  const rows = pages.map((p) => ({
     id: p.id,
     url: p.url,
     gallery_id: galleryId,
@@ -72,9 +69,13 @@ export async function insertScrapedPages(
     scraped_at: scrapedAt
   }));
 
-  const { error } = await client.from('scraped_pages').upsert(rows);
+  const { error } = await client.from("scraped_pages").upsert(rows);
   if (error) {
-    console.error("[db] insertScrapedPages error", { galleryId, count: pages.length, error });
+    console.error("[db] insertScrapedPages error", {
+      galleryId,
+      count: pages.length,
+      error
+    });
     throw error;
   }
 }
@@ -84,19 +85,28 @@ export async function insertScrapedPages(
  */
 export async function updatePageClassifications(
   env: { SUPABASE_URL: string; SUPABASE_ANON_KEY: string },
-  pages: Array<{ id: string; classification: Database["public"]["Enums"]["page_classification"] }>
+  pages: Array<{
+    id: string;
+    classification: Database["public"]["Enums"]["page_classification"];
+  }>
 ): Promise<void> {
   if (pages.length === 0) return;
   const client = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
 
   const results = await Promise.all(
-    pages.map(p =>
-      client.from('scraped_pages').update({ classification: p.classification }).eq('id', p.id)
+    pages.map((p) =>
+      client
+        .from("scraped_pages")
+        .update({ classification: p.classification })
+        .eq("id", p.id)
     )
   );
   const errors = results.filter((r: { error: any }) => r.error);
   if (errors.length > 0) {
-    console.error("[db] updatePageClassifications errors", { count: errors.length, errors });
+    console.error("[db] updatePageClassifications errors", {
+      count: errors.length,
+      errors
+    });
     throw errors[0].error;
   }
 }
@@ -111,12 +121,16 @@ export async function getPagesByClassification(
 ): Promise<Array<{ id: string; url: string; markdown: string }>> {
   const client = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
   const { data, error } = await client
-    .from('scraped_pages')
-    .select('id, url, markdown')
-    .eq('gallery_id', galleryId)
-    .eq('classification', classification);
+    .from("scraped_pages")
+    .select("id, url, markdown")
+    .eq("gallery_id", galleryId)
+    .eq("classification", classification);
   if (error) {
-    console.error("[db] getPagesByClassification error", { galleryId, classification, error });
+    console.error("[db] getPagesByClassification error", {
+      galleryId,
+      classification,
+      error
+    });
     throw error;
   }
   return data || [];
@@ -125,13 +139,21 @@ export async function getPagesByClassification(
 export async function getPagesByIds(
   env: { SUPABASE_URL: string; SUPABASE_ANON_KEY: string },
   ids: string[]
-): Promise<Array<{ id: string; url: string; markdown: string; classification: Database["public"]["Enums"]["page_classification"] | null; scraped_at: number }>> {
+): Promise<
+  Array<{
+    id: string;
+    url: string;
+    markdown: string;
+    classification: Database["public"]["Enums"]["page_classification"] | null;
+    scraped_at: number;
+  }>
+> {
   if (ids.length === 0) return [];
   const client = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
   const { data, error } = await client
-    .from('scraped_pages')
-    .select('id, url, markdown, classification, scraped_at')
-    .in('id', ids);
+    .from("scraped_pages")
+    .select("id, url, markdown, classification, scraped_at")
+    .in("id", ids);
   if (error) throw error;
   return data || [];
 }
@@ -141,7 +163,13 @@ export async function getPagesByIds(
  */
 export async function upsertArtists(
   env: { SUPABASE_URL: string; SUPABASE_ANON_KEY: string },
-  artists: Array<{ name: string; bio?: string | null; website?: string | null; aliases?: string[]; sourceUrl?: string }>
+  artists: Array<{
+    name: string;
+    bio?: string | null;
+    website?: string | null;
+    aliases?: string[];
+    sourceUrl?: string;
+  }>
 ): Promise<Map<string, string>> {
   if (artists.length === 0) return new Map();
 
@@ -150,26 +178,49 @@ export async function upsertArtists(
   const artistMap = new Map<string, string>();
 
   // condense by ID
-  const byId = new Map<string, { name: string; bio?: string | null; website?: string | null; aliases?: string[]; sourceUrl?: string }>();
+  const byId = new Map<
+    string,
+    {
+      name: string;
+      bio?: string | null;
+      website?: string | null;
+      aliases?: string[];
+      sourceUrl?: string;
+    }
+  >();
   for (const a of artists) {
-    const id = generateArtistId(a.name, a.website ?? null);
-    if (!byId.has(id)) byId.set(id, a);
+    try {
+      const id = generateArtistId(a.name, a.website ?? null);
+      if (!byId.has(id)) byId.set(id, a);
+    } catch (error) {
+      console.error("[db] upsertArtists id generation failed", {
+        name: a.name,
+        website: a.website,
+        error:
+          error instanceof Error
+            ? { message: error.message, stack: error.stack }
+            : error
+      });
+      throw error;
+    }
   }
 
   for (const [id, artist] of byId) {
-    const { error } = await client
-      .from('artists')
-      .upsert({
-        id,
-        name: artist.name.trim(),
-        bio: artist.bio ?? null,
-        website: artist.website ?? null,
-        embedding: null,
-        created_at: now,
-        updated_at: now
-      });
+    const { error } = await client.from("artists").upsert({
+      id,
+      name: artist.name.trim(),
+      bio: artist.bio ?? null,
+      website: artist.website ?? null,
+      embedding: null,
+      created_at: now,
+      updated_at: now
+    });
     if (error) {
-      console.error("[db] upsertArtists error", { id, name: artist.name, error });
+      console.error("[db] upsertArtists error", {
+        id,
+        name: artist.name,
+        error
+      });
       throw error;
     }
     artistMap.set(artist.name.trim(), id);
@@ -179,48 +230,68 @@ export async function upsertArtists(
 }
 
 /**
- * EVENTS (per-gallery dedupe by title+start)
+ * EVENTS - Insert a single event
  */
-export async function insertEvents(
+export async function insertEvent(
   env: { SUPABASE_URL: string; SUPABASE_ANON_KEY: string },
-  events: Array<EventExtraction & { artistNames: string[] }>,
-  galleryId: string
-): Promise<Map<string, string>> {
-  if (events.length === 0) return new Map();
-
+  event: EventExtraction,
+  galleryId: string,
+  url: string,
+  scrapedPageId: string
+): Promise<string> {
   const client = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
   const now = Date.now();
-  const eventMap = new Map<string, string>();
 
-  for (const event of events) {
-    const id = generateEventId(galleryId, event.title, event.start);
-    const end = event.end || calculateDefaultEnd(event.start, event.eventType);
-    const price = event.price ?? 0;
+  const id = generateEventId(galleryId, event.title, event.start);
+  console.log("[db] upsert event", {
+    id,
+    galleryId,
+    title: event.title,
+    url,
+    scrapedPageId,
+    start: event.start,
+    artistNames: event.artistNames
+  });
 
-    const { error } = await client
-      .from('events')
-      .upsert({
-        id,
-        gallery_id: galleryId,
-        title: event.title,
-        description: event.description,
-        event_type: event.eventType,
-        category: event.category,
-        tags: event.tags,
-        start: event.start,
-        end: end,
-        price: price,
-        embedding: null,
-        created_at: now,
-        updated_at: now
-      });
-    if (error) {
-      console.error("[db] insertEvents error", { id, title: event.title, start: event.start, error });
-      throw error;
-    }
-    eventMap.set(`${event.title}:${event.start}`, id);
+  const end = event.end ?? null;
+  const price = event.price ?? 0;
+  const start = event.start ?? null;
+
+  const { error } = await client.from("events").upsert({
+    id,
+    gallery_id: galleryId,
+    title: event.title,
+    description: event.description,
+    event_type: event.eventType,
+    category: event.category,
+    tags: event.tags,
+    start,
+    end,
+    price,
+    url,
+    scraped_page_id: scrapedPageId,
+    embedding: null,
+    created_at: now,
+    updated_at: now
+  });
+
+  if (error) {
+    console.error("[db] insertEvent error", {
+      id,
+      title: event.title,
+      url,
+      error
+    });
+    throw error;
   }
-  return eventMap;
+
+  console.log("[db] insertEvent complete", {
+    id,
+    galleryId,
+    title: event.title
+  });
+
+  return id;
 }
 
 /**
@@ -245,9 +316,14 @@ export async function linkEventsToArtists(
   if (links.length === 0) return;
 
   const client = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
-  const { error } = await client.from('event_artists').upsert(links, { ignoreDuplicates: true });
+  const { error } = await client
+    .from("event_artists")
+    .upsert(links, { ignoreDuplicates: true });
   if (error) {
-    console.error("[db] linkEventsToArtists error", { pairs: links.length, error });
+    console.error("[db] linkEventsToArtists error", {
+      pairs: links.length,
+      error
+    });
     throw error;
   }
 }
@@ -261,10 +337,10 @@ export async function getEventsByGallery(
 ): Promise<Event[]> {
   const client = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
   const { data, error } = await client
-    .from('events')
-    .select('*')
-    .eq('gallery_id', galleryId)
-    .order('start', { ascending: true });
+    .from("events")
+    .select("*")
+    .eq("gallery_id", galleryId)
+    .order("start", { ascending: true });
   if (error) throw error;
   return data || [];
 }
@@ -275,7 +351,7 @@ export async function getEventsByIds(
 ): Promise<Event[]> {
   if (ids.length === 0) return [];
   const client = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
-  const { data, error } = await client.from('events').select('*').in('id', ids);
+  const { data, error } = await client.from("events").select("*").in("id", ids);
   if (error) throw error;
   return data || [];
 }
@@ -286,13 +362,15 @@ export async function getArtistsByEvent(
 ): Promise<Artist[]> {
   const client = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
   const { data, error } = await client
-    .from('event_artists')
-    .select(`
+    .from("event_artists")
+    .select(
+      `
       artists (
         id, name, bio, website, embedding, created_at, updated_at
       )
-    `)
-    .eq('event_id', eventId);
+    `
+    )
+    .eq("event_id", eventId);
   if (error) throw error;
   return (data || []).map((row: { artists: Artist }) => row.artists);
 }
@@ -303,7 +381,10 @@ export async function getArtistsByIds(
 ): Promise<Artist[]> {
   if (ids.length === 0) return [];
   const client = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
-  const { data, error } = await client.from('artists').select('*').in('id', ids);
+  const { data, error } = await client
+    .from("artists")
+    .select("*")
+    .in("id", ids);
   if (error) throw error;
   return data || [];
 }
@@ -314,9 +395,9 @@ export async function getScrapedPagesByGallery(
 ): Promise<ScrapedPage[]> {
   const client = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
   const { data, error } = await client
-    .from('scraped_pages')
-    .select('*')
-    .eq('gallery_id', galleryId);
+    .from("scraped_pages")
+    .select("*")
+    .eq("gallery_id", galleryId);
   if (error) throw error;
   return data || [];
 }

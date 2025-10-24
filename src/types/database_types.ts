@@ -80,45 +80,51 @@ export type Database = {
           created_at: number
           description: string
           embedding: string | null
-          end: number
+          end: number | null
           event_type: Database["public"]["Enums"]["event_type"]
           gallery_id: string
           id: string
           price: number
-          start: number
+          scraped_page_id: string
+          start: number | null
           tags: Json
           title: string
           updated_at: number
+          url: string
         }
         Insert: {
           category: Database["public"]["Enums"]["event_category"]
           created_at: number
           description: string
           embedding?: string | null
-          end: number
+          end?: number | null
           event_type: Database["public"]["Enums"]["event_type"]
           gallery_id: string
           id: string
           price: number
-          start: number
+          scraped_page_id: string
+          start?: number | null
           tags: Json
           title: string
           updated_at: number
+          url: string
         }
         Update: {
           category?: Database["public"]["Enums"]["event_category"]
           created_at?: number
           description?: string
           embedding?: string | null
-          end?: number
+          end?: number | null
           event_type?: Database["public"]["Enums"]["event_type"]
           gallery_id?: string
           id?: string
           price?: number
-          start?: number
+          scraped_page_id?: string
+          start?: number | null
           tags?: Json
           title?: string
           updated_at?: number
+          url?: string
         }
         Relationships: [
           {
@@ -126,6 +132,13 @@ export type Database = {
             columns: ["gallery_id"]
             isOneToOne: false
             referencedRelation: "galleries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "events_scraped_page_id_fkey"
+            columns: ["scraped_page_id"]
+            isOneToOne: false
+            referencedRelation: "scraped_pages"
             referencedColumns: ["id"]
           },
         ]
@@ -240,6 +253,7 @@ export type Database = {
         | "creator_info"
         | "artists"
         | "other"
+        | "multiple_events"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -391,6 +405,7 @@ export const Constants = {
         "creator_info",
         "artists",
         "other",
+        "multiple_events",
       ],
     },
   },

@@ -65,10 +65,10 @@ export const EventExtractionSchema = z.object({
   eventType: EventTypeSchema,
   category: EventCategorySchema,
   tags: z.array(z.string()).default([]),
-  start: z.number(),
+  start: z.number().optional(),
   end: z.number().optional(),
   price: z.number().optional().default(0),
-  artistNames: z.array(z.string())
+  artistNames: z.array(z.string()).default([])
 });
 export type EventExtraction = z.infer<typeof EventExtractionSchema>;
 

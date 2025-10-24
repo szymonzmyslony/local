@@ -22,10 +22,40 @@
   ],
   "workflows": [
     {
-      "binding": "SCRAPE_WORKFLOW",
-      "name": "SCRAPE_WORKFLOW",
-      "class_name": "ScrapeWorkflow"
+      "binding": "CRAWLER_WORKFLOW",
+      "name": "CRAWLER_WORKFLOW",
+      "class_name": "CrawlerWorkflow"
+    },
+    {
+      "binding": "GALLERY_INFO_WORKFLOW",
+      "name": "GALLERY_INFO_WORKFLOW",
+      "class_name": "GalleryInfoWorkflow"
+    },
+    {
+      "binding": "ARTIST_EXTRACTION_WORKFLOW",
+      "name": "ARTIST_EXTRACTION_WORKFLOW",
+      "class_name": "ArtistExtractionWorkflow"
+    },
+    {
+      "binding": "EVENT_EXTRACTION_WORKFLOW",
+      "name": "EVENT_EXTRACTION_WORKFLOW",
+      "class_name": "EventExtractionWorkflow"
     }
   ],
+  "queues": {
+    "producers": [
+      {
+        "queue": "extraction-jobs",
+        "binding": "EXTRACTION_QUEUE"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "extraction-jobs",
+        "max_batch_size": 10,
+        "max_batch_timeout": 10
+      }
+    ]
+  },
   "observability": { "enabled": true }
 }

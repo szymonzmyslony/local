@@ -8,14 +8,16 @@ declare namespace Cloudflare {
 	interface Env {
 		OPENAI_API_KEY: string;
 		FIRECRAWL_API_KEY: string;
+		SUPABASE_URL: string;
+		SUPABASE_ANON_KEY: string;
 		CoordinatorAgent: DurableObjectNamespace<import("./src/server").CoordinatorAgent>;
 		GalleryAgent: DurableObjectNamespace<import("./src/server").GalleryAgent>;
-		DB: D1Database;
-		VECTORIZE_EVENTS: VectorizeIndex;
-		VECTORIZE_GALLERIES: VectorizeIndex;
-		VECTORIZE_ARTISTS: VectorizeIndex;
 		AI: Ai;
-		SCRAPE_WORKFLOW: Workflow<Parameters<import("./src/server").ScrapeWorkflow['run']>[0]['payload']>;
+		CRAWLER_WORKFLOW: Workflow<Parameters<import("./src/server").CrawlerWorkflow['run']>[0]['payload']>;
+		GALLERY_INFO_WORKFLOW: Workflow<Parameters<import("./src/server").GalleryInfoWorkflow['run']>[0]['payload']>;
+		ARTIST_EXTRACTION_WORKFLOW: Workflow<Parameters<import("./src/server").ArtistExtractionWorkflow['run']>[0]['payload']>;
+		EVENT_EXTRACTION_WORKFLOW: Workflow<Parameters<import("./src/server").EventExtractionWorkflow['run']>[0]['payload']>;
+		EXTRACTION_QUEUE: Queue<import("./src/types/jobs").ExtractionJob>;
 	}
 }
 interface Env extends Cloudflare.Env {}

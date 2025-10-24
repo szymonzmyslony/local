@@ -1,29 +1,43 @@
-// Minimal, deterministic IDs
+import { createHash } from "node:crypto";
+
+export function normalizeWhitespace(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}
+
 export function normalizeName(name: string): string {
-    return name.trim().replace(/\s+/g, " ").toLowerCase();
+  return normalizeWhitespace(name).toLowerCase();
+}
+
+export function normalizeTitle(title: string): string {
+  return normalizeWhitespace(title).toLowerCase();
 }
 
 export function websiteHost(url?: string | null): string {
-    try {
-        return url ? new URL(url).host.toLowerCase() : "";
-    } catch {
-        return "";
-    }
+  try {
+    return url ? new URL(url).host.toLowerCase() : "";
+  } catch {
+    throw new Error(`Invalid artist website URL: ${url}`);
+  }
 }
 
-/**
- * Artist ID = base64( normalizedName + "|" + websiteHost )[:16]
- * Stable across galleries if the website stays the same.
- */
-export function generateArtistId(name: string, website?: string | null): string {
-    const key = `${normalizeName(name)}|${websiteHost(website)}`;
-    return Buffer.from(key).toString("base64").substring(0, 16);
+function shortSha256(input: string, hexLength: number = 20): string {
+  return createHash("sha256").update(input).digest("hex").slice(0, hexLength);
 }
 
-/**
- * Event ID is per gallery (dedupe across the gallery's pages, not across galleries).
- */
-export function generateEventId(galleryId: string, title: string, start: number): string {
-    const uniqueString = `${galleryId}:${title}:${start}`;
-    return Buffer.from(uniqueString).toString("base64").substring(0, 16);
+export function generateArtistId(
+  name: string,
+  website?: string | null
+): string {
+  const key = `${normalizeName(name)}|${website ? websiteHost(website) : ""}`;
+  return shortSha256(key, 24);
+}
+
+export function generateEventId(
+  galleryId: string,
+  title: string,
+  start?: number
+): string {
+  const gallerySegment = shortSha256(normalizeWhitespace(galleryId), 10);
+  const eventSegment = shortSha256(`${normalizeTitle(title)}|${start ?? 0}`, 18);
+  return `${gallerySegment}${eventSegment}`;
 }
