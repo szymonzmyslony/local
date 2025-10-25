@@ -5,15 +5,15 @@
   "compatibility_date": "2025-10-01",
   "compatibility_flags": ["nodejs_compat"],
   "routes": [
-    {
-      "pattern": "zinelocal.com/*",
-      "zone_name": "zinelocal.com"
-    },
-    {
-      "pattern": "www.zinelocal.com/*",
-      "zone_name": "zinelocal.com"
-    }
-  ],
+		{
+			"pattern": "zinelocal.com",
+			"custom_domain": true
+		},
+		{
+			"pattern": "www.zinelocal.com",
+			"custom_domain": true
+		}
+	],
   "assets": {
     "directory": "./dist/client",
     "binding": "ASSETS"
