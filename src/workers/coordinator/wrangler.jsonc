@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "citychat-coordinator",
+  "main": "src/coordinator.ts",
+  "compatibility_date": "2025-05-01",
+  "queues": {
+    "producers": [
+      {
+        "queue": "SOURCE",
+        "binding": "SOURCE_PRODUCER"
+      }
+    ]
+  }
+}

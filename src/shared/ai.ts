@@ -1,0 +1,20 @@
+import { generateObject } from 'ai';
+import { type OpenAIProvider } from '@ai-sdk/openai';
+import { PageExtractZ, type PageExtract } from './schema';
+
+// Uses the AI SDK with OpenAI; swap model/provider if you prefer.
+export async function extractFromMarkdown(openai: OpenAIProvider, md: string, url: string): Promise<PageExtract> {
+    const { object } = await generateObject({
+        model: openai('gpt-4o-mini'),
+        schema: PageExtractZ,
+        prompt:
+            `Extract artists (people), galleries/institutions, and events from the Markdown below.
+Only include facts explicitly present. Use ISO 8601 for any dates.
+
+URL: ${url}
+---
+${md.slice(0, 10000)}`
+    });
+
+    return object;
+}
