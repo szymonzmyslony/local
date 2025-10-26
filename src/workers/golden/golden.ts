@@ -11,7 +11,6 @@ import {
 } from "@/shared/supabase";
 import type { TablesInsert } from "@/types/database_types";
 
-interface Env extends SupabaseEnv {}
 
 export default {
   async fetch(request: Request, env: Env) {
@@ -31,17 +30,18 @@ export default {
   async queue(batch: MessageBatch<GoldenQueueMessage>, env: Env) {
     const sb = getServiceClient(env);
 
-    for (const { body, ack, retry } of batch.messages) {
+    for (const message of batch.messages) {
       try {
+        const { body } = message;
         if (body.type !== "golden.materialize") {
-          ack();
+          message.ack();
           continue;
         }
 
         await materializeEntity(sb, body.entityType, body.entityId);
-        ack();
+        message.ack();
       } catch (error) {
-        retry();
+        message.retry();
       }
     }
   },

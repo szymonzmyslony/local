@@ -6,8 +6,12 @@
   "queues": {
     "producers": [
       {
-        "queue": "SOURCE",
+        "queue": "source",
         "binding": "SOURCE_PRODUCER"
+      },
+      {
+        "queue": "golden",
+        "binding": "GOLDEN_PRODUCER"
       }
     ]
   }

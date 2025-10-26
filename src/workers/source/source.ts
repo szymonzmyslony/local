@@ -32,17 +32,18 @@ export default {
   async queue(batch: MessageBatch<SourceQueueMessage>, env: Env) {
     const sb = getServiceClient(env);
 
-    for (const { body, ack, retry } of batch.messages) {
+    for (const message of batch.messages) {
       try {
+        const { body } = message;
         if (body.type !== "source.extract") {
-          ack();
+          message.ack();
           continue;
         }
 
         await extractForUrl(env, sb, body.url);
-        ack();
+        message.ack();
       } catch (err) {
-        retry();
+        message.retry();
       }
     }
   },

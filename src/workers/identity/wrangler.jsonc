@@ -5,11 +5,11 @@
   "compatibility_date": "2025-05-01",
   "queues": {
     "producers": [
-      { "queue": "GOLDEN", "binding": "GOLDEN_PRODUCER" }
+      { "queue": "golden", "binding": "GOLDEN_PRODUCER" }
     ],
     "consumers": [
       {
-        "queue": "IDENTITY",
+        "queue": "identity",
         "max_batch_size": 10,
         "max_batch_timeout": 10
       }

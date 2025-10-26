@@ -6,7 +6,7 @@
   "queues": {
     "consumers": [
       {
-        "queue": "GOLDEN",
+        "queue": "golden",
         "max_batch_size": 10,
         "max_batch_timeout": 10
       }

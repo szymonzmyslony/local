@@ -4,6 +4,12 @@ export type EntityType = Database["public"]["Enums"]["entity_type"];
 
 export type SourceQueueMessage = { type: "source.extract"; url: string };
 
+export type CrawlerQueueMessage = {
+  type: "crawler.crawl";
+  seed: string;
+  maxPages?: number;
+};
+
 export type IdentityIndexArtist = {
   type: "identity.index.artist";
   sourceArtistId: string;
@@ -31,6 +37,7 @@ export type GoldenQueueMessage = {
 };
 
 export type QueueMessage =
+  | CrawlerQueueMessage
   | SourceQueueMessage
   | IdentityQueueMessage
   | GoldenQueueMessage;

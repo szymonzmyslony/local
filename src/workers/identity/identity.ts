@@ -72,15 +72,16 @@ export default {
     const sb = getServiceClient(env);
     const embedder = createEmbedder(env.OPENAI_API_KEY);
 
-    for (const { body, ack, retry } of batch.messages) {
+    for (const message of batch.messages) {
       try {
+        const { body } = message;
         const messages = await handleMessage(sb, body, embedder);
         for (const msg of messages) {
           await env.GOLDEN_PRODUCER.send(msg);
         }
-        ack();
+        message.ack();
       } catch (error) {
-        retry();
+        message.retry();
       }
     }
   },
