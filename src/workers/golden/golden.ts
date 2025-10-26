@@ -1,16 +1,13 @@
+/// <reference path="./worker-configuration.d.ts" />
+
 import { jsonResponse, readJson } from "@/shared/http";
 import type {
   EntityType,
   GoldenQueueMessage,
   MaterializeRequest,
 } from "@/shared/messages";
-import {
-  getServiceClient,
-  type SupabaseEnv,
-  type SupabaseServiceClient,
-} from "@/shared/supabase";
+import { getServiceClient, type SupabaseServiceClient } from "@/shared/supabase";
 import type { TablesInsert } from "@/types/database_types";
-
 
 export default {
   async fetch(request: Request, env: Env) {

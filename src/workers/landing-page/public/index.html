@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Zine Local - Discover Warsaw's Art Scene</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap");
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
+          "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans",
+          "Helvetica Neue", sans-serif;
+        background-color: #f4f5f0;
+        color: #1e1e1e;
+        overflow-x: hidden;
+      }
+
+      .container {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        padding: 0 16px;
+        overflow: hidden;
+        max-width: 100%;
+      }
+
+      @media (min-width: 640px) {
+        .container {
+          padding: 0 24px;
+        }
+      }
+
+      @media (min-width: 1024px) {
+        .container {
+          padding: 0 32px;
+        }
+      }
+
+      /* Header */
+      header {
+        padding: 12px 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 16px;
+        flex-shrink: 0;
+        width: 100%;
+      }
+
+      @media (min-width: 640px) {
+        header {
+          flex-direction: row;
+          align-items: center;
+          padding: 16px 0;
+        }
+      }
+
+      @media (min-width: 1024px) {
+        header {
+          padding: 20px 0;
+        }
+      }
+
+      .logo {
+        width: 130px;
+        height: 30px;
+      }
+
+      nav {
+        display: flex;
+        align-items: center;
+        gap: 0;
+        border-bottom: 1px solid #6f706b;
+        width: 100%;
+      }
+
+      @media (min-width: 640px) {
+        nav {
+          width: auto;
+          flex: 1;
+          justify-content: flex-end;
+        }
+      }
+
+      nav a {
+        padding: 12px 12px;
+        color: #000;
+        text-decoration: none;
+        font-size: 14px;
+        transition: all 0.2s;
+        white-space: nowrap;
+      }
+
+      @media (min-width: 640px) {
+        nav a {
+          padding: 12px 16px;
+        }
+      }
+
+      @media (min-width: 1024px) {
+        nav a {
+          padding: 12px 20px;
+        }
+      }
+
+      nav a.bold-link {
+        font-weight: bold;
+      }
+
+      nav a:hover {
+        font-weight: bold;
+      }
+
+      nav a svg {
+        display: inline-block;
+        margin-left: 4px;
+      }
+
+      /* Main Content */
+      main {
+        flex: 1;
+        margin-top: 8px;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+        align-items: flex-start;
+        gap: 16px;
+        max-width: 100%;
+        overflow-y: auto;
+        width: 100%;
+      }
+
+      @media (min-width: 640px) {
+        main {
+          margin-top: 12px;
+        }
+      }
+
+      @media (min-width: 1024px) {
+        main {
+          margin-top: 16px;
+          overflow: hidden;
+        }
+      }
+
+      .content-wrapper {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        align-items: stretch;
+      }
+
+      @media (min-width: 1024px) {
+        .content-wrapper {
+          flex-direction: row;
+          gap: 64px;
+          align-items: flex-start;
+        }
+      }
+
+      /* Left Column */
+      .left-column {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        flex-shrink: 0;
+      }
+
+      @media (min-width: 1024px) {
+        .left-column {
+          width: 440px;
+          flex-shrink: 0;
+          overflow-y: auto;
+          gap: 24px;
+        }
+      }
+
+      section {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      @media (min-width: 1024px) {
+        section {
+          gap: 8px;
+        }
+      }
+
+      h1,
+      h2 {
+        font-size: 20px;
+        font-weight: bold;
+        color: #1e1e1e;
+      }
+
+      @media (min-width: 1024px) {
+        h1,
+        h2 {
+          font-size: 18px;
+        }
+      }
+
+      p {
+        font-size: 14px;
+        color: #000;
+        line-height: 1.4;
+      }
+
+      @media (min-width: 1024px) {
+        p {
+          font-size: 14px;
+        }
+      }
+
+      .instructions {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      @media (min-width: 1024px) {
+        .instructions {
+          gap: 4px;
+        }
+      }
+
+      .instruction-item {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      @media (min-width: 1024px) {
+        .instruction-item {
+          gap: 2px;
+        }
+      }
+
+      .subtext {
+        font-size: 12px;
+        color: #940099;
+        font-family: "IBM Plex Mono", monospace;
+        text-transform: uppercase;
+      }
+
+      @media (min-width: 1024px) {
+        .subtext {
+          font-size: 11px;
+        }
+      }
+
+      .subtext-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      @media (min-width: 1024px) {
+        .subtext-list {
+          gap: 2px;
+        }
+      }
+
+      .links-section {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 24px;
+      }
+
+      @media (min-width: 1024px) {
+        .links-section {
+          gap: 16px;
+        }
+      }
+
+      .action-link {
+        padding: 8px 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+        font-weight: bold;
+        color: #000;
+        text-decoration: none;
+        transition: opacity 0.2s;
+      }
+
+      @media (min-width: 1024px) {
+        .action-link {
+          padding: 6px 0;
+          font-size: 14px;
+        }
+      }
+
+      .action-link:hover {
+        opacity: 0.7;
+      }
+
+      .action-link:not(.bold-link) {
+        font-weight: normal;
+      }
+
+      .action-link:not(.bold-link):hover {
+        font-weight: bold;
+      }
+
+      .copyright {
+        font-size: 11px;
+        color: #666;
+        margin-top: 24px;
+      }
+
+      @media (min-width: 1024px) {
+        .copyright {
+          font-size: 10px;
+          margin-top: 32px;
+        }
+      }
+
+      /* Right Column */
+      .right-column {
+        width: 100%;
+        display: flex;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+
+      @media (min-width: 1024px) {
+        .right-column {
+          flex: 1;
+          justify-content: flex-start;
+          align-items: flex-start;
+          min-width: 0;
+        }
+      }
+
+      .magazine-image {
+        width: 100%;
+        max-width: 703px;
+        height: auto;
+        object-fit: contain;
+        display: block;
+      }
+
+      @media (min-width: 640px) {
+        .magazine-image {
+          max-width: 600px;
+        }
+      }
+
+      @media (min-width: 1024px) {
+        .magazine-image {
+          width: 100%;
+          max-width: none;
+          height: auto;
+          max-height: 80vh;
+          object-fit: cover;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <!-- Navigation Header -->
+      <header>
+        <img
+          src="https://api.builder.io/api/v1/image/assets/TEMP/9741920ca39a8fc07288c6f79d0b84b78ffb90af?width=261"
+          alt="Zine Local Logo"
+          class="logo"
+        />
+        <nav>
+          <a href="#overview" class="bold-link">Overview</a>
+          <!--
+          <a href="#add-event">Add event</a> -->
+          <a href="#start-chatting">
+            Start chatting
+            <svg
+              width="9"
+              height="9"
+              viewBox="0 0 11 11"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M0.5 10.5L10.5 0.5M10.5 0.5H0.5M10.5 0.5V10.5"
+                stroke="black"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </a>
+        </nav>
+      </header>
+
+      <!-- Main Content -->
+      <main>
+        <div class="content-wrapper">
+          <!-- Left Column - Text Content -->
+          <div class="left-column">
+            <!-- Introduction Section -->
+            <section>
+              <h1>INTRODUCTION</h1>
+              <div class="instructions">
+                <p>
+                  Discover Warsaw's Art Scene through conversation. Chat with
+                  the Local Zine that knows Warsaw's galleries, exhibitions and
+                  creative events.
+                </p>
+                <div class="subtext-list">
+                  <p class="subtext">-ask naturally</p>
+                  <p class="subtext">-discover easily</p>
+                  <p class="subtext">-contribute effortlessly</p>
+                </div>
+              </div>
+            </section>
+
+            <!-- Try Asking Section -->
+            <section>
+              <h2>TRY ASKING</h2>
+              <div class="instructions">
+                <div class="instruction-item">
+                  <p>What is happening this weekend?</p>
+                  <p class="subtext">
+                    Get a curated list of weekend art events.
+                  </p>
+                </div>
+                <div class="instruction-item">
+                  <p>Show me contemporary art galleries</p>
+                  <p class="subtext">Find galleries by style or medium.</p>
+                </div>
+                <div class="instruction-item">
+                  <p>Events near Old Town?</p>
+                  <p class="subtext">Discover art events by location.</p>
+                </div>
+                <div class="instruction-item">
+                  <p>I want to add an event</p>
+                  <p class="subtext">Share your own art event or experience.</p>
+                </div>
+              </div>
+            </section>
+
+            <!-- Zine Local Section -->
+            <section>
+              <h2>ZINE LOCAL</h2>
+              <div class="instructions">
+                <p>
+                  Why zine? A "local zine" is a self-published magazine or
+                  booklet created by and for a specific geographic community,
+                  featuring content like local stories, art, activism, and
+                  history.
+                </p>
+                <div class="links-section">
+                  <a href="#start-chatting" class="action-link bold-link">
+                    Start chatting
+                    <svg
+                      width="8"
+                      height="8"
+                      viewBox="0 0 11 11"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path
+                        d="M0.5 10.5L10.5 0.5M10.5 0.5H0.5M10.5 0.5V10.5"
+                        stroke="black"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  </a>
+                  <a href="#add-event" class="action-link">
+                    Add event
+                    <svg
+                      width="8"
+                      height="8"
+                      viewBox="0 0 11 11"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path
+                        d="M0.5 10.5L10.5 0.5M10.5 0.5H0.5M10.5 0.5V10.5"
+                        stroke="black"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  </a>
+                </div>
+              </div>
+            </section>
+
+            <!-- Copyright -->
+            <p class="copyright">© 2025 ZineLocal. All rights reserved.</p>
+          </div>
+
+          <!-- Right Column - Magazine Image -->
+          <div class="right-column">
+            <img
+              src="https://api.builder.io/api/v1/image/assets/TEMP/771177842d612c13cd9dd75715ad3da1a3ded991?width=1406"
+              alt="Local Zine Magazine Cover"
+              class="magazine-image"
+            />
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      // Smooth scroll for anchor links
+      document.querySelectorAll('a[href^="#"]').forEach((anchor) => {
+        anchor.addEventListener("click", function (e) {
+          e.preventDefault();
+          const target = document.querySelector(this.getAttribute("href"));
+          if (target) {
+            target.scrollIntoView({ behavior: "smooth" });
+          }
+        });
+      });
+    </script>
+  </body>
+</html>

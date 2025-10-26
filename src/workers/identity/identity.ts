@@ -1,3 +1,5 @@
+/// <reference path="./worker-configuration.d.ts" />
+
 import { createEmbedder, type Embedder } from "@/shared/embedding";
 import { jsonResponse, readJson } from "@/shared/http";
 import {
@@ -7,11 +9,7 @@ import {
   type IndexRequest,
   type MergeRequest,
 } from "@/shared/messages";
-import {
-  getServiceClient,
-  type SupabaseEnv,
-  type SupabaseServiceClient,
-} from "@/shared/supabase";
+import { getServiceClient, type SupabaseServiceClient } from "@/shared/supabase";
 import { toPgVector } from "@/shared/vector";
 import type { Tables } from "@/types/database_types";
 
@@ -43,11 +41,6 @@ type SourceEventRecord = Pick<
   | "participants"
   | "identity_entity_id"
 >;
-
-interface Env extends SupabaseEnv {
-  OPENAI_API_KEY: string;
-  GOLDEN_PRODUCER: Queue<GoldenQueueMessage>;
-}
 
 export default {
   async fetch(request: Request, env: Env) {

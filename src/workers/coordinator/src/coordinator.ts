@@ -1,24 +1,18 @@
+/// <reference path="../worker-configuration.d.ts" />
+
 // Coordinator = single ingress for Firecrawl + health.
 // POST /ingest-md  { url: string, markdown: string }
 
 import { jsonResponse, readJson } from "@/shared/http";
-import { getServiceClient, type SupabaseEnv } from "@/shared/supabase";
-import type {
-  EntityType,
-  MarkSameRequest,
-  SourceQueueMessage,
-  GoldenQueueMessage,
-} from "@/shared/messages";
+import { getServiceClient } from "@/shared/supabase";
+import type { EntityType, MarkSameRequest } from "@/shared/messages";
 
 type IngestBody = { url: string; markdown: string; enqueue?: boolean };
 
-interface Env extends SupabaseEnv {
-  SOURCE_PRODUCER: Queue<SourceQueueMessage>;
-  GOLDEN_PRODUCER: Queue<GoldenQueueMessage>;
-}
+type Bindings = Cloudflare.Env;
 
 export default {
-  async fetch(request: Request, env: Env) {
+  async fetch(request: Request, env: Bindings) {
     const url = new URL(request.url);
 
     if (url.pathname === "/health") {
@@ -35,9 +29,9 @@ export default {
 
     return new Response("Not found", { status: 404 });
   },
-} satisfies ExportedHandler<Env>;
+} satisfies ExportedHandler<Bindings>;
 
-async function ingestMarkdown(request: Request, env: Env): Promise<Response> {
+async function ingestMarkdown(request: Request, env: Bindings): Promise<Response> {
   const body = await readJson<IngestBody>(request);
 
   if (!body?.url || !body?.markdown) {
@@ -69,7 +63,7 @@ async function ingestMarkdown(request: Request, env: Env): Promise<Response> {
   return jsonResponse(200, { ok: true, queued: shouldEnqueue });
 }
 
-async function markSame(request: Request, env: Env): Promise<Response> {
+async function markSame(request: Request, env: Bindings): Promise<Response> {
   const body = await readJson<MarkSameRequest>(request);
 
   if (!body?.entity_type || !body.winner_id || !body.loser_id) {

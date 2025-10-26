@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const ArtistZ = z.object({
     name: z.string(),
     bio: z.string().optional(),
-    website: z.string().url().optional(),
+    website: z.string().optional(),
     socials: z.array(z.string()).default([]),
 });
 export type Artist = z.infer<typeof ArtistZ>;
@@ -19,9 +19,9 @@ export type Gallery = z.infer<typeof GalleryZ>;
 export const EventZ = z.object({
     title: z.string(),
     description: z.string().optional(),
-    url: z.string().url().optional(),
-    start_ts: z.string().datetime().optional(),
-    end_ts: z.string().datetime().optional(),
+    url: z.string().optional(),
+    start_ts: z.string().optional(),
+    end_ts: z.string().optional(),
     venue_name: z.string().optional(),
     participants: z.array(z.string()).default([]),
 });

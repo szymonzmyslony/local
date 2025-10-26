@@ -1,18 +1,15 @@
+/// <reference path="./worker-configuration.d.ts" />
+
 // Layer-1: read page markdown, extract typed objects with AI (Zod),
 // write to source_* tables, and notify Identity layer.
 
 import { extractFromMarkdown } from "@/shared/ai";
 import { jsonResponse, readJson } from "@/shared/http";
-import type { IdentityQueueMessage, SourceQueueMessage } from "@/shared/messages";
-import { getServiceClient, type SupabaseEnv, type SupabaseServiceClient } from "@/shared/supabase";
+import type { SourceQueueMessage } from "@/shared/messages";
+import { getServiceClient, type SupabaseServiceClient } from "@/shared/supabase";
 import { createOpenAI } from "@ai-sdk/openai";
 
 type IngestBody = { url: string; markdown: string };
-
-interface Env extends SupabaseEnv {
-  OPENAI_API_KEY: string;
-  IDENTITY_PRODUCER: Queue<IdentityQueueMessage>;
-}
 
 export default {
   async fetch(request: Request, env: Env) {

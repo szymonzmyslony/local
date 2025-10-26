@@ -1,16 +1,23 @@
+/// <reference path="./worker-configuration.d.ts" />
+
 import { jsonResponse, readJson } from "@/shared/http";
 import type { CrawlerQueueMessage, SourceQueueMessage } from "@/shared/messages";
-import { getServiceClient, type SupabaseEnv, type SupabaseServiceClient } from "@/shared/supabase";
+import { getServiceClient, type SupabaseServiceClient } from "@/shared/supabase";
 
 interface CrawlRequest {
   seed: string;
   maxPages?: number;
 }
 
-interface Env extends SupabaseEnv {
-  FIRECRAWL_API_KEY: string;
-  SOURCE_PRODUCER: Queue<SourceQueueMessage>;
-  CRAWL_PRODUCER: Queue<CrawlerQueueMessage>;
+declare global {
+  interface Env {
+    SOURCE_PRODUCER: Queue<SourceQueueMessage>;
+    CRAWL_PRODUCER: Queue<CrawlerQueueMessage>;
+    FIRECRAWL_API_KEY: string;
+    SUPABASE_URL: string;
+    SUPABASE_SERVICE_ROLE_KEY?: string;
+    SUPABASE_ANON_KEY?: string;
+  }
 }
 
 const FIRECRAWL_ENDPOINT = "https://api.firecrawl.dev/v2/scrape";
