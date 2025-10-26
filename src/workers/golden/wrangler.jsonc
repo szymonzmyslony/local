@@ -1,0 +1,15 @@
+{
+  "$schema": "../../../node_modules/wrangler/config-schema.json",
+  "name": "citychat-golden",
+  "main": "golden.ts",
+  "compatibility_date": "2025-05-01",
+  "queues": {
+    "consumers": [
+      {
+        "queue": "GOLDEN",
+        "max_batch_size": 10,
+        "max_batch_timeout": 10
+      }
+    ]
+  }
+}

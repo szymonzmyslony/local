@@ -1,107 +1,186 @@
 // Layer-1: read page markdown, extract typed objects with AI (Zod),
 // write to source_* tables, and notify Identity layer.
 
-import { extractFromMarkdown } from '@/shared/ai';
-import { createOpenAI } from '@ai-sdk/openai';
-import { createClient } from '@supabase/supabase-js';
+import { extractFromMarkdown } from "@/shared/ai";
+import { jsonResponse, readJson } from "@/shared/http";
+import type { IdentityQueueMessage, SourceQueueMessage } from "@/shared/messages";
+import { getServiceClient, type SupabaseEnv, type SupabaseServiceClient } from "@/shared/supabase";
+import { createOpenAI } from "@ai-sdk/openai";
 
-type SourceMsg = { type: 'source.extract'; url: string };
+type IngestBody = { url: string; markdown: string };
 
-type IdentityMsg =
-    | { type: 'identity.index.artist'; sourceArtistId: string }
-    | { type: 'identity.index.gallery'; sourceGalleryId: string }
-    | { type: 'identity.index.event'; sourceEventId: string };
-
-interface Env {
-    SUPABASE_URL: string;
-    SUPABASE_SERVICE_ROLE_KEY: string;
-    OPENAI_API_KEY?: string;              // used in shared/aiExtract.ts
-    IDENTITY_PRODUCER: Queue<IdentityMsg>;
+interface Env extends SupabaseEnv {
+  OPENAI_API_KEY: string;
+  IDENTITY_PRODUCER: Queue<IdentityQueueMessage>;
 }
 
 export default {
-    async queue(batch: MessageBatch<SourceMsg>, env: Env) {
-        const sb = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, { global: { fetch } });
+  async fetch(request: Request, env: Env) {
+    const url = new URL(request.url);
 
-        for (const { body, ack, retry } of batch.messages) {
-            try {
-                if (body.type !== 'source.extract') { ack(); continue; }
+    if (url.pathname === "/health") {
+      return new Response("ok");
+    }
 
-                // Load markdown for this URL
-                const { data: page, error } = await sb.from('pages').select('url, md').eq('url', body.url).single();
-                if (error || !page?.md) { ack(); continue; }
+    if (url.pathname === "/ingest-md" && request.method === "POST") {
+      return ingestAndExtract(request, env);
+    }
 
-                // AI extraction (Zod-validated)
-                const openai = createOpenAI({ apiKey: env.OPENAI_API_KEY });
-                const extracted = await extractFromMarkdown(openai, page.md, page.url);
+    return new Response("Not found", { status: 404 });
+  },
 
-                // Insert artists
-                for (const a of extracted.artists) {
-                    const { data, error: e } = await sb
-                        .from('source_artists')
-                        .insert({
-                            page_url: page.url,
-                            name: a.name,
-                            bio: a.bio ?? null,
-                            website: a.website ?? null,
-                            socials: a.socials ?? [],
-                        })
-                        .select()
-                        .maybeSingle();
+  async queue(batch: MessageBatch<SourceQueueMessage>, env: Env) {
+    const sb = getServiceClient(env);
 
-                    // Ignore uniqueness clashes (same page_url + name)
-                    if (!e && data) {
-                        // Hand off to Identity (Layer-2); safe to skip if queue not created yet
-                        await env.IDENTITY_PRODUCER.send({ type: 'identity.index.artist', sourceArtistId: data.id });
-                    }
-                }
-
-                // Insert galleries (institutions)
-                for (const g of extracted.galleries) {
-                    const { data, error: e } = await sb
-                        .from('source_galleries')
-                        .insert({
-                            page_url: page.url,
-                            name: g.name,
-                            website: g.website ?? null,
-                            address: g.address ?? null,
-                            description: g.description ?? null,
-                        })
-                        .select()
-                        .maybeSingle();
-
-                    if (!e && data) {
-                        await env.IDENTITY_PRODUCER.send({ type: 'identity.index.gallery', sourceGalleryId: data.id });
-                    }
-                }
-
-                // Insert events
-                for (const ev of extracted.events) {
-                    const { data, error: e } = await sb
-                        .from('source_events')
-                        .insert({
-                            page_url: page.url,
-                            title: ev.title,
-                            description: ev.description ?? null,
-                            url: ev.url ?? null,
-                            start_ts: ev.start_ts ?? null,
-                            end_ts: ev.end_ts ?? null,
-                            venue_name: ev.venue_name ?? null,
-                            participants: ev.participants ?? [],
-                        })
-                        .select()
-                        .maybeSingle();
-
-                    if (!e && data) {
-                        await env.IDENTITY_PRODUCER.send({ type: 'identity.index.event', sourceEventId: data.id });
-                    }
-                }
-
-                ack();
-            } catch (err) {
-                console.error('SOURCE error', err);
-                retry();
-            }
+    for (const { body, ack, retry } of batch.messages) {
+      try {
+        if (body.type !== "source.extract") {
+          ack();
+          continue;
         }
+
+        await extractForUrl(env, sb, body.url);
+        ack();
+      } catch (err) {
+        retry();
+      }
+    }
+  },
+} satisfies ExportedHandler<Env, SourceQueueMessage>;
+
+async function ingestAndExtract(request: Request, env: Env): Promise<Response> {
+  const body = await readJson<IngestBody>(request);
+
+  if (!body?.url || !body?.markdown) {
+    return jsonResponse(400, { error: "Missing url or markdown" });
+  }
+
+  const sb = getServiceClient(env);
+  const now = new Date().toISOString();
+  const { error } = await sb.from("pages").upsert(
+    {
+      url: body.url,
+      status: 200,
+      fetched_at: now,
+      md: body.markdown,
+      updated_at: now,
     },
-} satisfies ExportedHandler<Env>;
+    { onConflict: "url" },
+  );
+
+  if (error) {
+    return jsonResponse(500, { error: error.message });
+  }
+
+  await extractForUrl(env, sb, body.url);
+
+  return jsonResponse(200, { ok: true, queued: false });
+}
+
+async function extractForUrl(env: Env, sb: SupabaseServiceClient, url: string) {
+  const { data: page, error } = await sb.from("pages").select("url, md").eq("url", url).single();
+  if (error || !page?.md) {
+    throw new Error(`Page missing markdown for ${url}`);
+  }
+
+  const openai = createOpenAI({ apiKey: env.OPENAI_API_KEY });
+  const extracted = await extractFromMarkdown(openai, page.md, page.url);
+
+  await Promise.all([
+    insertArtists(env, sb, page.url, extracted.artists ?? []),
+    insertGalleries(env, sb, page.url, extracted.galleries ?? []),
+    insertEvents(env, sb, page.url, extracted.events ?? []),
+  ]);
+}
+
+async function insertArtists(
+  env: Env,
+  sb: SupabaseServiceClient,
+  pageUrl: string,
+  artists: Awaited<ReturnType<typeof extractFromMarkdown>>["artists"],
+) {
+  for (const artist of artists) {
+    const { data, error } = await sb
+      .from("source_artists")
+      .upsert(
+        {
+          page_url: pageUrl,
+          name: artist.name,
+          bio: artist.bio ?? null,
+          website: artist.website ?? null,
+          socials: artist.socials ?? [],
+        },
+        { onConflict: "page_url,name" },
+      )
+      .select()
+      .maybeSingle();
+
+    if (error) throw error;
+    if (data) await env.IDENTITY_PRODUCER.send({ type: "identity.index.artist", sourceArtistId: data.id });
+  }
+}
+
+async function insertGalleries(
+  env: Env,
+  sb: SupabaseServiceClient,
+  pageUrl: string,
+  galleries: Awaited<ReturnType<typeof extractFromMarkdown>>["galleries"],
+) {
+  for (const gallery of galleries) {
+    const { data, error } = await sb
+      .from("source_galleries")
+      .upsert(
+        {
+          page_url: pageUrl,
+          name: gallery.name,
+          website: gallery.website ?? null,
+          address: gallery.address ?? null,
+          description: gallery.description ?? null,
+        },
+        { onConflict: "page_url,name" },
+      )
+      .select()
+      .maybeSingle();
+
+    if (error) throw error;
+    if (data)
+      await env.IDENTITY_PRODUCER.send({
+        type: "identity.index.gallery",
+        sourceGalleryId: data.id,
+      });
+  }
+}
+
+async function insertEvents(
+  env: Env,
+  sb: SupabaseServiceClient,
+  pageUrl: string,
+  events: Awaited<ReturnType<typeof extractFromMarkdown>>["events"],
+) {
+  for (const event of events) {
+    const { data, error } = await sb
+      .from("source_events")
+      .upsert(
+        {
+          page_url: pageUrl,
+          title: event.title,
+          description: event.description ?? null,
+          url: event.url ?? null,
+          start_ts: event.start_ts ?? null,
+          end_ts: event.end_ts ?? null,
+          venue_name: event.venue_name ?? null,
+          participants: event.participants ?? [],
+        },
+        { onConflict: "page_url,title" },
+      )
+      .select()
+      .maybeSingle();
+
+    if (error) throw error;
+    if (data)
+      await env.IDENTITY_PRODUCER.send({
+        type: "identity.index.event",
+        sourceEventId: data.id,
+      });
+  }
+}

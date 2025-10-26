@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../node_modules/wrangler/config-schema.json",
+  "name": "citychat-source",
+  "main": "source.ts",
+  "compatibility_date": "2025-05-01",
+  "queues": {
+    "producers": [
+      { "queue": "IDENTITY", "binding": "IDENTITY_PRODUCER" }
+    ],
+    "consumers": [
+      {
+        "queue": "SOURCE",
+        "max_batch_size": 10,
+        "max_batch_timeout": 10
+      }
+    ]
+  }
+}
