@@ -16,6 +16,7 @@ interface CrawlRequest {
   maxPages?: number;
   searchTerm?: string;
   includeSubdomains?: boolean;
+  force?: boolean;
 }
 
 declare global {
@@ -99,6 +100,7 @@ async function handleCrawlRequest(request: Request, env: Env): Promise<Response>
     max_pages: maxPages,
     search_term: body.searchTerm,
     include_subdomains: body.includeSubdomains ?? false,
+    force: body.force ?? false,
     status: "discovering",
   };
 
@@ -229,14 +231,28 @@ async function processMapJob(env: Env, job: CrawlerMapMessage): Promise<void> {
       })
       .eq("id", job.jobId);
 
-    // Enqueue fetch jobs for discovered URLs
-    const fetchJobs: CrawlerFetchMessage[] = result.links
-      .slice(0, crawlJob.max_pages ?? DEFAULT_MAX_PAGES)
-      .map((url) => ({
-        type: "crawler.fetch",
-        url,
-        jobId: job.jobId,
-      }));
+    // Filter out URLs that already exist in pages table (unless force=true)
+    let urlsToFetch = result.links.slice(0, crawlJob.max_pages ?? DEFAULT_MAX_PAGES);
+
+    if (!crawlJob.force) {
+      // Check which URLs already exist in pages table
+      const { data: existingPages } = await sb
+        .from("pages")
+        .select("url")
+        .in("url", urlsToFetch);
+
+      const existingUrlSet = new Set(existingPages?.map((p) => p.url) || []);
+
+      // Only fetch URLs that don't already exist
+      urlsToFetch = urlsToFetch.filter((url) => !existingUrlSet.has(url));
+    }
+
+    // Enqueue fetch jobs for filtered URLs
+    const fetchJobs: CrawlerFetchMessage[] = urlsToFetch.map((url) => ({
+      type: "crawler.fetch",
+      url,
+      jobId: job.jobId,
+    }));
 
     for (const fetchJob of fetchJobs) {
       await env.CRAWL_PRODUCER.send(fetchJob);

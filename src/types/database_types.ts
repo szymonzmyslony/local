@@ -19,6 +19,7 @@ export type Database = {
           completed_at: string | null
           created_at: string
           error_message: string | null
+          force: boolean | null
           id: string
           include_subdomains: boolean | null
           max_pages: number | null
@@ -33,6 +34,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           error_message?: string | null
+          force?: boolean | null
           id?: string
           include_subdomains?: boolean | null
           max_pages?: number | null
@@ -47,6 +49,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           error_message?: string | null
+          force?: boolean | null
           id?: string
           include_subdomains?: boolean | null
           max_pages?: number | null
@@ -399,30 +402,6 @@ export type Database = {
           status?: number | null
           updated_at?: string
           url?: string
-        }
-        Relationships: []
-      }
-      sites: {
-        Row: {
-          created_at: string
-          domain: string
-          id: string
-          notes: string | null
-          seeds: string[]
-        }
-        Insert: {
-          created_at?: string
-          domain: string
-          id?: string
-          notes?: string | null
-          seeds?: string[]
-        }
-        Update: {
-          created_at?: string
-          domain?: string
-          id?: string
-          notes?: string | null
-          seeds?: string[]
         }
         Relationships: []
       }
