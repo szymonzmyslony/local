@@ -1,8 +1,3 @@
-/// <reference path="./worker-configuration.d.ts" />
-
-// Layer-1: read page markdown, extract typed objects with AI (Zod),
-// write to source_* tables, and notify Identity layer.
-
 import { extractFromMarkdown } from "@/shared/ai";
 import { jsonResponse, readJson } from "@/shared/http";
 import type { SourceQueueMessage } from "@/shared/messages";
