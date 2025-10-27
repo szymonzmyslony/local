@@ -1,31 +1,36 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "citychat-coordinator",
-  "main": "coordinator.ts",
-  "compatibility_date": "2025-05-01",
-  "compatibility_flags": ["nodejs_compat"],
-  "observability": {
-    "logs": {
-      "enabled": false,
-      "head_sampling_rate": 1,
-      "invocation_logs": true,
-      "persist": true
-    }
-  },
-  "workers_dev": false,
-  "routes": [
-    { "pattern": "admin.zinelocal.com/*", "zone_name": "zinelocal.com" }
-  ],
-  "queues": {
-    "producers": [
-      {
-        "queue": "source",
-        "binding": "SOURCE_PRODUCER"
-      },
-      {
-        "queue": "golden",
-        "binding": "GOLDEN_PRODUCER"
-      }
-    ]
-  }
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "citychat-coordinator",
+	"main": "src/server.ts",
+	"compatibility_date": "2025-08-03",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"assets": {
+		"directory": "public",
+		"not_found_handling": "single-page-application"
+	},
+	"queues": {
+		"producers": [
+			{
+				"queue": "source",
+				"binding": "SOURCE_PRODUCER"
+			},
+			{
+				"queue": "golden",
+				"binding": "GOLDEN_PRODUCER"
+			}
+		]
+	},
+	"observability": {
+		"enabled": true
+	},
+	"workers_dev": false,
+	"routes": [
+		{ "pattern": "admin.zinelocal.com/*", "zone_name": "zinelocal.com" }
+	]
 }

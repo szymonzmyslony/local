@@ -16,18 +16,11 @@ import {
 import { openai } from "@ai-sdk/openai";
 import { processToolCalls, cleanupMessages } from "./utils";
 import { tools, executions } from "./tools";
+// import { AI_CONFIG } from "../../config/ai";
 // import { env } from "cloudflare:workers";
 
-const model = openai("gpt-4o-2024-11-20");
-// Cloudflare AI Gateway
-// const openai = createOpenAI({
-//   apiKey: env.OPENAI_API_KEY,
-//   baseURL: env.GATEWAY_BASE_URL,
-// });
+const model = openai("gpt-5");
 
-/**
- * Chat Agent implementation that handles real-time AI chat interactions
- */
 export class Chat extends AIChatAgent<Env> {
   /**
    * Handles incoming chat messages and manages the response stream
