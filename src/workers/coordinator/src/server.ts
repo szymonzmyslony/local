@@ -1,95 +1,110 @@
 /// <reference path="../worker-configuration.d.ts" />
 
-declare global {
-	interface Env {
-		ASSETS?: {
-			fetch: typeof fetch;
-		};
-		SOURCE_PRODUCER: Queue;
-		GOLDEN_PRODUCER: Queue;
-		SUPABASE_URL: string;
-		SUPABASE_SERVICE_ROLE_KEY?: string;
-		SUPABASE_ANON_KEY?: string;
-	}
-}
+import { jsonResponse } from "@/shared/http";
+import type { EntityType } from "@/shared/messages";
+import { getStats } from "./routes/stats";
+import { listCrawlJobs, startCrawl } from "./routes/crawl";
+import { getCuratorQueue, mergeEntities, dismissLink } from "./routes/curator";
+import { getPages } from "./routes/pages";
+import { getGoldenRecords } from "./routes/golden";
+import { triggerExtraction, materializeGolden } from "./routes/actions";
 
-/**
- * Coordinator Worker - Admin Dashboard
- *
- * Routes:
- * - /health - Health check
- * - /api/* - Backend API routes (stats, crawl, curator, pages, golden, actions)
- * - /* - Frontend SPA (React app served from assets)
- */
+const SPA_INDEX = "/index.html";
+
 export default {
-	async fetch(request: Request, env: Env, _ctx: ExecutionContext) {
-		const url = new URL(request.url);
+  async fetch(request: Request, env: Env, _ctx: ExecutionContext) {
+    const url = new URL(request.url);
 
-		// Health check
-		if (url.pathname === "/health") {
-			return new Response("ok");
-		}
+    if (url.pathname === "/health") {
+      return new Response("ok");
+    }
 
-		// API routes - TODO: implement route handlers
-		if (url.pathname.startsWith("/api/")) {
-			return handleApiRoutes(request, env);
-		}
+    if (url.pathname.startsWith("/api/")) {
+      return handleApiRoutes(request, env);
+    }
 
-		// Serve static assets for React SPA
-		const assets = env.ASSETS;
-		if (assets) {
-			const urlPath = url.pathname;
+    const assets = (env as { ASSETS?: { fetch: typeof fetch } }).ASSETS;
+    if (assets) {
+      const urlPath = url.pathname;
 
-			// Serve index.html at root
-			if (request.method === "GET" && (urlPath === "/" || urlPath === "")) {
-				const indexResponse = await assets.fetch(
-					new Request(new URL("/index.html", url.origin), request)
-				);
-				if (indexResponse.status !== 404) return indexResponse;
-			}
+      if (request.method === "GET" && (urlPath === "/" || urlPath === "")) {
+        const indexResponse = await assets.fetch(
+          new Request(new URL(SPA_INDEX, url.origin), request)
+        );
+        if (indexResponse.status !== 404) return indexResponse;
+      }
 
-			// Try to serve the requested asset
-			const response = await assets.fetch(request);
-			if (response.status !== 404) return response;
+      const response = await assets.fetch(request);
+      if (response.status !== 404) return response;
 
-			// SPA fallback: serve index.html for all routes (React Router will handle)
-			if (request.method === "GET") {
-				const indexResponse = await assets.fetch(
-					new Request(new URL("/index.html", url.origin), request)
-				);
-				if (indexResponse.status !== 404) return indexResponse;
-			}
-		}
+      if (request.method === "GET") {
+        const indexResponse = await assets.fetch(
+          new Request(new URL(SPA_INDEX, url.origin), request)
+        );
+        if (indexResponse.status !== 404) return indexResponse;
+      }
+    }
 
-		return new Response("Not found", { status: 404 });
-	}
+    return new Response("Not found", { status: 404 });
+  }
 } satisfies ExportedHandler<Env>;
 
-/**
- * Handle API routes
- * TODO: Implement route handlers for:
- * - GET /api/stats/overview
- * - GET /api/crawl/jobs
- * - POST /api/crawl/start
- * - GET /api/curator/queue
- * - POST /api/curator/merge
- * - POST /api/curator/dismiss
- * - GET /api/pages
- * - GET /api/golden/{type}
- * - POST /api/actions/*
- */
 async function handleApiRoutes(request: Request, env: Env): Promise<Response> {
-	const url = new URL(request.url);
-	const path = url.pathname.replace("/api", "");
+  const url = new URL(request.url);
+  const path = url.pathname.replace("/api", "");
+  const method = request.method;
 
-	// Placeholder response
-	return new Response(
-		JSON.stringify({
-			message: "API endpoint not yet implemented",
-			path: path,
-		}),
-		{
-			headers: { "Content-Type": "application/json" },
-		}
-	);
+  try {
+    if (path === "/stats/overview" && method === "GET") {
+      return getStats(env);
+    }
+
+    if (path === "/crawl/jobs" && method === "GET") {
+      return listCrawlJobs(env);
+    }
+    if (path === "/crawl/start" && method === "POST") {
+      return startCrawl(request, env);
+    }
+
+    if (path === "/curator/queue" && method === "GET") {
+      return getCuratorQueue(request, env);
+    }
+    if (path === "/curator/merge" && method === "POST") {
+      return mergeEntities(request, env);
+    }
+    if (path === "/curator/dismiss" && method === "POST") {
+      return dismissLink(request, env);
+    }
+
+    if (path === "/pages" && method === "GET") {
+      return getPages(request, env);
+    }
+
+    if (path.startsWith("/golden/") && method === "GET") {
+      const [, , entityTypeSegment] = path.split("/");
+      if (
+        entityTypeSegment === "artist" ||
+        entityTypeSegment === "gallery" ||
+        entityTypeSegment === "event"
+      ) {
+        return getGoldenRecords(entityTypeSegment as EntityType, request, env);
+      }
+      return jsonResponse(400, { error: "Invalid entity type" });
+    }
+
+    if (path === "/actions/trigger-extraction" && method === "POST") {
+      return triggerExtraction(request, env);
+    }
+
+    if (path === "/actions/materialize-golden" && method === "POST") {
+      return materializeGolden(request, env);
+    }
+
+    return jsonResponse(404, { error: "Not found", path });
+  } catch (error) {
+    console.error("API error:", error);
+    return jsonResponse(500, {
+      error: error instanceof Error ? error.message : "Internal server error",
+    });
+  }
 }

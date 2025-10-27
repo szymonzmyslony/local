@@ -44,6 +44,14 @@ export default {
       return handleCrawlRequest(request, env);
     }
 
+    if (url.pathname === "/crawl/jobs" && request.method === "GET") {
+      return handleListJobs(env);
+    }
+
+    if (url.pathname === "/stats" && request.method === "GET") {
+      return handleStats(env);
+    }
+
     if (url.pathname.startsWith("/crawl/") && request.method === "GET") {
       const jobId = url.pathname.split("/")[2];
       return handleGetProgress(jobId, env);
@@ -126,6 +134,32 @@ async function handleCrawlRequest(request: Request, env: Env): Promise<Response>
     seed: seed,
     maxPages: maxPages,
   });
+}
+
+async function handleListJobs(env: Env): Promise<Response> {
+  const sb = getServiceClient(env);
+
+  const { data, error } = await sb
+    .from("crawl_jobs")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (error) {
+    return jsonResponse(500, { error: error.message });
+  }
+
+  return jsonResponse(200, { jobs: data ?? [] });
+}
+
+async function handleStats(env: Env): Promise<Response> {
+  const sb = getServiceClient(env);
+  const { count } = await sb
+    .from("crawl_jobs")
+    .select("*", { count: "exact", head: true })
+    .in("status", ["discovering", "fetching", "extracting"]);
+
+  return jsonResponse(200, { activeJobs: count ?? 0 });
 }
 
 /**

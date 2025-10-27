@@ -11,26 +11,38 @@
 		"nodejs_compat"
 	],
 	"assets": {
-		"directory": "public",
+		"directory": "dist/client",
 		"not_found_handling": "single-page-application"
-	},
-	"queues": {
-		"producers": [
-			{
-				"queue": "source",
-				"binding": "SOURCE_PRODUCER"
-			},
-			{
-				"queue": "golden",
-				"binding": "GOLDEN_PRODUCER"
-			}
-		]
-	},
+	  },
+	"services": [
+		{
+			"binding": "CRAWLER",
+			"service": "citychat-crawler"
+		},
+		{
+			"binding": "SOURCE",
+			"service": "citychat-source"
+		},
+		{
+			"binding": "IDENTITY",
+			"service": "citychat-identity"
+		},
+		{
+			"binding": "GOLDEN",
+			"service": "citychat-golden"
+		}
+	],
 	"observability": {
-		"enabled": true
+		"enabled": true,
+		"logs": {
+			"enabled": true
+		}
 	},
 	"workers_dev": false,
 	"routes": [
 		{ "pattern": "admin.zinelocal.com/*", "zone_name": "zinelocal.com" }
 	]
+
+	
 }
+

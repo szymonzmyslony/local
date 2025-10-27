@@ -11,7 +11,10 @@
 		"directory": "./public"
 	},
 	"observability": {
-		"enabled": true
+		"enabled": true,
+		"logs": {
+			"enabled": true
+		}
 	},
 	"workers_dev": false,
 	"routes": [

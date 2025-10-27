@@ -4,6 +4,7 @@ import { extractFromMarkdown } from "@/shared/ai";
 import { jsonResponse, readJson } from "@/shared/http";
 import type { SourceQueueMessage, IdentityQueueMessage } from "@/shared/messages";
 import { getServiceClient, type SupabaseServiceClient } from "@/shared/supabase";
+import type { Database } from "@/types/database_types";
 import { createOpenAI } from "@ai-sdk/openai";
 
 type IngestBody = { url: string; markdown: string };
@@ -37,6 +38,18 @@ export default {
 
     if (url.pathname === "/extract/pending" && request.method === "GET") {
       return getPendingExtractions(env);
+    }
+
+    if (url.pathname === "/pages" && request.method === "GET") {
+      return listPages(request, env);
+    }
+
+    if (url.pathname === "/stats" && request.method === "GET") {
+      return getSourceStats(env);
+    }
+
+    if (url.pathname === "/actions/trigger-extraction" && request.method === "POST") {
+      return triggerExtractionAction(request, env);
     }
 
     return new Response("Not found", { status: 404 });
@@ -129,6 +142,28 @@ async function triggerExtraction(url: string, env: Env): Promise<Response> {
   }
 }
 
+async function triggerExtractionAction(request: Request, env: Env): Promise<Response> {
+  const { url } = await readJson<{ url?: string }>(request);
+
+  if (url) {
+    return triggerExtraction(url, env);
+  }
+
+  const sb = getServiceClient(env);
+  const { data, error } = await sb
+    .from("pages")
+    .select("url")
+    .eq("extraction_status", "pending");
+
+  if (error) {
+    return jsonResponse(500, { error: error.message });
+  }
+
+  await Promise.all((data ?? []).map((row) => extractForUrl(env, sb, row.url)));
+
+  return jsonResponse(200, { success: true, queued: data?.length ?? 0 });
+}
+
 /**
  * GET /extract/pending - List pages with pending extraction
  */
@@ -150,6 +185,44 @@ async function getPendingExtractions(env: Env): Promise<Response> {
     pending: data?.length ?? 0,
     urls: data ?? [],
   });
+}
+
+async function listPages(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const limit = parseInt(url.searchParams.get("limit") ?? "50", 10);
+  const status = url.searchParams.get("status") as
+    | Database["public"]["Enums"]["extraction_status"]
+    | null;
+
+  const sb = getServiceClient(env);
+
+  let query = sb
+    .from("pages")
+    .select("url, extraction_status, fetched_at, created_at")
+    .order("fetched_at", { ascending: false })
+    .limit(limit);
+
+  if (status) {
+    query = query.eq("extraction_status", status);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    return jsonResponse(500, { error: error.message });
+  }
+
+  return jsonResponse(200, { pages: data ?? [] });
+}
+
+async function getSourceStats(env: Env): Promise<Response> {
+  const sb = getServiceClient(env);
+  const { count } = await sb
+    .from("pages")
+    .select("*", { count: "exact", head: true })
+    .eq("extraction_status", "pending");
+
+  return jsonResponse(200, { pendingExtractions: count ?? 0 });
 }
 
 /**

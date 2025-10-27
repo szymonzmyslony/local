@@ -21,6 +21,15 @@ export default {
       return materializeViaHttp(request, env);
     }
 
+    if (url.pathname.startsWith("/records/") && request.method === "GET") {
+      const entityType = url.pathname.split("/")[2] as EntityType;
+      return listGoldenRecords(entityType, request, env);
+    }
+
+    if (url.pathname === "/stats" && request.method === "GET") {
+      return getGoldenStats(env);
+    }
+
     return new Response("Not found", { status: 404 });
   },
 
@@ -57,6 +66,50 @@ async function materializeViaHttp(request: Request, env: Env): Promise<Response>
   } catch (error) {
     return jsonResponse(500, { error: (error as Error).message });
   }
+}
+
+async function listGoldenRecords(
+  entityType: EntityType,
+  request: Request,
+  env: Env
+): Promise<Response> {
+  const url = new URL(request.url);
+  const limit = parseInt(url.searchParams.get("limit") ?? "100", 10);
+
+  const tableMap: Record<EntityType, "golden_artists" | "golden_galleries" | "golden_events"> = {
+    artist: "golden_artists",
+    gallery: "golden_galleries",
+    event: "golden_events",
+  };
+  const table = tableMap[entityType];
+
+  const sb = getServiceClient(env);
+  const { data, error } = await sb
+    .from(table)
+    .select("*")
+    .order("updated_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    return jsonResponse(500, { error: error.message });
+  }
+
+  return jsonResponse(200, { records: data ?? [], entityType });
+}
+
+async function getGoldenStats(env: Env): Promise<Response> {
+  const sb = getServiceClient(env);
+  const [{ count: artists }, { count: galleries }, { count: events }] = await Promise.all([
+    sb.from("golden_artists").select("*", { count: "exact", head: true }),
+    sb.from("golden_galleries").select("*", { count: "exact", head: true }),
+    sb.from("golden_events").select("*", { count: "exact", head: true }),
+  ]);
+
+  return jsonResponse(200, {
+    artists: artists ?? 0,
+    galleries: galleries ?? 0,
+    events: events ?? 0,
+  });
 }
 
 async function materializeEntity(

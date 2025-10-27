@@ -58,6 +58,18 @@ export default {
       return mergeViaHttp(request, env);
     }
 
+    if (url.pathname === "/dismiss" && request.method === "POST") {
+      return dismissViaHttp(request, env);
+    }
+
+    if (url.pathname === "/curator/queue" && request.method === "GET") {
+      return listCuratorQueue(request, env);
+    }
+
+    if (url.pathname === "/stats" && request.method === "GET") {
+      return getIdentityStats(env);
+    }
+
     return new Response("Not found", { status: 404 });
   },
 
@@ -99,8 +111,13 @@ async function indexViaHttp(request: Request, env: Env): Promise<Response> {
   }
 }
 
+interface MergeHttpRequest extends MergeRequest {
+  link_id?: string;
+  notes?: string;
+}
+
 async function mergeViaHttp(request: Request, env: Env): Promise<Response> {
-  const body = await readJson<MergeRequest>(request);
+  const body = await readJson<MergeHttpRequest>(request);
   if (!body?.entity_type || !body.winner_id || !body.loser_id) {
     return jsonResponse(400, { error: "Missing entity_type, winner_id, or loser_id" });
   }
@@ -116,6 +133,21 @@ async function mergeViaHttp(request: Request, env: Env): Promise<Response> {
     return jsonResponse(500, { error: error.message });
   }
 
+  if (body.link_id) {
+    const { error: linkError } = await sb
+      .from("identity_links")
+      .update({
+        curator_decision: "merged",
+        curator_notes: body.notes,
+        curator_decided_at: new Date().toISOString(),
+      })
+      .eq("id", body.link_id);
+
+    if (linkError) {
+      return jsonResponse(500, { error: linkError.message });
+    }
+  }
+
   await env.GOLDEN_PRODUCER.send({
     type: "golden.materialize",
     entityType: body.entity_type,
@@ -123,6 +155,59 @@ async function mergeViaHttp(request: Request, env: Env): Promise<Response> {
   });
 
   return jsonResponse(200, { ok: true });
+}
+
+async function dismissViaHttp(request: Request, env: Env): Promise<Response> {
+  const body = await readJson<{ link_id?: string; notes?: string }>(request);
+  if (!body?.link_id) {
+    return jsonResponse(400, { error: "Missing link_id" });
+  }
+
+  const sb = getServiceClient(env);
+  const { error } = await sb
+    .from("identity_links")
+    .update({
+      curator_decision: "dismissed",
+      curator_notes: body.notes,
+      curator_decided_at: new Date().toISOString(),
+    })
+    .eq("id", body.link_id);
+
+  if (error) {
+    return jsonResponse(500, { error: error.message });
+  }
+
+  return jsonResponse(200, { ok: true });
+}
+
+async function listCuratorQueue(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const entityType = url.searchParams.get("entityType") as EntityType | null;
+  const limit = parseInt(url.searchParams.get("limit") ?? "50", 10);
+
+  const sb = getServiceClient(env);
+  const { data, error } = await sb.rpc("get_entities_for_review", {
+    filter_entity_type: entityType ?? null,
+    min_similarity: 0.85,
+    max_similarity: 0.95,
+    review_limit: limit,
+  });
+
+  if (error) {
+    return jsonResponse(500, { error: error.message });
+  }
+
+  return jsonResponse(200, { queue: data ?? [] });
+}
+
+async function getIdentityStats(env: Env): Promise<Response> {
+  const sb = getServiceClient(env);
+  const { count } = await sb
+    .from("identity_links")
+    .select("*", { count: "exact", head: true })
+    .eq("curator_decision", "pending");
+
+  return jsonResponse(200, { pendingReviews: count ?? 0 });
 }
 
 async function handleMessage(
