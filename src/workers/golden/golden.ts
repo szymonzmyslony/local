@@ -105,6 +105,12 @@ async function materializeArtist(
   };
 
   await sb.from("golden_artists").upsert(record, { onConflict: "entity_id" });
+
+  // Update last_materialized_at timestamp
+  await sb
+    .from("identity_entities")
+    .update({ last_materialized_at: now })
+    .eq("id", canonicalId);
 }
 
 async function materializeGallery(
@@ -132,6 +138,12 @@ async function materializeGallery(
   };
 
   await sb.from("golden_galleries").upsert(record, { onConflict: "entity_id" });
+
+  // Update last_materialized_at timestamp
+  await sb
+    .from("identity_entities")
+    .update({ last_materialized_at: now })
+    .eq("id", canonicalId);
 }
 
 async function materializeEvent(
@@ -163,6 +175,12 @@ async function materializeEvent(
   await sb.from("golden_events").upsert(record, { onConflict: "entity_id" });
 
   await refreshEventArtists(sb, canonicalId, familyIds);
+
+  // Update last_materialized_at timestamp
+  await sb
+    .from("identity_entities")
+    .update({ last_materialized_at: now })
+    .eq("id", canonicalId);
 }
 
 async function refreshEventArtists(

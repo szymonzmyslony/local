@@ -1,10 +1,22 @@
+/// <reference path="./worker-configuration.d.ts" />
+
 import { extractFromMarkdown } from "@/shared/ai";
 import { jsonResponse, readJson } from "@/shared/http";
-import type { SourceQueueMessage } from "@/shared/messages";
+import type { SourceQueueMessage, IdentityQueueMessage } from "@/shared/messages";
 import { getServiceClient, type SupabaseServiceClient } from "@/shared/supabase";
 import { createOpenAI } from "@ai-sdk/openai";
 
 type IngestBody = { url: string; markdown: string };
+
+declare global {
+  interface Env {
+    IDENTITY_PRODUCER: Queue<IdentityQueueMessage>;
+    OPENAI_API_KEY: string;
+    SUPABASE_URL: string;
+    SUPABASE_SERVICE_ROLE_KEY?: string;
+    SUPABASE_ANON_KEY?: string;
+  }
+}
 
 export default {
   async fetch(request: Request, env: Env) {
@@ -16,6 +28,15 @@ export default {
 
     if (url.pathname === "/ingest-md" && request.method === "POST") {
       return ingestAndExtract(request, env);
+    }
+
+    if (url.pathname.startsWith("/extract/") && request.method === "POST") {
+      const urlToExtract = decodeURIComponent(url.pathname.substring(9));
+      return triggerExtraction(urlToExtract, env);
+    }
+
+    if (url.pathname === "/extract/pending" && request.method === "GET") {
+      return getPendingExtractions(env);
     }
 
     return new Response("Not found", { status: 404 });
@@ -35,12 +56,16 @@ export default {
         await extractForUrl(env, sb, body.url);
         message.ack();
       } catch (err) {
+        console.error("Extraction error:", err);
         message.retry();
       }
     }
   },
 } satisfies ExportedHandler<Env, SourceQueueMessage>;
 
+/**
+ * POST /ingest-md - Manually ingest markdown
+ */
 async function ingestAndExtract(request: Request, env: Env): Promise<Response> {
   const body = await readJson<IngestBody>(request);
 
@@ -57,6 +82,7 @@ async function ingestAndExtract(request: Request, env: Env): Promise<Response> {
       fetched_at: now,
       md: body.markdown,
       updated_at: now,
+      extraction_status: "pending",
     },
     { onConflict: "url" },
   );
@@ -70,20 +96,123 @@ async function ingestAndExtract(request: Request, env: Env): Promise<Response> {
   return jsonResponse(200, { ok: true, queued: false });
 }
 
+/**
+ * POST /extract/:url - Manually trigger extraction for specific URL
+ */
+async function triggerExtraction(url: string, env: Env): Promise<Response> {
+  if (!url) {
+    return jsonResponse(400, { error: "URL required" });
+  }
+
+  const sb = getServiceClient(env);
+
+  // Check if page exists
+  const { data: page, error } = await sb
+    .from("pages")
+    .select("url, md, extraction_status")
+    .eq("url", url)
+    .maybeSingle();
+
+  if (error || !page) {
+    return jsonResponse(404, { error: "Page not found" });
+  }
+
+  if (!page.md) {
+    return jsonResponse(400, { error: "Page has no markdown content" });
+  }
+
+  try {
+    await extractForUrl(env, sb, url);
+    return jsonResponse(200, { ok: true, url });
+  } catch (error) {
+    return jsonResponse(500, { error: (error as Error).message });
+  }
+}
+
+/**
+ * GET /extract/pending - List pages with pending extraction
+ */
+async function getPendingExtractions(env: Env): Promise<Response> {
+  const sb = getServiceClient(env);
+
+  const { data, error } = await sb
+    .from("pages")
+    .select("url, fetched_at")
+    .eq("extraction_status", "pending")
+    .order("fetched_at", { ascending: false })
+    .limit(100);
+
+  if (error) {
+    return jsonResponse(500, { error: error.message });
+  }
+
+  return jsonResponse(200, {
+    pending: data?.length ?? 0,
+    urls: data ?? [],
+  });
+}
+
+/**
+ * Extract entities from a page URL
+ */
 async function extractForUrl(env: Env, sb: SupabaseServiceClient, url: string) {
-  const { data: page, error } = await sb.from("pages").select("url, md").eq("url", url).single();
-  if (error || !page?.md) {
+  // Get page
+  const { data: page, error } = await sb
+    .from("pages")
+    .select("url, md, extraction_status")
+    .eq("url", url)
+    .single();
+
+  if (error) {
+    throw new Error(`Page not found for ${url}: ${error.message}`);
+  }
+
+  if (!page?.md) {
+    // Update status to failed
+    await sb
+      .from("pages")
+      .update({ extraction_status: "failed" })
+      .eq("url", url);
     throw new Error(`Page missing markdown for ${url}`);
   }
 
-  const openai = createOpenAI({ apiKey: env.OPENAI_API_KEY });
-  const extracted = await extractFromMarkdown(openai, page.md, page.url);
+  // Check if already processed
+  if (page.extraction_status === "complete") {
+    return;
+  }
 
-  await Promise.all([
-    insertArtists(env, sb, page.url, extracted.artists ?? []),
-    insertGalleries(env, sb, page.url, extracted.galleries ?? []),
-    insertEvents(env, sb, page.url, extracted.events ?? []),
-  ]);
+  try {
+    // Update status to processing
+    await sb
+      .from("pages")
+      .update({ extraction_status: "processing" })
+      .eq("url", url);
+
+    // Extract with OpenAI
+    const openai = createOpenAI({ apiKey: env.OPENAI_API_KEY });
+    const extracted = await extractFromMarkdown(openai, page.md, page.url);
+
+    // Insert entities
+    await Promise.all([
+      insertArtists(env, sb, page.url, extracted.artists ?? []),
+      insertGalleries(env, sb, page.url, extracted.galleries ?? []),
+      insertEvents(env, sb, page.url, extracted.events ?? []),
+    ]);
+
+    // Update status to complete
+    await sb
+      .from("pages")
+      .update({ extraction_status: "complete" })
+      .eq("url", url);
+  } catch (error) {
+    // Update status to failed
+    await sb
+      .from("pages")
+      .update({ extraction_status: "failed" })
+      .eq("url", url);
+
+    throw error;
+  }
 }
 
 async function insertArtists(
@@ -109,7 +238,12 @@ async function insertArtists(
       .maybeSingle();
 
     if (error) throw error;
-    if (data) await env.IDENTITY_PRODUCER.send({ type: "identity.index.artist", sourceArtistId: data.id });
+    if (data) {
+      await env.IDENTITY_PRODUCER.send({
+        type: "identity.index.artist",
+        sourceArtistId: data.id,
+      });
+    }
   }
 }
 
@@ -136,11 +270,12 @@ async function insertGalleries(
       .maybeSingle();
 
     if (error) throw error;
-    if (data)
+    if (data) {
       await env.IDENTITY_PRODUCER.send({
         type: "identity.index.gallery",
         sourceGalleryId: data.id,
       });
+    }
   }
 }
 
@@ -170,10 +305,11 @@ async function insertEvents(
       .maybeSingle();
 
     if (error) throw error;
-    if (data)
+    if (data) {
       await env.IDENTITY_PRODUCER.send({
         type: "identity.index.event",
         sourceEventId: data.id,
       });
+    }
   }
 }

@@ -123,10 +123,24 @@ export default {
         "OPENAI_API_KEY is not set, don't forget to set it locally in .dev.vars, and use `wrangler secret bulk .dev.vars` to upload it to production"
       );
     }
-    return (
-      // Route the request to our agent or return 404 if not found
-      (await routeAgentRequest(request, env)) ||
-      new Response("Not found", { status: 404 })
-    );
+    // Route to agent first
+    const routed = await routeAgentRequest(request, env);
+    if (routed) return routed;
+
+    // Minimal SPA fallback: serve index.html at "/" and delegate other assets to ASSETS
+    const assets = (env as unknown as { ASSETS?: { fetch: typeof fetch } }).ASSETS;
+    if (assets) {
+      const urlPath = url.pathname;
+      if (request.method === "GET" && (urlPath === "/" || urlPath === "")) {
+        const indexResponse = await assets.fetch(
+          new Request(new URL("/index.html", url.origin), request)
+        );
+        if (indexResponse.status !== 404) return indexResponse;
+      }
+      const response = await assets.fetch(request);
+      if (response.status !== 404) return response;
+    }
+
+    return new Response("Not found", { status: 404 });
   }
 } satisfies ExportedHandler<Env>;

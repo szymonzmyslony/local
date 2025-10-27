@@ -38,8 +38,7 @@
 	},
 	"workers_dev": false,
 	"routes": [
-		{ "pattern": "chat.zinelocal.com", "zone_name": "zinelocal.com", "custom_domain": true },
-		{ "pattern": "www.chat.zinelocal.com", "zone_name": "zinelocal.com", "custom_domain": true }
+		{ "pattern": "chat.zinelocal.com/*", "zone_name": "zinelocal.com" }
 	]
 	
 	/**

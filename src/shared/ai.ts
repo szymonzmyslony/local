@@ -14,7 +14,7 @@ Only include facts explicitly present. Use ISO 8601 for any dates.
 
 URL: ${url}
 ---
-${md.slice(0, 10000)}`
+${md.slice(0, 50000)}`
     });
 
     return object;

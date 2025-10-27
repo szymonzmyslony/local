@@ -2,14 +2,24 @@ import type { Database } from "@/types/database_types";
 
 export type EntityType = Database["public"]["Enums"]["entity_type"];
 
-export type SourceQueueMessage = { type: "source.extract"; url: string };
-
-export type CrawlerQueueMessage = {
-  type: "crawler.crawl";
-  seed: string;
-  maxPages?: number;
+// Crawler messages - split into map and fetch
+export type CrawlerMapMessage = {
+  type: "crawler.map";
+  jobId: string;
 };
 
+export type CrawlerFetchMessage = {
+  type: "crawler.fetch";
+  url: string;
+  jobId: string;
+};
+
+export type CrawlerQueueMessage = CrawlerMapMessage | CrawlerFetchMessage;
+
+// Source extraction
+export type SourceQueueMessage = { type: "source.extract"; url: string };
+
+// Identity indexing
 export type IdentityIndexArtist = {
   type: "identity.index.artist";
   sourceArtistId: string;
@@ -30,18 +40,21 @@ export type IdentityQueueMessage =
   | IdentityIndexGallery
   | IdentityIndexEvent;
 
+// Golden materialization
 export type GoldenQueueMessage = {
   type: "golden.materialize";
   entityType: EntityType;
   entityId: string;
 };
 
+// All queue messages
 export type QueueMessage =
   | CrawlerQueueMessage
   | SourceQueueMessage
   | IdentityQueueMessage
   | GoldenQueueMessage;
 
+// HTTP request types
 export type IndexRequest = {
   entity_type: EntityType;
   source_id: string;

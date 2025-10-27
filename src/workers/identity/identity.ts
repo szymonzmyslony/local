@@ -429,6 +429,7 @@ async function createSimilarLinks(
           relation: "similar",
           score: similarity,
           created_by: "system",
+          curator_decision: "pending",
         },
         { onConflict: "entity_type,a_id,b_id,relation" },
       )

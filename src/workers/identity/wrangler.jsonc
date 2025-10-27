@@ -3,6 +3,15 @@
   "name": "citychat-identity",
   "main": "identity.ts",
   "compatibility_date": "2025-05-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "logs": {
+      "enabled": false,
+      "head_sampling_rate": 1,
+      "invocation_logs": true,
+      "persist": true
+    }
+  },
   "queues": {
     "producers": [
       { "queue": "golden", "binding": "GOLDEN_PRODUCER" }

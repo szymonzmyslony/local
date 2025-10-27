@@ -1,12 +1,21 @@
 /// <reference path="./worker-configuration.d.ts" />
 
+import { firecrawlMap, firecrawlScrape, FirecrawlError } from "@/shared/firecrawl";
 import { jsonResponse, readJson } from "@/shared/http";
-import type { CrawlerQueueMessage, SourceQueueMessage } from "@/shared/messages";
+import type {
+  CrawlerQueueMessage,
+  CrawlerMapMessage,
+  CrawlerFetchMessage,
+  SourceQueueMessage,
+} from "@/shared/messages";
 import { getServiceClient, type SupabaseServiceClient } from "@/shared/supabase";
+import type { TablesInsert } from "@/types/database_types";
 
 interface CrawlRequest {
   seed: string;
   maxPages?: number;
+  searchTerm?: string;
+  includeSubdomains?: boolean;
 }
 
 declare global {
@@ -20,9 +29,7 @@ declare global {
   }
 }
 
-const FIRECRAWL_ENDPOINT = "https://api.firecrawl.dev/v2/scrape";
-const DEFAULT_MAX_PAGES = 20;
-const FETCH_TIMEOUT_MS = 25_000;
+const DEFAULT_MAX_PAGES = 50;
 
 export default {
   async fetch(request: Request, env: Env) {
@@ -33,25 +40,16 @@ export default {
     }
 
     if (url.pathname === "/crawl" && request.method === "POST") {
-      const body = await readJson<CrawlRequest>(request);
-      if (!body?.seed) {
-        return jsonResponse(400, { error: "seed is required" });
-      }
+      return handleCrawlRequest(request, env);
+    }
 
-      const seed = normalizeUrl(body.seed);
-      if (!seed) {
-        return jsonResponse(400, { error: "invalid seed url" });
-      }
+    if (url.pathname.startsWith("/crawl/") && request.method === "GET") {
+      const jobId = url.pathname.split("/")[2];
+      return handleGetProgress(jobId, env);
+    }
 
-      const maxPages = sanitizeMaxPages(body.maxPages);
-
-      await env.CRAWL_PRODUCER.send({
-        type: "crawler.crawl",
-        seed,
-        maxPages,
-      });
-
-      return jsonResponse(202, { ok: true, enqueued: true, seed, maxPages });
+    if (url.pathname === "/fetch" && request.method === "POST") {
+      return handleFetchRequest(request, env);
     }
 
     return new Response("Not found", { status: 404 });
@@ -61,182 +59,326 @@ export default {
     for (const message of batch.messages) {
       try {
         const { body } = message;
-        if (body.type !== "crawler.crawl") {
-          message.ack();
-          continue;
+
+        if (body.type === "crawler.map") {
+          await processMapJob(env, body);
+        } else if (body.type === "crawler.fetch") {
+          await processFetchJob(env, body);
         }
 
-        await processCrawlJob(env, body);
         message.ack();
-      } catch {
+      } catch (error) {
+        console.error("Queue processing error:", error);
         message.retry();
       }
     }
   },
 } satisfies ExportedHandler<Env, CrawlerQueueMessage>;
 
-async function processCrawlJob(env: Env, job: CrawlerQueueMessage) {
-  const seed = normalizeUrl(job.seed);
+/**
+ * POST /crawl - Create new crawl job
+ */
+async function handleCrawlRequest(request: Request, env: Env): Promise<Response> {
+  const body = await readJson<CrawlRequest>(request);
+
+  if (!body?.seed) {
+    return jsonResponse(400, { error: "seed is required" });
+  }
+
+  const seed = normalizeUrl(body.seed);
   if (!seed) {
+    return jsonResponse(400, { error: "invalid seed url" });
+  }
+
+  const maxPages = Math.min(body.maxPages ?? DEFAULT_MAX_PAGES, 200);
+  const sb = getServiceClient(env);
+
+  // Create crawl job
+  const job: TablesInsert<"crawl_jobs"> = {
+    seed_url: seed,
+    max_pages: maxPages,
+    search_term: body.searchTerm,
+    include_subdomains: body.includeSubdomains ?? false,
+    status: "discovering",
+  };
+
+  const { data: crawlJob, error } = await sb
+    .from("crawl_jobs")
+    .insert(job)
+    .select()
+    .single();
+
+  if (error || !crawlJob) {
+    return jsonResponse(500, { error: "Failed to create crawl job" });
+  }
+
+  // Enqueue map job
+  await env.CRAWL_PRODUCER.send({
+    type: "crawler.map",
+    jobId: crawlJob.id,
+  });
+
+  return jsonResponse(202, {
+    jobId: crawlJob.id,
+    status: "discovering",
+    seed: seed,
+    maxPages: maxPages,
+  });
+}
+
+/**
+ * GET /crawl/:jobId - Get crawl progress
+ */
+async function handleGetProgress(jobId: string, env: Env): Promise<Response> {
+  const sb = getServiceClient(env);
+
+  const { data, error } = await sb.rpc("get_crawl_progress", {
+    job_uuid: jobId,
+  });
+
+  if (error || !data) {
+    return jsonResponse(404, { error: "Job not found" });
+  }
+
+  return jsonResponse(200, data);
+}
+
+/**
+ * POST /fetch - Manually trigger single URL fetch
+ */
+async function handleFetchRequest(request: Request, env: Env): Promise<Response> {
+  const body = await readJson<{ url: string }>(request);
+
+  if (!body?.url) {
+    return jsonResponse(400, { error: "url is required" });
+  }
+
+  const url = normalizeUrl(body.url);
+  if (!url) {
+    return jsonResponse(400, { error: "invalid url" });
+  }
+
+  // Check if already exists
+  const sb = getServiceClient(env);
+  const { data: existing } = await sb
+    .from("pages")
+    .select("url")
+    .eq("url", url)
+    .maybeSingle();
+
+  if (existing) {
+    return jsonResponse(200, { message: "URL already fetched", url });
+  }
+
+  // Enqueue fetch job (no jobId for manual fetches)
+  await env.CRAWL_PRODUCER.send({
+    type: "crawler.fetch",
+    url,
+    jobId: "",
+  });
+
+  return jsonResponse(202, { message: "Fetch queued", url });
+}
+
+/**
+ * Process crawler.map message - Discover URLs with Firecrawl /map
+ */
+async function processMapJob(env: Env, job: CrawlerMapMessage): Promise<void> {
+  const sb = getServiceClient(env);
+
+  // Get crawl job
+  const { data: crawlJob, error: jobError } = await sb
+    .from("crawl_jobs")
+    .select("*")
+    .eq("id", job.jobId)
+    .single();
+
+  if (jobError || !crawlJob) {
+    throw new Error(`Crawl job not found: ${job.jobId}`);
+  }
+
+  try {
+    // Call Firecrawl /map
+    const result = await firecrawlMap(env.FIRECRAWL_API_KEY, {
+      url: crawlJob.seed_url,
+      search: crawlJob.search_term ?? undefined,
+      limit: crawlJob.max_pages ?? DEFAULT_MAX_PAGES,
+      includeSubdomains: crawlJob.include_subdomains ?? false,
+    });
+
+    // Insert discovered URLs
+    const urlsToInsert: TablesInsert<"discovered_urls">[] = result.links.map((link) => ({
+      url: link,
+      job_id: job.jobId,
+      status: "pending",
+    }));
+
+    if (urlsToInsert.length > 0) {
+      await sb.from("discovered_urls").upsert(urlsToInsert, {
+        onConflict: "url",
+        ignoreDuplicates: true,
+      });
+    }
+
+    // Update job
+    await sb
+      .from("crawl_jobs")
+      .update({
+        urls_discovered: result.links.length,
+        status: "fetching",
+      })
+      .eq("id", job.jobId);
+
+    // Enqueue fetch jobs for discovered URLs
+    const fetchJobs: CrawlerFetchMessage[] = result.links
+      .slice(0, crawlJob.max_pages ?? DEFAULT_MAX_PAGES)
+      .map((url) => ({
+        type: "crawler.fetch",
+        url,
+        jobId: job.jobId,
+      }));
+
+    for (const fetchJob of fetchJobs) {
+      await env.CRAWL_PRODUCER.send(fetchJob);
+    }
+  } catch (error) {
+    // Update job status to failed
+    await sb
+      .from("crawl_jobs")
+      .update({
+        status: "failed",
+        error_message:
+          error instanceof FirecrawlError
+            ? error.message
+            : "Map operation failed",
+      })
+      .eq("id", job.jobId);
+
+    throw error;
+  }
+}
+
+/**
+ * Process crawler.fetch message - Scrape single URL with Firecrawl /scrape
+ */
+async function processFetchJob(env: Env, job: CrawlerFetchMessage): Promise<void> {
+  const sb = getServiceClient(env);
+
+  // Check if URL already fetched
+  const { data: existing } = await sb
+    .from("pages")
+    .select("url")
+    .eq("url", job.url)
+    .maybeSingle();
+
+  if (existing) {
+    // Already fetched, mark as complete
+    if (job.jobId) {
+      await sb
+        .from("discovered_urls")
+        .update({ status: "fetched" })
+        .eq("url", job.url);
+    }
     return;
   }
 
-  const maxPages = sanitizeMaxPages(job.maxPages);
-  const supabase = getServiceClient(env);
-  const origin = new URL(seed).origin;
-  const visitQueue: string[] = [seed];
-  const visited = new Set<string>();
-  let processed = 0;
+  // Update status to fetching
+  if (job.jobId) {
+    const { data: urlData } = await sb
+      .from("discovered_urls")
+      .select("fetch_attempts")
+      .eq("url", job.url)
+      .maybeSingle();
 
-  while (visitQueue.length && processed < maxPages) {
-    const current = visitQueue.shift()!;
-    if (visited.has(current)) continue;
-    visited.add(current);
-
-    const markdown = await fetchMarkdown(current, env);
-    if (!markdown) {
-      continue;
-    }
-
-    await storePage(supabase, current, markdown);
-    await env.SOURCE_PRODUCER.send({ type: "source.extract", url: current });
-    processed += 1;
-
-    if (processed >= maxPages) {
-      break;
-    }
-
-    const neighbours = await discoverLinks(current, origin);
-    for (const neighbour of neighbours) {
-      if (!visited.has(neighbour) && !visitQueue.includes(neighbour)) {
-        visitQueue.push(neighbour);
-      }
-    }
+    await sb
+      .from("discovered_urls")
+      .update({
+        status: "fetching",
+        fetch_attempts: (urlData?.fetch_attempts ?? 0) + 1,
+        last_attempt_at: new Date().toISOString(),
+      })
+      .eq("url", job.url);
   }
-}
-
-function sanitizeMaxPages(value: number | undefined): number {
-  if (!value || value <= 0) {
-    return DEFAULT_MAX_PAGES;
-  }
-  return Math.min(value, 200);
-}
-
-async function fetchMarkdown(url: string, env: Env): Promise<string | null> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
   try {
-    const response = await fetch(FIRECRAWL_ENDPOINT, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.FIRECRAWL_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        url,
-        onlyMainContent: false,
-        maxAge: 172800000,
-        parsers: ["pdf"],
-        formats: ["markdown"],
-      }),
-      signal: controller.signal,
+    // Call Firecrawl /scrape
+    const result = await firecrawlScrape(env.FIRECRAWL_API_KEY, {
+      url: job.url,
+      onlyMainContent: false,
+      maxAge: 172800000,
     });
 
-    if (!response.ok) {
-      return null;
-    }
-
-    const data = await response.json();
-    return extractMarkdown(data);
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-function extractMarkdown(payload: unknown): string | null {
-  if (!payload || typeof payload !== "object") {
-    return null;
-  }
-
-  const record = payload as Record<string, unknown>;
-  const candidates: unknown[] = [
-    record.markdown,
-    (record.data as Record<string, unknown> | undefined)?.markdown,
-  ];
-
-  const dataField = record.data;
-  if (Array.isArray(dataField)) {
-    for (const item of dataField) {
-      if (item && typeof item === "object" && "markdown" in item) {
-        candidates.push((item as Record<string, unknown>).markdown);
-      }
-    }
-  } else if (dataField && typeof dataField === "object") {
-    const content = (dataField as Record<string, unknown>).content;
-    if (content && typeof content === "object") {
-      if ("markdown" in (content as Record<string, unknown>)) {
-        candidates.push((content as Record<string, unknown>).markdown);
-      }
-      if (Array.isArray(content)) {
-        for (const item of content) {
-          if (item && typeof item === "object" && "markdown" in item) {
-            candidates.push((item as Record<string, unknown>).markdown);
-          }
-        }
-      }
-    }
-  }
-
-  for (const candidate of candidates) {
-    if (typeof candidate === "string" && candidate.trim().length) {
-      return candidate;
-    }
-  }
-
-  return null;
-}
-
-async function discoverLinks(url: string, origin: string): Promise<string[]> {
-  try {
-    const response = await fetch(url, { headers: { "User-Agent": "CityChatCrawler/1.0" } });
-    if (!response.ok) {
-      return [];
-    }
-    const html = await response.text();
-    const links = new Set<string>();
-
-    const matcher = html.matchAll(/href\s*=\s*['"]([^'"#]+)['"]/gi);
-    for (const match of matcher) {
-      const raw = match[1];
-      const normalized = normalizeUrl(raw, url);
-      if (!normalized) continue;
-      if (!normalized.startsWith(origin)) continue;
-      links.add(normalized);
-    }
-
-    return Array.from(links);
-  } catch {
-    return [];
-  }
-}
-
-async function storePage(sb: SupabaseServiceClient, url: string, markdown: string) {
-  const now = new Date().toISOString();
-  await sb
-    .from("pages")
-    .upsert(
+    // Store in pages table
+    const now = new Date().toISOString();
+    await sb.from("pages").upsert(
       {
-        url,
+        url: job.url,
         status: 200,
         fetched_at: now,
-        md: markdown,
+        md: result.markdown,
         updated_at: now,
+        extraction_status: "pending",
       },
       { onConflict: "url" },
     );
+
+    // Update discovered_urls status
+    if (job.jobId) {
+      await sb
+        .from("discovered_urls")
+        .update({ status: "fetched" })
+        .eq("url", job.url);
+
+      // Increment urls_fetched counter
+      const { data: crawlJob } = await sb
+        .from("crawl_jobs")
+        .select("urls_discovered, urls_fetched")
+        .eq("id", job.jobId)
+        .single();
+
+      if (crawlJob) {
+        const newUrlsFetched = crawlJob.urls_fetched + 1;
+
+        await sb
+          .from("crawl_jobs")
+          .update({ urls_fetched: newUrlsFetched })
+          .eq("id", job.jobId);
+
+        // Check if job complete
+        if (newUrlsFetched >= crawlJob.urls_discovered) {
+          await sb
+            .from("crawl_jobs")
+            .update({
+              status: "extracting",
+              completed_at: now,
+            })
+            .eq("id", job.jobId);
+        }
+      }
+    }
+
+    // Enqueue source extraction
+    await env.SOURCE_PRODUCER.send({
+      type: "source.extract",
+      url: job.url,
+    });
+  } catch (error) {
+    // Update discovered_urls status to failed
+    if (job.jobId) {
+      await sb
+        .from("discovered_urls")
+        .update({
+          status: "failed",
+          error_message:
+            error instanceof FirecrawlError
+              ? error.message
+              : "Fetch failed",
+        })
+        .eq("url", job.url);
+    }
+
+    throw error;
+  }
 }
 
 function normalizeUrl(input: string, base?: string): string | null {

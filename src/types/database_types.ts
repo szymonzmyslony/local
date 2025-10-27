@@ -14,6 +14,89 @@ export type Database = {
   }
   public: {
     Tables: {
+      crawl_jobs: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          include_subdomains: boolean | null
+          max_pages: number | null
+          search_term: string | null
+          seed_url: string
+          status: Database["public"]["Enums"]["crawl_status"]
+          updated_at: string
+          urls_discovered: number
+          urls_fetched: number
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          include_subdomains?: boolean | null
+          max_pages?: number | null
+          search_term?: string | null
+          seed_url: string
+          status?: Database["public"]["Enums"]["crawl_status"]
+          updated_at?: string
+          urls_discovered?: number
+          urls_fetched?: number
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          include_subdomains?: boolean | null
+          max_pages?: number | null
+          search_term?: string | null
+          seed_url?: string
+          status?: Database["public"]["Enums"]["crawl_status"]
+          updated_at?: string
+          urls_discovered?: number
+          urls_fetched?: number
+        }
+        Relationships: []
+      }
+      discovered_urls: {
+        Row: {
+          discovered_at: string
+          error_message: string | null
+          fetch_attempts: number
+          job_id: string
+          last_attempt_at: string | null
+          status: Database["public"]["Enums"]["url_fetch_status"]
+          url: string
+        }
+        Insert: {
+          discovered_at?: string
+          error_message?: string | null
+          fetch_attempts?: number
+          job_id: string
+          last_attempt_at?: string | null
+          status?: Database["public"]["Enums"]["url_fetch_status"]
+          url: string
+        }
+        Update: {
+          discovered_at?: string
+          error_message?: string | null
+          fetch_attempts?: number
+          job_id?: string
+          last_attempt_at?: string | null
+          status?: Database["public"]["Enums"]["url_fetch_status"]
+          url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discovered_urls_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "crawl_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       golden_artists: {
         Row: {
           bio: string | null
@@ -166,6 +249,7 @@ export type Database = {
           embedding: string | null
           entity_type: Database["public"]["Enums"]["entity_type"]
           id: string
+          last_materialized_at: string | null
           updated_at: string
         }
         Insert: {
@@ -175,6 +259,7 @@ export type Database = {
           embedding?: string | null
           entity_type: Database["public"]["Enums"]["entity_type"]
           id?: string
+          last_materialized_at?: string | null
           updated_at?: string
         }
         Update: {
@@ -184,6 +269,7 @@ export type Database = {
           embedding?: string | null
           entity_type?: Database["public"]["Enums"]["entity_type"]
           id?: string
+          last_materialized_at?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -232,6 +318,9 @@ export type Database = {
           b_id: string
           created_at: string
           created_by: Database["public"]["Enums"]["link_created_by"]
+          curator_decided_at: string | null
+          curator_decision: Database["public"]["Enums"]["curator_decision"]
+          curator_notes: string | null
           entity_type: Database["public"]["Enums"]["entity_type"]
           id: string
           relation: Database["public"]["Enums"]["link_relation"]
@@ -242,6 +331,9 @@ export type Database = {
           b_id: string
           created_at?: string
           created_by?: Database["public"]["Enums"]["link_created_by"]
+          curator_decided_at?: string | null
+          curator_decision?: Database["public"]["Enums"]["curator_decision"]
+          curator_notes?: string | null
           entity_type: Database["public"]["Enums"]["entity_type"]
           id?: string
           relation: Database["public"]["Enums"]["link_relation"]
@@ -252,6 +344,9 @@ export type Database = {
           b_id?: string
           created_at?: string
           created_by?: Database["public"]["Enums"]["link_created_by"]
+          curator_decided_at?: string | null
+          curator_decision?: Database["public"]["Enums"]["curator_decision"]
+          curator_notes?: string | null
           entity_type?: Database["public"]["Enums"]["entity_type"]
           id?: string
           relation?: Database["public"]["Enums"]["link_relation"]
@@ -277,6 +372,7 @@ export type Database = {
       pages: {
         Row: {
           created_at: string
+          extraction_status: Database["public"]["Enums"]["extraction_status"]
           fetched_at: string | null
           md: string | null
           site_id: string | null
@@ -286,6 +382,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          extraction_status?: Database["public"]["Enums"]["extraction_status"]
           fetched_at?: string | null
           md?: string | null
           site_id?: string | null
@@ -295,6 +392,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          extraction_status?: Database["public"]["Enums"]["extraction_status"]
           fetched_at?: string | null
           md?: string | null
           site_id?: string | null
@@ -486,6 +584,25 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_crawl_progress: { Args: { job_uuid: string }; Returns: Json }
+      get_entities_for_review: {
+        Args: {
+          filter_entity_type?: Database["public"]["Enums"]["entity_type"]
+          max_similarity?: number
+          min_similarity?: number
+          review_limit?: number
+        }
+        Returns: {
+          created_at: string
+          entity_a_id: string
+          entity_a_name: string
+          entity_b_id: string
+          entity_b_name: string
+          entity_type: Database["public"]["Enums"]["entity_type"]
+          link_id: string
+          similarity_score: number
+        }[]
+      }
       identity_family: {
         Args: { canon: string }
         Returns: {
@@ -514,9 +631,18 @@ export type Database = {
       resolve_canonical: { Args: { e: string }; Returns: string }
     }
     Enums: {
+      crawl_status:
+        | "discovering"
+        | "fetching"
+        | "extracting"
+        | "complete"
+        | "failed"
+      curator_decision: "pending" | "merged" | "dismissed"
       entity_type: "artist" | "gallery" | "event"
+      extraction_status: "pending" | "processing" | "complete" | "failed"
       link_created_by: "system" | "human"
       link_relation: "similar" | "same"
+      url_fetch_status: "pending" | "fetching" | "fetched" | "failed"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -644,9 +770,19 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      crawl_status: [
+        "discovering",
+        "fetching",
+        "extracting",
+        "complete",
+        "failed",
+      ],
+      curator_decision: ["pending", "merged", "dismissed"],
       entity_type: ["artist", "gallery", "event"],
+      extraction_status: ["pending", "processing", "complete", "failed"],
       link_created_by: ["system", "human"],
       link_relation: ["similar", "same"],
+      url_fetch_status: ["pending", "fetching", "fetched", "failed"],
     },
   },
 } as const
