@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      cluster_event_participants: {
+        Row: {
+          artist_cluster_id: string
+          event_cluster_id: string
+          role: string | null
+        }
+        Insert: {
+          artist_cluster_id: string
+          event_cluster_id: string
+          role?: string | null
+        }
+        Update: {
+          artist_cluster_id?: string
+          event_cluster_id?: string
+          role?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cluster_event_participants_artist_fkey"
+            columns: ["artist_cluster_id"]
+            isOneToOne: false
+            referencedRelation: "golden_artists"
+            referencedColumns: ["cluster_id"]
+          },
+          {
+            foreignKeyName: "cluster_event_participants_event_fkey"
+            columns: ["event_cluster_id"]
+            isOneToOne: false
+            referencedRelation: "golden_events"
+            referencedColumns: ["cluster_id"]
+          },
+        ]
+      }
       crawl_jobs: {
         Row: {
           completed_at: string | null
@@ -100,10 +133,331 @@ export type Database = {
           },
         ]
       }
+      extracted_artist_links: {
+        Row: {
+          created_at: string | null
+          curator_decided_at: string | null
+          curator_decision:
+            | Database["public"]["Enums"]["similarity_decision"]
+            | null
+          curator_notes: string | null
+          similarity_score: number
+          source_a_id: string
+          source_b_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          curator_decided_at?: string | null
+          curator_decision?:
+            | Database["public"]["Enums"]["similarity_decision"]
+            | null
+          curator_notes?: string | null
+          similarity_score: number
+          source_a_id: string
+          source_b_id: string
+        }
+        Update: {
+          created_at?: string | null
+          curator_decided_at?: string | null
+          curator_decision?:
+            | Database["public"]["Enums"]["similarity_decision"]
+            | null
+          curator_notes?: string | null
+          similarity_score?: number
+          source_a_id?: string
+          source_b_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "extracted_artist_links_source_a_id_fkey"
+            columns: ["source_a_id"]
+            isOneToOne: false
+            referencedRelation: "extracted_artists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "extracted_artist_links_source_b_id_fkey"
+            columns: ["source_b_id"]
+            isOneToOne: false
+            referencedRelation: "extracted_artists"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      extracted_artists: {
+        Row: {
+          bio: string | null
+          cluster_id: string | null
+          created_at: string
+          embedding: string | null
+          id: string
+          name: string
+          page_url: string
+          review_status: Database["public"]["Enums"]["review_status"] | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          socials: string[]
+          website: string | null
+        }
+        Insert: {
+          bio?: string | null
+          cluster_id?: string | null
+          created_at?: string
+          embedding?: string | null
+          id?: string
+          name: string
+          page_url: string
+          review_status?: Database["public"]["Enums"]["review_status"] | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          socials?: string[]
+          website?: string | null
+        }
+        Update: {
+          bio?: string | null
+          cluster_id?: string | null
+          created_at?: string
+          embedding?: string | null
+          id?: string
+          name?: string
+          page_url?: string
+          review_status?: Database["public"]["Enums"]["review_status"] | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          socials?: string[]
+          website?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "extracted_artists_page_url_fkey"
+            columns: ["page_url"]
+            isOneToOne: false
+            referencedRelation: "pages"
+            referencedColumns: ["url"]
+          },
+        ]
+      }
+      extracted_event_links: {
+        Row: {
+          created_at: string | null
+          curator_decided_at: string | null
+          curator_decision:
+            | Database["public"]["Enums"]["similarity_decision"]
+            | null
+          curator_notes: string | null
+          similarity_score: number
+          source_a_id: string
+          source_b_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          curator_decided_at?: string | null
+          curator_decision?:
+            | Database["public"]["Enums"]["similarity_decision"]
+            | null
+          curator_notes?: string | null
+          similarity_score: number
+          source_a_id: string
+          source_b_id: string
+        }
+        Update: {
+          created_at?: string | null
+          curator_decided_at?: string | null
+          curator_decision?:
+            | Database["public"]["Enums"]["similarity_decision"]
+            | null
+          curator_notes?: string | null
+          similarity_score?: number
+          source_a_id?: string
+          source_b_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "extracted_event_links_source_a_id_fkey"
+            columns: ["source_a_id"]
+            isOneToOne: false
+            referencedRelation: "extracted_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "extracted_event_links_source_b_id_fkey"
+            columns: ["source_b_id"]
+            isOneToOne: false
+            referencedRelation: "extracted_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      extracted_events: {
+        Row: {
+          cluster_id: string | null
+          created_at: string
+          description: string | null
+          embedding: string | null
+          end_ts: string | null
+          id: string
+          page_url: string
+          participants: string[]
+          review_status: Database["public"]["Enums"]["review_status"] | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          start_ts: string | null
+          title: string
+          url: string | null
+          venue_name: string | null
+        }
+        Insert: {
+          cluster_id?: string | null
+          created_at?: string
+          description?: string | null
+          embedding?: string | null
+          end_ts?: string | null
+          id?: string
+          page_url: string
+          participants?: string[]
+          review_status?: Database["public"]["Enums"]["review_status"] | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          start_ts?: string | null
+          title: string
+          url?: string | null
+          venue_name?: string | null
+        }
+        Update: {
+          cluster_id?: string | null
+          created_at?: string
+          description?: string | null
+          embedding?: string | null
+          end_ts?: string | null
+          id?: string
+          page_url?: string
+          participants?: string[]
+          review_status?: Database["public"]["Enums"]["review_status"] | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          start_ts?: string | null
+          title?: string
+          url?: string | null
+          venue_name?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "extracted_events_page_url_fkey"
+            columns: ["page_url"]
+            isOneToOne: false
+            referencedRelation: "pages"
+            referencedColumns: ["url"]
+          },
+        ]
+      }
+      extracted_galleries: {
+        Row: {
+          address: string | null
+          cluster_id: string | null
+          created_at: string
+          description: string | null
+          embedding: string | null
+          id: string
+          name: string
+          page_url: string
+          review_status: Database["public"]["Enums"]["review_status"] | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          website: string | null
+        }
+        Insert: {
+          address?: string | null
+          cluster_id?: string | null
+          created_at?: string
+          description?: string | null
+          embedding?: string | null
+          id?: string
+          name: string
+          page_url: string
+          review_status?: Database["public"]["Enums"]["review_status"] | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          website?: string | null
+        }
+        Update: {
+          address?: string | null
+          cluster_id?: string | null
+          created_at?: string
+          description?: string | null
+          embedding?: string | null
+          id?: string
+          name?: string
+          page_url?: string
+          review_status?: Database["public"]["Enums"]["review_status"] | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          website?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "extracted_galleries_page_url_fkey"
+            columns: ["page_url"]
+            isOneToOne: false
+            referencedRelation: "pages"
+            referencedColumns: ["url"]
+          },
+        ]
+      }
+      extracted_gallery_links: {
+        Row: {
+          created_at: string | null
+          curator_decided_at: string | null
+          curator_decision:
+            | Database["public"]["Enums"]["similarity_decision"]
+            | null
+          curator_notes: string | null
+          similarity_score: number
+          source_a_id: string
+          source_b_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          curator_decided_at?: string | null
+          curator_decision?:
+            | Database["public"]["Enums"]["similarity_decision"]
+            | null
+          curator_notes?: string | null
+          similarity_score: number
+          source_a_id: string
+          source_b_id: string
+        }
+        Update: {
+          created_at?: string | null
+          curator_decided_at?: string | null
+          curator_decision?:
+            | Database["public"]["Enums"]["similarity_decision"]
+            | null
+          curator_notes?: string | null
+          similarity_score?: number
+          source_a_id?: string
+          source_b_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "extracted_gallery_links_source_a_id_fkey"
+            columns: ["source_a_id"]
+            isOneToOne: false
+            referencedRelation: "extracted_galleries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "extracted_gallery_links_source_b_id_fkey"
+            columns: ["source_b_id"]
+            isOneToOne: false
+            referencedRelation: "extracted_galleries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       golden_artists: {
         Row: {
           bio: string | null
-          entity_id: string
+          cluster_id: string
           name: string
           socials: string[]
           updated_at: string
@@ -111,7 +465,7 @@ export type Database = {
         }
         Insert: {
           bio?: string | null
-          entity_id: string
+          cluster_id: string
           name: string
           socials?: string[]
           updated_at?: string
@@ -119,60 +473,19 @@ export type Database = {
         }
         Update: {
           bio?: string | null
-          entity_id?: string
+          cluster_id?: string
           name?: string
           socials?: string[]
           updated_at?: string
           website?: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "golden_artists_entity_id_fkey"
-            columns: ["entity_id"]
-            isOneToOne: true
-            referencedRelation: "identity_entities"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      golden_event_artists: {
-        Row: {
-          artist_entity_id: string
-          event_entity_id: string
-          role: string | null
-        }
-        Insert: {
-          artist_entity_id: string
-          event_entity_id: string
-          role?: string | null
-        }
-        Update: {
-          artist_entity_id?: string
-          event_entity_id?: string
-          role?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "golden_event_artists_artist_entity_id_fkey"
-            columns: ["artist_entity_id"]
-            isOneToOne: false
-            referencedRelation: "golden_artists"
-            referencedColumns: ["entity_id"]
-          },
-          {
-            foreignKeyName: "golden_event_artists_event_entity_id_fkey"
-            columns: ["event_entity_id"]
-            isOneToOne: false
-            referencedRelation: "golden_events"
-            referencedColumns: ["entity_id"]
-          },
-        ]
+        Relationships: []
       }
       golden_events: {
         Row: {
+          cluster_id: string
           description: string | null
           end_ts: string | null
-          entity_id: string
           start_ts: string | null
           title: string
           updated_at: string
@@ -180,9 +493,9 @@ export type Database = {
           venue_text: string | null
         }
         Insert: {
+          cluster_id: string
           description?: string | null
           end_ts?: string | null
-          entity_id: string
           start_ts?: string | null
           title: string
           updated_at?: string
@@ -190,187 +503,76 @@ export type Database = {
           venue_text?: string | null
         }
         Update: {
+          cluster_id?: string
           description?: string | null
           end_ts?: string | null
-          entity_id?: string
           start_ts?: string | null
           title?: string
           updated_at?: string
           url?: string | null
           venue_text?: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "golden_events_entity_id_fkey"
-            columns: ["entity_id"]
-            isOneToOne: true
-            referencedRelation: "identity_entities"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       golden_galleries: {
         Row: {
           address: string | null
+          cluster_id: string
           description: string | null
-          entity_id: string
           name: string
           updated_at: string
           website: string | null
         }
         Insert: {
           address?: string | null
+          cluster_id: string
           description?: string | null
-          entity_id: string
           name: string
           updated_at?: string
           website?: string | null
         }
         Update: {
           address?: string | null
+          cluster_id?: string
           description?: string | null
-          entity_id?: string
           name?: string
           updated_at?: string
           website?: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "golden_galleries_entity_id_fkey"
-            columns: ["entity_id"]
-            isOneToOne: true
-            referencedRelation: "identity_entities"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
-      identity_entities: {
+      merge_history: {
         Row: {
-          alias_of: string | null
-          created_at: string
-          display_name: string
-          embedding: string | null
+          cluster_id: string
+          created_at: string | null
+          created_by: string | null
           entity_type: Database["public"]["Enums"]["entity_type"]
+          field_selections: Json | null
           id: string
-          last_materialized_at: string | null
-          updated_at: string
+          merge_type: Database["public"]["Enums"]["merge_type"]
+          merged_source_ids: string[]
         }
         Insert: {
-          alias_of?: string | null
-          created_at?: string
-          display_name: string
-          embedding?: string | null
+          cluster_id: string
+          created_at?: string | null
+          created_by?: string | null
           entity_type: Database["public"]["Enums"]["entity_type"]
+          field_selections?: Json | null
           id?: string
-          last_materialized_at?: string | null
-          updated_at?: string
+          merge_type: Database["public"]["Enums"]["merge_type"]
+          merged_source_ids: string[]
         }
         Update: {
-          alias_of?: string | null
-          created_at?: string
-          display_name?: string
-          embedding?: string | null
+          cluster_id?: string
+          created_at?: string | null
+          created_by?: string | null
           entity_type?: Database["public"]["Enums"]["entity_type"]
+          field_selections?: Json | null
           id?: string
-          last_materialized_at?: string | null
-          updated_at?: string
+          merge_type?: Database["public"]["Enums"]["merge_type"]
+          merged_source_ids?: string[]
         }
-        Relationships: [
-          {
-            foreignKeyName: "identity_entities_alias_of_fkey"
-            columns: ["alias_of"]
-            isOneToOne: false
-            referencedRelation: "identity_entities"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      identity_event_artists: {
-        Row: {
-          artist_entity_id: string
-          event_entity_id: string
-        }
-        Insert: {
-          artist_entity_id: string
-          event_entity_id: string
-        }
-        Update: {
-          artist_entity_id?: string
-          event_entity_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "identity_event_artists_artist_entity_id_fkey"
-            columns: ["artist_entity_id"]
-            isOneToOne: false
-            referencedRelation: "identity_entities"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "identity_event_artists_event_entity_id_fkey"
-            columns: ["event_entity_id"]
-            isOneToOne: false
-            referencedRelation: "identity_entities"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      identity_links: {
-        Row: {
-          a_id: string
-          b_id: string
-          created_at: string
-          created_by: Database["public"]["Enums"]["link_created_by"]
-          curator_decided_at: string | null
-          curator_decision: Database["public"]["Enums"]["curator_decision"]
-          curator_notes: string | null
-          entity_type: Database["public"]["Enums"]["entity_type"]
-          id: string
-          relation: Database["public"]["Enums"]["link_relation"]
-          score: number | null
-        }
-        Insert: {
-          a_id: string
-          b_id: string
-          created_at?: string
-          created_by?: Database["public"]["Enums"]["link_created_by"]
-          curator_decided_at?: string | null
-          curator_decision?: Database["public"]["Enums"]["curator_decision"]
-          curator_notes?: string | null
-          entity_type: Database["public"]["Enums"]["entity_type"]
-          id?: string
-          relation: Database["public"]["Enums"]["link_relation"]
-          score?: number | null
-        }
-        Update: {
-          a_id?: string
-          b_id?: string
-          created_at?: string
-          created_by?: Database["public"]["Enums"]["link_created_by"]
-          curator_decided_at?: string | null
-          curator_decision?: Database["public"]["Enums"]["curator_decision"]
-          curator_notes?: string | null
-          entity_type?: Database["public"]["Enums"]["entity_type"]
-          id?: string
-          relation?: Database["public"]["Enums"]["link_relation"]
-          score?: number | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "identity_links_a_id_fkey"
-            columns: ["a_id"]
-            isOneToOne: false
-            referencedRelation: "identity_entities"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "identity_links_b_id_fkey"
-            columns: ["b_id"]
-            isOneToOne: false
-            referencedRelation: "identity_entities"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       pages: {
         Row: {
@@ -405,209 +607,93 @@ export type Database = {
         }
         Relationships: []
       }
-      source_artists: {
-        Row: {
-          bio: string | null
-          created_at: string
-          id: string
-          identity_entity_id: string | null
-          name: string
-          page_url: string
-          socials: string[]
-          website: string | null
-        }
-        Insert: {
-          bio?: string | null
-          created_at?: string
-          id?: string
-          identity_entity_id?: string | null
-          name: string
-          page_url: string
-          socials?: string[]
-          website?: string | null
-        }
-        Update: {
-          bio?: string | null
-          created_at?: string
-          id?: string
-          identity_entity_id?: string | null
-          name?: string
-          page_url?: string
-          socials?: string[]
-          website?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "source_artists_identity_entity_id_fkey"
-            columns: ["identity_entity_id"]
-            isOneToOne: false
-            referencedRelation: "identity_entities"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "source_artists_page_url_fkey"
-            columns: ["page_url"]
-            isOneToOne: false
-            referencedRelation: "pages"
-            referencedColumns: ["url"]
-          },
-        ]
-      }
-      source_events: {
-        Row: {
-          created_at: string
-          description: string | null
-          end_ts: string | null
-          id: string
-          identity_entity_id: string | null
-          page_url: string
-          participants: string[]
-          start_ts: string | null
-          title: string
-          url: string | null
-          venue_name: string | null
-        }
-        Insert: {
-          created_at?: string
-          description?: string | null
-          end_ts?: string | null
-          id?: string
-          identity_entity_id?: string | null
-          page_url: string
-          participants?: string[]
-          start_ts?: string | null
-          title: string
-          url?: string | null
-          venue_name?: string | null
-        }
-        Update: {
-          created_at?: string
-          description?: string | null
-          end_ts?: string | null
-          id?: string
-          identity_entity_id?: string | null
-          page_url?: string
-          participants?: string[]
-          start_ts?: string | null
-          title?: string
-          url?: string | null
-          venue_name?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "source_events_identity_entity_id_fkey"
-            columns: ["identity_entity_id"]
-            isOneToOne: false
-            referencedRelation: "identity_entities"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "source_events_page_url_fkey"
-            columns: ["page_url"]
-            isOneToOne: false
-            referencedRelation: "pages"
-            referencedColumns: ["url"]
-          },
-        ]
-      }
-      source_galleries: {
-        Row: {
-          address: string | null
-          created_at: string
-          description: string | null
-          id: string
-          identity_entity_id: string | null
-          name: string
-          page_url: string
-          website: string | null
-        }
-        Insert: {
-          address?: string | null
-          created_at?: string
-          description?: string | null
-          id?: string
-          identity_entity_id?: string | null
-          name: string
-          page_url: string
-          website?: string | null
-        }
-        Update: {
-          address?: string | null
-          created_at?: string
-          description?: string | null
-          id?: string
-          identity_entity_id?: string | null
-          name?: string
-          page_url?: string
-          website?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "source_galleries_identity_entity_id_fkey"
-            columns: ["identity_entity_id"]
-            isOneToOne: false
-            referencedRelation: "identity_entities"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "source_galleries_page_url_fkey"
-            columns: ["page_url"]
-            isOneToOne: false
-            referencedRelation: "pages"
-            referencedColumns: ["url"]
-          },
-        ]
-      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      get_crawl_progress: { Args: { job_uuid: string }; Returns: Json }
-      get_entities_for_review: {
+      find_similar_artists: {
         Args: {
-          filter_entity_type?: Database["public"]["Enums"]["entity_type"]
+          match_count?: number
+          match_threshold?: number
+          query_embedding: string
+        }
+        Returns: {
+          id: string
+          name: string
+          similarity: number
+        }[]
+      }
+      find_similar_events: {
+        Args: {
+          match_count?: number
+          match_threshold?: number
+          query_embedding: string
+        }
+        Returns: {
+          id: string
+          similarity: number
+          title: string
+        }[]
+      }
+      find_similar_galleries: {
+        Args: {
+          match_count?: number
+          match_threshold?: number
+          query_embedding: string
+        }
+        Returns: {
+          id: string
+          name: string
+          similarity: number
+        }[]
+      }
+      get_artist_pairs_for_review: {
+        Args: {
           max_similarity?: number
           min_similarity?: number
           review_limit?: number
         }
         Returns: {
           created_at: string
-          entity_a_id: string
-          entity_a_name: string
-          entity_b_id: string
-          entity_b_name: string
-          entity_type: Database["public"]["Enums"]["entity_type"]
-          link_id: string
           similarity_score: number
+          source_a_id: string
+          source_a_name: string
+          source_b_id: string
+          source_b_name: string
         }[]
       }
-      identity_family: {
-        Args: { canon: string }
-        Returns: {
-          id: string
-        }[]
-      }
-      match_identity_entities: {
+      get_crawl_progress: { Args: { job_uuid: string }; Returns: Json }
+      get_event_pairs_for_review: {
         Args: {
-          k: number
-          q: string
-          t: Database["public"]["Enums"]["entity_type"]
+          max_similarity?: number
+          min_similarity?: number
+          review_limit?: number
         }
         Returns: {
-          distance: number
-          id: string
+          created_at: string
+          similarity_score: number
+          source_a_id: string
+          source_a_title: string
+          source_b_id: string
+          source_b_title: string
         }[]
       }
-      merge_identity_entities: {
+      get_gallery_pairs_for_review: {
         Args: {
-          loser: string
-          t: Database["public"]["Enums"]["entity_type"]
-          winner: string
+          max_similarity?: number
+          min_similarity?: number
+          review_limit?: number
         }
-        Returns: undefined
+        Returns: {
+          created_at: string
+          similarity_score: number
+          source_a_id: string
+          source_a_name: string
+          source_b_id: string
+          source_b_name: string
+        }[]
       }
-      resolve_canonical: { Args: { e: string }; Returns: string }
     }
     Enums: {
       crawl_status:
@@ -616,11 +702,11 @@ export type Database = {
         | "extracting"
         | "complete"
         | "failed"
-      curator_decision: "pending" | "merged" | "dismissed"
       entity_type: "artist" | "gallery" | "event"
       extraction_status: "pending" | "processing" | "complete" | "failed"
-      link_created_by: "system" | "human"
-      link_relation: "similar" | "same"
+      merge_type: "auto_similarity" | "manual_cluster"
+      review_status: "pending_review" | "approved" | "rejected" | "modified"
+      similarity_decision: "pending" | "merged" | "dismissed"
       url_fetch_status: "pending" | "fetching" | "fetched" | "failed"
     }
     CompositeTypes: {
@@ -756,11 +842,11 @@ export const Constants = {
         "complete",
         "failed",
       ],
-      curator_decision: ["pending", "merged", "dismissed"],
       entity_type: ["artist", "gallery", "event"],
       extraction_status: ["pending", "processing", "complete", "failed"],
-      link_created_by: ["system", "human"],
-      link_relation: ["similar", "same"],
+      merge_type: ["auto_similarity", "manual_cluster"],
+      review_status: ["pending_review", "approved", "rejected", "modified"],
+      similarity_decision: ["pending", "merged", "dismissed"],
       url_fetch_status: ["pending", "fetching", "fetched", "failed"],
     },
   },

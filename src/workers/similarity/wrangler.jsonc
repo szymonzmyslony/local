@@ -1,8 +1,9 @@
 {
   "$schema": "../../../node_modules/wrangler/config-schema.json",
-  "name": "citychat-golden",
-  "main": "golden.ts",
+  "name": "citychat-similarity",
+  "main": "similarity.ts",
   "compatibility_date": "2025-05-01",
+  "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "logs": {
       "enabled": true,
@@ -14,7 +15,7 @@
   "queues": {
     "consumers": [
       {
-        "queue": "golden",
+        "queue": "similarity",
         "max_batch_size": 10,
         "max_batch_timeout": 10
       }

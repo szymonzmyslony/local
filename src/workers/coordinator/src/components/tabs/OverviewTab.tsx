@@ -4,7 +4,7 @@ import { Card } from "@/components/card/Card";
 interface StatsOverview {
 	crawler: { activeJobs: number };
 	source: { pendingExtractions: number };
-	identity: { pendingReviews: number };
+	extracted: { pendingReviews: number };
 	golden: {
 		totalEntities: number;
 		artists: number;
@@ -83,10 +83,10 @@ export function OverviewTab() {
 
 				<Card className="p-6">
 					<h3 className="text-sm font-medium text-neutral-600 dark:text-neutral-400">
-						Identity
+						Extracted
 					</h3>
 					<p className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mt-2">
-						{loading ? "..." : stats?.identity.pendingReviews ?? 0}
+						{loading ? "..." : stats?.extracted.pendingReviews ?? 0}
 					</p>
 					<p className="text-xs text-neutral-500 dark:text-neutral-500 mt-1">
 						Pending reviews

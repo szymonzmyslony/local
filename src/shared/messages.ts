@@ -19,56 +19,39 @@ export type CrawlerQueueMessage = CrawlerMapMessage | CrawlerFetchMessage;
 // Source extraction
 export type SourceQueueMessage = { type: "source.extract"; url: string };
 
-// Identity indexing
-export type IdentityIndexArtist = {
-  type: "identity.index.artist";
-  sourceArtistId: string;
-};
-
-export type IdentityIndexGallery = {
-  type: "identity.index.gallery";
-  sourceGalleryId: string;
-};
-
-export type IdentityIndexEvent = {
-  type: "identity.index.event";
-  sourceEventId: string;
-};
-
-export type IdentityQueueMessage =
-  | IdentityIndexArtist
-  | IdentityIndexGallery
-  | IdentityIndexEvent;
-
-// Golden materialization
-export type GoldenQueueMessage = {
-  type: "golden.materialize";
-  entityType: EntityType;
+// Similarity computation (triggered manually by curator after approval)
+export type SimilarityComputeArtist = {
+  type: "similarity.compute.artist";
   entityId: string;
+  threshold?: number; // Default 0.86
 };
+
+export type SimilarityComputeGallery = {
+  type: "similarity.compute.gallery";
+  entityId: string;
+  threshold?: number; // Default 0.86
+};
+
+export type SimilarityComputeEvent = {
+  type: "similarity.compute.event";
+  entityId: string;
+  threshold?: number; // Default 0.88
+};
+
+export type SimilarityQueueMessage =
+  | SimilarityComputeArtist
+  | SimilarityComputeGallery
+  | SimilarityComputeEvent;
 
 // All queue messages
 export type QueueMessage =
   | CrawlerQueueMessage
   | SourceQueueMessage
-  | IdentityQueueMessage
-  | GoldenQueueMessage;
+  | SimilarityQueueMessage;
 
-// HTTP request types
-export type IndexRequest = {
+// HTTP request types (used by coordinator APIs)
+export type TriggerSimilarityRequest = {
   entity_type: EntityType;
-  source_id: string;
+  entity_ids: string[];
+  threshold?: number;
 };
-
-export type MergeRequest = {
-  entity_type: EntityType;
-  winner_id: string;
-  loser_id: string;
-};
-
-export type MaterializeRequest = {
-  entityType: EntityType;
-  entityId: string;
-};
-
-export type MarkSameRequest = MergeRequest;

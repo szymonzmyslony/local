@@ -28,23 +28,23 @@ export function IdentityTab() {
 	const [page, setPage] = useState(0);
 	const limit = 50;
 
-	// Fetch curator queue - DIRECT FROM SUPABASE
+	// Fetch similarity pairs for curator review
 	const { data: curatorData, isLoading: curatorLoading, refetch: refetchCurator } = useQuery({
-		queryKey: ["curator-queue"],
+		queryKey: ["similarity-pairs", entityTab],
 		queryFn: async () => {
-			const response = await fetch("/api/identity/curator/queue");
-			if (!response.ok) throw new Error("Failed to fetch curator queue");
-			return response.json() as Promise<{ queue: CuratorQueueItem[] }>;
+			const response = await fetch(`/api/similarity/pairs/${entityTab}s`);
+			if (!response.ok) throw new Error("Failed to fetch similarity pairs");
+			return response.json() as Promise<{ pairs: CuratorQueueItem[]; total: number }>;
 		},
 		enabled: view === "curator",
 	});
 
-	// Fetch identity entities - DIRECT FROM SUPABASE
+	// Fetch extracted entities (for browsing)
 	const { data: entitiesData, isLoading: entitiesLoading } = useQuery({
-		queryKey: ["identity-entities", entityTab, page],
+		queryKey: ["extracted-entities-browse", entityTab, page],
 		queryFn: async () => {
 			const response = await fetch(
-				`/api/identity/entities/${entityTab}s?limit=${limit}&offset=${page * limit}`
+				`/api/extracted/${entityTab}s?limit=${limit}&offset=${page * limit}&status=approved`
 			);
 			if (!response.ok) throw new Error("Failed to fetch entities");
 			return response.json() as Promise<{ entities: IdentityEntity[]; total: number }>;
@@ -52,22 +52,17 @@ export function IdentityTab() {
 		enabled: view === "browse",
 	});
 
-	const handleMerge = async (item: CuratorQueueItem, winnerId: string) => {
-		const loserId = winnerId === item.entity_a_id ? item.entity_b_id : item.entity_a_id;
-
+	const handleMerge = async (item: CuratorQueueItem) => {
 		try {
-			const response = await fetch("/api/curator/merge", {
+			const response = await fetch(`/api/similarity/pairs/${item.link_id}/${entityTab}/merge`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
-					linkId: item.link_id,
-					winnerId,
-					loserId,
-					entityType: item.entity_type,
+					notes: "Merged via curator UI",
 				}),
 			});
 
-			if (!response.ok) throw new Error("Failed to merge entities");
+			if (!response.ok) throw new Error("Failed to mark pair for merge");
 
 			refetchCurator();
 		} catch (err) {
@@ -77,17 +72,19 @@ export function IdentityTab() {
 
 	const handleDismiss = async (linkId: string) => {
 		try {
-			const response = await fetch("/api/curator/dismiss", {
+			const response = await fetch(`/api/similarity/pairs/${linkId}/${entityTab}/dismiss`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ linkId }),
+				body: JSON.stringify({
+					notes: "Dismissed via curator UI",
+				}),
 			});
 
-			if (!response.ok) throw new Error("Failed to dismiss link");
+			if (!response.ok) throw new Error("Failed to dismiss pair");
 
 			refetchCurator();
 		} catch (err) {
-			alert(err instanceof Error ? err.message : "Failed to dismiss link");
+			alert(err instanceof Error ? err.message : "Failed to dismiss pair");
 		}
 	};
 
@@ -130,11 +127,11 @@ export function IdentityTab() {
 					</h3>
 					{curatorLoading ? (
 						<div className="text-neutral-600 dark:text-neutral-400">Loading...</div>
-					) : !curatorData?.queue.length ? (
-						<div className="text-neutral-600 dark:text-neutral-400">No entities pending review</div>
+					) : !curatorData?.pairs.length ? (
+						<div className="text-neutral-600 dark:text-neutral-400">No similarity pairs pending review</div>
 					) : (
 						<div className="space-y-4">
-							{curatorData.queue.map((item) => (
+							{curatorData.pairs.map((item) => (
 								<Card key={item.link_id} className="p-4 bg-neutral-50 dark:bg-neutral-900">
 									<div className="flex justify-between items-start mb-3">
 										<div>
@@ -168,16 +165,9 @@ export function IdentityTab() {
 										<Button
 											variant="primary"
 											size="sm"
-											onClick={() => handleMerge(item, item.entity_a_id)}
+											onClick={() => handleMerge(item)}
 										>
-											Keep First
-										</Button>
-										<Button
-											variant="secondary"
-											size="sm"
-											onClick={() => handleMerge(item, item.entity_b_id)}
-										>
-											Keep Second
+											Mark for Merge
 										</Button>
 										<Button
 											variant="ghost"

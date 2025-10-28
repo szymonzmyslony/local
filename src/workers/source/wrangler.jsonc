@@ -13,9 +13,6 @@
     }
   },
   "queues": {
-    "producers": [
-      { "queue": "identity", "binding": "IDENTITY_PRODUCER" }
-    ],
     "consumers": [
       {
         "queue": "source",

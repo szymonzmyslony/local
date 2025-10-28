@@ -2,13 +2,12 @@
 
 import { extractFromMarkdown } from "@/shared/ai";
 import { jsonResponse } from "@/shared/http";
-import type { SourceQueueMessage, IdentityQueueMessage } from "@/shared/messages";
+import type { SourceQueueMessage } from "@/shared/messages";
 import { getServiceClient, type SupabaseServiceClient } from "@/shared/supabase";
 import { createOpenAI } from "@ai-sdk/openai";
 
 declare global {
   interface Env {
-    IDENTITY_PRODUCER: Queue<IdentityQueueMessage>;
     OPENAI_API_KEY: string;
     SUPABASE_URL: string;
     SUPABASE_SERVICE_ROLE_KEY?: string;
@@ -132,8 +131,8 @@ async function insertArtists(
   artists: Awaited<ReturnType<typeof extractFromMarkdown>>["artists"],
 ) {
   for (const artist of artists) {
-    const { data, error } = await sb
-      .from("source_artists")
+    const { error } = await sb
+      .from("extracted_artists")
       .upsert(
         {
           page_url: pageUrl,
@@ -141,6 +140,7 @@ async function insertArtists(
           bio: artist.bio ?? null,
           website: artist.website ?? null,
           socials: artist.socials ?? [],
+          review_status: "pending_review" as const,
         },
         { onConflict: "page_url,name" },
       )
@@ -148,12 +148,6 @@ async function insertArtists(
       .maybeSingle();
 
     if (error) throw error;
-    if (data) {
-      await env.IDENTITY_PRODUCER.send({
-        type: "identity.index.artist",
-        sourceArtistId: data.id,
-      });
-    }
   }
 }
 
@@ -164,8 +158,8 @@ async function insertGalleries(
   galleries: Awaited<ReturnType<typeof extractFromMarkdown>>["galleries"],
 ) {
   for (const gallery of galleries) {
-    const { data, error } = await sb
-      .from("source_galleries")
+    const { error} = await sb
+      .from("extracted_galleries")
       .upsert(
         {
           page_url: pageUrl,
@@ -173,6 +167,7 @@ async function insertGalleries(
           website: gallery.website ?? null,
           address: gallery.address ?? null,
           description: gallery.description ?? null,
+          review_status: "pending_review" as const,
         },
         { onConflict: "page_url,name" },
       )
@@ -180,12 +175,6 @@ async function insertGalleries(
       .maybeSingle();
 
     if (error) throw error;
-    if (data) {
-      await env.IDENTITY_PRODUCER.send({
-        type: "identity.index.gallery",
-        sourceGalleryId: data.id,
-      });
-    }
   }
 }
 
@@ -196,8 +185,8 @@ async function insertEvents(
   events: Awaited<ReturnType<typeof extractFromMarkdown>>["events"],
 ) {
   for (const event of events) {
-    const { data, error } = await sb
-      .from("source_events")
+    const { error } = await sb
+      .from("extracted_events")
       .upsert(
         {
           page_url: pageUrl,
@@ -208,6 +197,7 @@ async function insertEvents(
           end_ts: event.end_ts ?? null,
           venue_name: event.venue_name ?? null,
           participants: event.participants ?? [],
+          review_status: "pending_review" as const,
         },
         { onConflict: "page_url,title" },
       )
@@ -215,11 +205,5 @@ async function insertEvents(
       .maybeSingle();
 
     if (error) throw error;
-    if (data) {
-      await env.IDENTITY_PRODUCER.send({
-        type: "identity.index.event",
-        sourceEventId: data.id,
-      });
-    }
   }
 }

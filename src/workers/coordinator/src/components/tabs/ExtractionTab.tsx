@@ -37,12 +37,12 @@ export function ExtractionTab() {
 		},
 	});
 
-	// Fetch source entities
+	// Fetch extracted entities (renamed from source)
 	const { data: entitiesData, isLoading: entitiesLoading } = useQuery({
-		queryKey: ["source-entities", entityTab, page],
+		queryKey: ["extracted-entities", entityTab, page],
 		queryFn: async () => {
 			const response = await fetch(
-				`/api/source/entities/${entityTab}?limit=${limit}&offset=${page * limit}`
+				`/api/extracted/${entityTab}?limit=${limit}&offset=${page * limit}`
 			);
 			if (!response.ok) throw new Error("Failed to fetch entities");
 			return response.json() as Promise<{ entities: SourceEntity[]; total: number }>;
@@ -98,10 +98,10 @@ export function ExtractionTab() {
 				)}
 			</Card>
 
-			{/* Source Entities Browser */}
+			{/* Extracted Entities Browser */}
 			<Card className="p-6">
 				<h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-4">
-					Source Entities
+					Extracted Entities
 				</h3>
 
 				{/* Sub-tabs */}

@@ -1,4 +1,5 @@
 import { jsonResponse } from "@/shared/http";
+import { getServiceClient } from "@/shared/supabase";
 
 interface CrawlerStatsResponse {
   activeJobs: number;
@@ -8,25 +9,16 @@ interface SourceStatsResponse {
   pendingExtractions: number;
 }
 
-interface IdentityStatsResponse {
-  pendingReviews: number;
-}
-
-interface GoldenStatsResponse {
-  artists: number;
-  galleries: number;
-  events: number;
-}
-
 export async function getStats(env: Env): Promise<Response> {
-  const [crawlerRes, sourceRes, identityRes, goldenRes] = await Promise.all([
+  const sb = getServiceClient(env);
+
+  // Call worker services for crawler and source stats
+  const [crawlerRes, sourceRes] = await Promise.all([
     env.CRAWLER.fetch("http://crawler/stats", { method: "GET" }),
     env.SOURCE.fetch("http://source/stats", { method: "GET" }),
-    env.IDENTITY.fetch("http://identity/stats", { method: "GET" }),
-    env.GOLDEN.fetch("http://golden/stats", { method: "GET" }),
   ]);
 
-  const failed = [crawlerRes, sourceRes, identityRes, goldenRes].find(
+  const failed = [crawlerRes, sourceRes].find(
     (response) => !response.ok
   );
 
@@ -37,25 +29,44 @@ export async function getStats(env: Env): Promise<Response> {
     });
   }
 
-  const [crawlerStats, sourceStats, identityStats, goldenStats] = await Promise.all([
+  const [crawlerStats, sourceStats] = await Promise.all([
     crawlerRes.json() as Promise<CrawlerStatsResponse>,
     sourceRes.json() as Promise<SourceStatsResponse>,
-    identityRes.json() as Promise<IdentityStatsResponse>,
-    goldenRes.json() as Promise<GoldenStatsResponse>,
   ]);
 
-  const totalGoldenEntities =
-    goldenStats.artists + goldenStats.galleries + goldenStats.events;
+  // Get extracted entity stats directly from Supabase (replaces identity worker)
+  const [extractedArtistsCount, extractedGalleriesCount, extractedEventsCount] = await Promise.all([
+    sb.from("extracted_artists").select("*", { count: "exact", head: true }).eq("review_status", "pending_review"),
+    sb.from("extracted_galleries").select("*", { count: "exact", head: true }).eq("review_status", "pending_review"),
+    sb.from("extracted_events").select("*", { count: "exact", head: true }).eq("review_status", "pending_review"),
+  ]);
+
+  const pendingReviews =
+    (extractedArtistsCount.count ?? 0) +
+    (extractedGalleriesCount.count ?? 0) +
+    (extractedEventsCount.count ?? 0);
+
+  // Get golden entity stats directly from Supabase (replaces golden worker)
+  const [goldenArtistsCount, goldenGalleriesCount, goldenEventsCount] = await Promise.all([
+    sb.from("golden_artists").select("*", { count: "exact", head: true }),
+    sb.from("golden_galleries").select("*", { count: "exact", head: true }),
+    sb.from("golden_events").select("*", { count: "exact", head: true }),
+  ]);
+
+  const goldenArtists = goldenArtistsCount.count ?? 0;
+  const goldenGalleries = goldenGalleriesCount.count ?? 0;
+  const goldenEvents = goldenEventsCount.count ?? 0;
+  const totalGoldenEntities = goldenArtists + goldenGalleries + goldenEvents;
 
   return jsonResponse(200, {
     crawler: { activeJobs: crawlerStats.activeJobs },
     source: { pendingExtractions: sourceStats.pendingExtractions },
-    identity: { pendingReviews: identityStats.pendingReviews },
+    extracted: { pendingReviews },
     golden: {
       totalEntities: totalGoldenEntities,
-      artists: goldenStats.artists,
-      galleries: goldenStats.galleries,
-      events: goldenStats.events,
+      artists: goldenArtists,
+      galleries: goldenGalleries,
+      events: goldenEvents,
     },
   });
 }
