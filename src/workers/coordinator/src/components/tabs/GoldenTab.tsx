@@ -1,0 +1,181 @@
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Card } from "@/components/card/Card";
+
+interface GoldenEntity {
+	entity_id: string;
+	name: string;
+	bio?: string;
+	website?: string;
+	socials?: string[];
+	address?: string;
+	description?: string;
+	title?: string;
+	venue_text?: string;
+	start_ts?: string;
+	end_ts?: string;
+	updated_at: string;
+}
+
+export function GoldenTab() {
+	const [entityTab, setEntityTab] = useState<"artists" | "galleries" | "events">("artists");
+	const [page, setPage] = useState(0);
+	const limit = 50;
+
+	const { data, isLoading } = useQuery({
+		queryKey: ["golden", entityTab, page],
+		queryFn: async () => {
+			const response = await fetch(
+				`/api/golden/${entityTab}?limit=${limit}&offset=${page * limit}`
+			);
+			if (!response.ok) throw new Error("Failed to fetch golden records");
+			return response.json() as Promise<{ records: GoldenEntity[]; total: number }>;
+		},
+	});
+
+	return (
+		<div className="space-y-6">
+			<h2 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
+				Golden Records
+			</h2>
+
+			<Card className="p-6">
+				{/* Sub-tabs */}
+				<div className="flex gap-2 mb-6 border-b border-neutral-200 dark:border-neutral-700">
+					<button
+						onClick={() => { setEntityTab("artists"); setPage(0); }}
+						className={`px-4 py-2 font-medium transition-colors ${
+							entityTab === "artists"
+								? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400"
+								: "text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
+						}`}
+					>
+						Artists
+					</button>
+					<button
+						onClick={() => { setEntityTab("galleries"); setPage(0); }}
+						className={`px-4 py-2 font-medium transition-colors ${
+							entityTab === "galleries"
+								? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400"
+								: "text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
+						}`}
+					>
+						Galleries
+					</button>
+					<button
+						onClick={() => { setEntityTab("events"); setPage(0); }}
+						className={`px-4 py-2 font-medium transition-colors ${
+							entityTab === "events"
+								? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400"
+								: "text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
+						}`}
+					>
+						Events
+					</button>
+				</div>
+
+				{isLoading ? (
+					<div className="text-neutral-600 dark:text-neutral-400">Loading...</div>
+				) : !data?.records.length ? (
+					<div className="text-neutral-600 dark:text-neutral-400">No golden records yet</div>
+				) : (
+					<>
+						<div className="overflow-x-auto">
+							<table className="w-full text-sm">
+								<thead className="border-b border-neutral-200 dark:border-neutral-700">
+									<tr>
+										<th className="text-left py-2 px-4 font-medium text-neutral-900 dark:text-neutral-100">Name</th>
+										{entityTab === "artists" && (
+											<>
+												<th className="text-left py-2 px-4 font-medium text-neutral-900 dark:text-neutral-100">Bio</th>
+												<th className="text-left py-2 px-4 font-medium text-neutral-900 dark:text-neutral-100">Website</th>
+											</>
+										)}
+										{entityTab === "galleries" && (
+											<>
+												<th className="text-left py-2 px-4 font-medium text-neutral-900 dark:text-neutral-100">Address</th>
+												<th className="text-left py-2 px-4 font-medium text-neutral-900 dark:text-neutral-100">Website</th>
+											</>
+										)}
+										{entityTab === "events" && (
+											<>
+												<th className="text-left py-2 px-4 font-medium text-neutral-900 dark:text-neutral-100">Venue</th>
+												<th className="text-left py-2 px-4 font-medium text-neutral-900 dark:text-neutral-100">Dates</th>
+											</>
+										)}
+										<th className="text-left py-2 px-4 font-medium text-neutral-900 dark:text-neutral-100">Updated</th>
+									</tr>
+								</thead>
+								<tbody>
+									{data.records.map((record) => (
+										<tr key={record.entity_id} className="border-b border-neutral-200 dark:border-neutral-700">
+											<td className="py-2 px-4 text-neutral-900 dark:text-neutral-100 font-medium">
+												{record.name || record.title}
+											</td>
+											{entityTab === "artists" && (
+												<>
+													<td className="py-2 px-4 text-neutral-600 dark:text-neutral-400 max-w-xs truncate">
+														{record.bio?.slice(0, 100)}
+													</td>
+													<td className="py-2 px-4 text-neutral-600 dark:text-neutral-400 text-xs">
+														{record.website}
+													</td>
+												</>
+											)}
+											{entityTab === "galleries" && (
+												<>
+													<td className="py-2 px-4 text-neutral-600 dark:text-neutral-400 max-w-xs truncate">
+														{record.address}
+													</td>
+													<td className="py-2 px-4 text-neutral-600 dark:text-neutral-400 text-xs">
+														{record.website}
+													</td>
+												</>
+											)}
+											{entityTab === "events" && (
+												<>
+													<td className="py-2 px-4 text-neutral-600 dark:text-neutral-400">
+														{record.venue_text}
+													</td>
+													<td className="py-2 px-4 text-neutral-600 dark:text-neutral-400 text-xs">
+														{record.start_ts && new Date(record.start_ts).toLocaleDateString()}
+													</td>
+												</>
+											)}
+											<td className="py-2 px-4 text-neutral-600 dark:text-neutral-400 text-xs">
+												{new Date(record.updated_at).toLocaleDateString()}
+											</td>
+										</tr>
+									))}
+								</tbody>
+							</table>
+						</div>
+
+						{/* Pagination */}
+						<div className="flex justify-between items-center mt-4">
+							<div className="text-sm text-neutral-600 dark:text-neutral-400">
+								Showing {page * limit + 1}-{Math.min((page + 1) * limit, data.total)} of {data.total}
+							</div>
+							<div className="flex gap-2">
+								<button
+									onClick={() => setPage(p => p - 1)}
+									disabled={page === 0}
+									className="px-3 py-1 text-sm border border-neutral-300 dark:border-neutral-700 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed"
+								>
+									Previous
+								</button>
+								<button
+									onClick={() => setPage(p => p + 1)}
+									disabled={(page + 1) * limit >= data.total}
+									className="px-3 py-1 text-sm border border-neutral-300 dark:border-neutral-700 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed"
+								>
+									Next
+								</button>
+							</div>
+						</div>
+					</>
+				)}
+			</Card>
+		</div>
+	);
+}

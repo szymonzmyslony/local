@@ -1,13 +1,10 @@
 /// <reference path="./worker-configuration.d.ts" />
 
 import { extractFromMarkdown } from "@/shared/ai";
-import { jsonResponse, readJson } from "@/shared/http";
+import { jsonResponse } from "@/shared/http";
 import type { SourceQueueMessage, IdentityQueueMessage } from "@/shared/messages";
 import { getServiceClient, type SupabaseServiceClient } from "@/shared/supabase";
-import type { Database } from "@/types/database_types";
 import { createOpenAI } from "@ai-sdk/openai";
-
-type IngestBody = { url: string; markdown: string };
 
 declare global {
   interface Env {
@@ -27,29 +24,8 @@ export default {
       return new Response("ok");
     }
 
-    if (url.pathname === "/ingest-md" && request.method === "POST") {
-      return ingestAndExtract(request, env);
-    }
-
-    if (url.pathname.startsWith("/extract/") && request.method === "POST") {
-      const urlToExtract = decodeURIComponent(url.pathname.substring(9));
-      return triggerExtraction(urlToExtract, env);
-    }
-
-    if (url.pathname === "/extract/pending" && request.method === "GET") {
-      return getPendingExtractions(env);
-    }
-
-    if (url.pathname === "/pages" && request.method === "GET") {
-      return listPages(request, env);
-    }
-
     if (url.pathname === "/stats" && request.method === "GET") {
       return getSourceStats(env);
-    }
-
-    if (url.pathname === "/actions/trigger-extraction" && request.method === "POST") {
-      return triggerExtractionAction(request, env);
     }
 
     return new Response("Not found", { status: 404 });
@@ -75,145 +51,6 @@ export default {
     }
   },
 } satisfies ExportedHandler<Env, SourceQueueMessage>;
-
-/**
- * POST /ingest-md - Manually ingest markdown
- */
-async function ingestAndExtract(request: Request, env: Env): Promise<Response> {
-  const body = await readJson<IngestBody>(request);
-
-  if (!body?.url || !body?.markdown) {
-    return jsonResponse(400, { error: "Missing url or markdown" });
-  }
-
-  const sb = getServiceClient(env);
-  const now = new Date().toISOString();
-  const { error } = await sb.from("pages").upsert(
-    {
-      url: body.url,
-      status: 200,
-      fetched_at: now,
-      md: body.markdown,
-      updated_at: now,
-      extraction_status: "pending",
-    },
-    { onConflict: "url" },
-  );
-
-  if (error) {
-    return jsonResponse(500, { error: error.message });
-  }
-
-  await extractForUrl(env, sb, body.url);
-
-  return jsonResponse(200, { ok: true, queued: false });
-}
-
-/**
- * POST /extract/:url - Manually trigger extraction for specific URL
- */
-async function triggerExtraction(url: string, env: Env): Promise<Response> {
-  if (!url) {
-    return jsonResponse(400, { error: "URL required" });
-  }
-
-  const sb = getServiceClient(env);
-
-  // Check if page exists
-  const { data: page, error } = await sb
-    .from("pages")
-    .select("url, md, extraction_status")
-    .eq("url", url)
-    .maybeSingle();
-
-  if (error || !page) {
-    return jsonResponse(404, { error: "Page not found" });
-  }
-
-  if (!page.md) {
-    return jsonResponse(400, { error: "Page has no markdown content" });
-  }
-
-  try {
-    await extractForUrl(env, sb, url);
-    return jsonResponse(200, { ok: true, url });
-  } catch (error) {
-    return jsonResponse(500, { error: (error as Error).message });
-  }
-}
-
-async function triggerExtractionAction(request: Request, env: Env): Promise<Response> {
-  const { url } = await readJson<{ url?: string }>(request);
-
-  if (url) {
-    return triggerExtraction(url, env);
-  }
-
-  const sb = getServiceClient(env);
-  const { data, error } = await sb
-    .from("pages")
-    .select("url")
-    .eq("extraction_status", "pending");
-
-  if (error) {
-    return jsonResponse(500, { error: error.message });
-  }
-
-  await Promise.all((data ?? []).map((row) => extractForUrl(env, sb, row.url)));
-
-  return jsonResponse(200, { success: true, queued: data?.length ?? 0 });
-}
-
-/**
- * GET /extract/pending - List pages with pending extraction
- */
-async function getPendingExtractions(env: Env): Promise<Response> {
-  const sb = getServiceClient(env);
-
-  const { data, error } = await sb
-    .from("pages")
-    .select("url, fetched_at")
-    .eq("extraction_status", "pending")
-    .order("fetched_at", { ascending: false })
-    .limit(100);
-
-  if (error) {
-    return jsonResponse(500, { error: error.message });
-  }
-
-  return jsonResponse(200, {
-    pending: data?.length ?? 0,
-    urls: data ?? [],
-  });
-}
-
-async function listPages(request: Request, env: Env): Promise<Response> {
-  const url = new URL(request.url);
-  const limit = parseInt(url.searchParams.get("limit") ?? "50", 10);
-  const status = url.searchParams.get("status") as
-    | Database["public"]["Enums"]["extraction_status"]
-    | null;
-
-  const sb = getServiceClient(env);
-
-  let query = sb
-    .from("pages")
-    .select("url, extraction_status, fetched_at, created_at")
-    .order("fetched_at", { ascending: false })
-    .limit(limit);
-
-  if (status) {
-    query = query.eq("extraction_status", status);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    return jsonResponse(500, { error: error.message });
-  }
-
-  return jsonResponse(200, { pages: data ?? [] });
-}
 
 async function getSourceStats(env: Env): Promise<Response> {
   const sb = getServiceClient(env);

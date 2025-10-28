@@ -1,13 +1,13 @@
 /// <reference path="../worker-configuration.d.ts" />
 
 import { jsonResponse } from "@/shared/http";
-import type { EntityType } from "@/shared/messages";
 import { getStats } from "./routes/stats";
 import { listCrawlJobs, startCrawl } from "./routes/crawl";
-import { getCuratorQueue, mergeEntities, dismissLink } from "./routes/curator";
-import { getPages } from "./routes/pages";
-import { getGoldenRecords } from "./routes/golden";
-import { triggerExtraction, materializeGolden } from "./routes/actions";
+import { getDiscoveredUrls } from "./routes/crawl-enhanced";
+import { getSourceEntities, getPages as getPagesEnhanced } from "./routes/source-enhanced";
+import { getIdentityEntities, getCuratorQueueDirect } from "./routes/identity-enhanced";
+import { getGoldenEntities } from "./routes/golden-enhanced";
+import { mergeEntities, dismissLink } from "./routes/curator";
 
 const SPA_INDEX = "/index.html";
 
@@ -65,10 +65,26 @@ async function handleApiRoutes(request: Request, env: Env): Promise<Response> {
     if (path === "/crawl/start" && method === "POST") {
       return startCrawl(request, env);
     }
-
-    if (path === "/curator/queue" && method === "GET") {
-      return getCuratorQueue(request, env);
+    if (path.startsWith("/crawl/jobs/") && path.endsWith("/urls") && method === "GET") {
+      const jobId = path.split("/")[3];
+      return getDiscoveredUrls(jobId, env);
     }
+
+    // Identity routes
+    if (path === "/identity/curator/queue" && method === "GET") {
+      return getCuratorQueueDirect(request, env);
+    }
+    if (path === "/identity/entities/artists" && method === "GET") {
+      return getIdentityEntities("artist", request, env);
+    }
+    if (path === "/identity/entities/galleries" && method === "GET") {
+      return getIdentityEntities("gallery", request, env);
+    }
+    if (path === "/identity/entities/events" && method === "GET") {
+      return getIdentityEntities("event", request, env);
+    }
+
+    // Curator routes (merge/dismiss business logic)
     if (path === "/curator/merge" && method === "POST") {
       return mergeEntities(request, env);
     }
@@ -76,28 +92,29 @@ async function handleApiRoutes(request: Request, env: Env): Promise<Response> {
       return dismissLink(request, env);
     }
 
-    if (path === "/pages" && method === "GET") {
-      return getPages(request, env);
+    // Source entities routes
+    if (path === "/source/pages" && method === "GET") {
+      return getPagesEnhanced(request, env);
+    }
+    if (path === "/source/entities/artists" && method === "GET") {
+      return getSourceEntities("artists", request, env);
+    }
+    if (path === "/source/entities/galleries" && method === "GET") {
+      return getSourceEntities("galleries", request, env);
+    }
+    if (path === "/source/entities/events" && method === "GET") {
+      return getSourceEntities("events", request, env);
     }
 
-    if (path.startsWith("/golden/") && method === "GET") {
-      const [, , entityTypeSegment] = path.split("/");
-      if (
-        entityTypeSegment === "artist" ||
-        entityTypeSegment === "gallery" ||
-        entityTypeSegment === "event"
-      ) {
-        return getGoldenRecords(entityTypeSegment as EntityType, request, env);
-      }
-      return jsonResponse(400, { error: "Invalid entity type" });
+    // Golden routes
+    if (path === "/golden/artists" && method === "GET") {
+      return getGoldenEntities("artists", request, env);
     }
-
-    if (path === "/actions/trigger-extraction" && method === "POST") {
-      return triggerExtraction(request, env);
+    if (path === "/golden/galleries" && method === "GET") {
+      return getGoldenEntities("galleries", request, env);
     }
-
-    if (path === "/actions/materialize-golden" && method === "POST") {
-      return materializeGolden(request, env);
+    if (path === "/golden/events" && method === "GET") {
+      return getGoldenEntities("events", request, env);
     }
 
     return jsonResponse(404, { error: "Not found", path });

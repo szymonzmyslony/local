@@ -1,10 +1,9 @@
 /// <reference path="./worker-configuration.d.ts" />
 
-import { jsonResponse, readJson } from "@/shared/http";
+import { jsonResponse } from "@/shared/http";
 import type {
   EntityType,
   GoldenQueueMessage,
-  MaterializeRequest,
 } from "@/shared/messages";
 import { getServiceClient, type SupabaseServiceClient } from "@/shared/supabase";
 import type { TablesInsert } from "@/types/database_types";
@@ -15,15 +14,6 @@ export default {
 
     if (url.pathname === "/health") {
       return new Response("ok");
-    }
-
-    if (url.pathname === "/materialize" && request.method === "POST") {
-      return materializeViaHttp(request, env);
-    }
-
-    if (url.pathname.startsWith("/records/") && request.method === "GET") {
-      const entityType = url.pathname.split("/")[2] as EntityType;
-      return listGoldenRecords(entityType, request, env);
     }
 
     if (url.pathname === "/stats" && request.method === "GET") {
@@ -52,50 +42,6 @@ export default {
     }
   },
 } satisfies ExportedHandler<Env, GoldenQueueMessage>;
-
-async function materializeViaHttp(request: Request, env: Env): Promise<Response> {
-  const body = await readJson<MaterializeRequest>(request);
-  if (!body?.entityType || !body.entityId) {
-    return jsonResponse(400, { error: "Missing entityType or entityId" });
-  }
-
-  const sb = getServiceClient(env);
-  try {
-    await materializeEntity(sb, body.entityType, body.entityId);
-    return jsonResponse(200, { ok: true });
-  } catch (error) {
-    return jsonResponse(500, { error: (error as Error).message });
-  }
-}
-
-async function listGoldenRecords(
-  entityType: EntityType,
-  request: Request,
-  env: Env
-): Promise<Response> {
-  const url = new URL(request.url);
-  const limit = parseInt(url.searchParams.get("limit") ?? "100", 10);
-
-  const tableMap: Record<EntityType, "golden_artists" | "golden_galleries" | "golden_events"> = {
-    artist: "golden_artists",
-    gallery: "golden_galleries",
-    event: "golden_events",
-  };
-  const table = tableMap[entityType];
-
-  const sb = getServiceClient(env);
-  const { data, error } = await sb
-    .from(table)
-    .select("*")
-    .order("updated_at", { ascending: false })
-    .limit(limit);
-
-  if (error) {
-    return jsonResponse(500, { error: error.message });
-  }
-
-  return jsonResponse(200, { records: data ?? [], entityType });
-}
 
 async function getGoldenStats(env: Env): Promise<Response> {
   const sb = getServiceClient(env);

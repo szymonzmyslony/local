@@ -6,7 +6,6 @@ import {
   type EntityType,
   type GoldenQueueMessage,
   type IdentityQueueMessage,
-  type IndexRequest,
   type MergeRequest,
 } from "@/shared/messages";
 import { getServiceClient, type SupabaseServiceClient } from "@/shared/supabase";
@@ -50,20 +49,12 @@ export default {
       return new Response("ok");
     }
 
-    if (url.pathname === "/index" && request.method === "POST") {
-      return indexViaHttp(request, env);
-    }
-
     if (url.pathname === "/merge" && request.method === "POST") {
       return mergeViaHttp(request, env);
     }
 
     if (url.pathname === "/dismiss" && request.method === "POST") {
       return dismissViaHttp(request, env);
-    }
-
-    if (url.pathname === "/curator/queue" && request.method === "GET") {
-      return listCuratorQueue(request, env);
     }
 
     if (url.pathname === "/stats" && request.method === "GET") {
@@ -91,25 +82,6 @@ export default {
     }
   },
 } satisfies ExportedHandler<Env, IdentityQueueMessage>;
-
-async function indexViaHttp(request: Request, env: Env): Promise<Response> {
-  const body = await readJson<IndexRequest>(request);
-  if (!body?.entity_type || !body.source_id) {
-    return jsonResponse(400, { error: "Missing entity_type or source_id" });
-  }
-
-  const sb = getServiceClient(env);
-  const embedder = createEmbedder(env.OPENAI_API_KEY);
-  try {
-    const messages = await indexSource(sb, body.entity_type, body.source_id, embedder);
-    for (const msg of messages) {
-      await env.GOLDEN_PRODUCER.send(msg);
-    }
-    return jsonResponse(200, { ok: true, queued: messages.length });
-  } catch (error) {
-    return jsonResponse(500, { error: (error as Error).message });
-  }
-}
 
 interface MergeHttpRequest extends MergeRequest {
   link_id?: string;
@@ -178,26 +150,6 @@ async function dismissViaHttp(request: Request, env: Env): Promise<Response> {
   }
 
   return jsonResponse(200, { ok: true });
-}
-
-async function listCuratorQueue(request: Request, env: Env): Promise<Response> {
-  const url = new URL(request.url);
-  const entityType = url.searchParams.get("entityType") as EntityType | null;
-  const limit = parseInt(url.searchParams.get("limit") ?? "50", 10);
-
-  const sb = getServiceClient(env);
-  const { data, error } = await sb.rpc("get_entities_for_review", {
-    filter_entity_type: entityType ?? null,
-    min_similarity: 0.85,
-    max_similarity: 0.95,
-    review_limit: limit,
-  });
-
-  if (error) {
-    return jsonResponse(500, { error: error.message });
-  }
-
-  return jsonResponse(200, { queue: data ?? [] });
 }
 
 async function getIdentityStats(env: Env): Promise<Response> {

@@ -14,32 +14,6 @@ interface CuratorDismissRequest {
   notes?: string;
 }
 
-export async function getCuratorQueue(
-  request: Request,
-  env: Env
-): Promise<Response> {
-  const url = new URL(request.url);
-  const entityType = url.searchParams.get("entityType") as EntityType | null;
-  const limit = url.searchParams.get("limit") ?? "50";
-
-  const endpoint = new URL("http://identity/curator/queue");
-  endpoint.searchParams.set("limit", limit);
-  if (entityType) {
-    endpoint.searchParams.set("entityType", entityType);
-  }
-
-  const response = await env.IDENTITY.fetch(endpoint.toString(), { method: "GET" });
-
-  if (!response.ok) {
-    return jsonResponse(response.status, {
-      error: "Failed to fetch curator queue",
-      details: await response.text(),
-    });
-  }
-
-  return response;
-}
-
 export async function mergeEntities(
   request: Request,
   env: Env
