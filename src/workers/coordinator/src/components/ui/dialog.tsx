@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 export function Dialog({
   open,
   onOpenChange,
-  children,
+  children
 }: {
   open: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -60,7 +60,10 @@ export function DialogHeader({
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("flex flex-col space-y-1.5 text-center sm:text-left", className)}
+      className={cn(
+        "flex flex-col space-y-1.5 text-center sm:text-left",
+        className
+      )}
       {...props}
     />
   );
@@ -72,7 +75,10 @@ export function DialogTitle({
 }: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
     <h2
-      className={cn("text-lg font-semibold leading-none tracking-tight", className)}
+      className={cn(
+        "text-lg font-semibold leading-none tracking-tight",
+        className
+      )}
       {...props}
     />
   );

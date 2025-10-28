@@ -16,7 +16,7 @@ export function BulkActionsBar({
   onApprove,
   onReject,
   onTriggerSimilarity,
-  onClearSelection,
+  onClearSelection
 }: BulkActionsBarProps) {
   if (selectedEntities === 0 && selectedPages === 0) return null;
 
@@ -43,7 +43,7 @@ export function BulkActionsBar({
           variant="outline"
           size="sm"
           onClick={onReject}
-          disabled={selectedPages === 0}
+          disabled={selectedPages === 0 && selectedEntities === 0}
         >
           Reject
         </Button>
@@ -51,14 +51,14 @@ export function BulkActionsBar({
           variant="outline"
           size="sm"
           onClick={onApprove}
-          disabled={selectedPages === 0}
+          disabled={selectedPages === 0 && selectedEntities === 0}
         >
           Approve
         </Button>
         <Button
           size="sm"
           onClick={onTriggerSimilarity}
-          disabled={selectedPages === 0}
+          disabled={selectedPages === 0 && selectedEntities === 0}
         >
           Approve & Queue for Similarity
         </Button>

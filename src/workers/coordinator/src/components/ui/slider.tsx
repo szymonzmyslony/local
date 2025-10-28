@@ -7,7 +7,7 @@ export function Slider({
   min = 0,
   max = 100,
   step = 1,
-  className,
+  className
 }: {
   value: [number, number];
   onValueChange: (value: [number, number]) => void;
@@ -16,14 +16,19 @@ export function Slider({
   step?: number;
   className?: string;
 }) {
-  const [isDragging, setIsDragging] = React.useState<"min" | "max" | null>(null);
+  const [isDragging, setIsDragging] = React.useState<"min" | "max" | null>(
+    null
+  );
   const trackRef = React.useRef<HTMLDivElement>(null);
 
   const getValueFromPosition = (clientX: number): number => {
     if (!trackRef.current) return min;
 
     const rect = trackRef.current.getBoundingClientRect();
-    const percentage = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    const percentage = Math.max(
+      0,
+      Math.min(1, (clientX - rect.left) / rect.width)
+    );
     const rawValue = min + percentage * (max - min);
     return Math.round(rawValue / step) * step;
   };
@@ -63,7 +68,12 @@ export function Slider({
   const maxPercent = ((value[1] - min) / (max - min)) * 100;
 
   return (
-    <div className={cn("relative flex items-center select-none touch-none", className)}>
+    <div
+      className={cn(
+        "relative flex items-center select-none touch-none",
+        className
+      )}
+    >
       <div
         ref={trackRef}
         className="relative h-2 w-full grow rounded-full bg-neutral-200 dark:bg-neutral-700"
@@ -72,7 +82,7 @@ export function Slider({
           className="absolute h-full rounded-full bg-blue-500"
           style={{
             left: `${minPercent}%`,
-            right: `${100 - maxPercent}%`,
+            right: `${100 - maxPercent}%`
           }}
         />
         <div

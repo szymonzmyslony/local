@@ -12,18 +12,15 @@ import {
   updateExtractedEntity,
   bulkApproveEntities,
   bulkRejectEntities,
-  bulkApproveByPage,
+  bulkApproveByPage
 } from "./routes/extracted";
 import {
   triggerSimilarity,
   getSimilarityPairs,
   markPairForMerge,
-  dismissPair,
+  dismissPair
 } from "./routes/similarity";
-import {
-  previewCluster,
-  commitCluster,
-} from "./routes/cluster";
+import { previewCluster, commitCluster } from "./routes/cluster";
 
 const SPA_INDEX = "/index.html";
 
@@ -81,11 +78,19 @@ async function handleApiRoutes(request: Request, env: Env): Promise<Response> {
     if (path === "/crawl/start" && method === "POST") {
       return startCrawl(request, env);
     }
-    if (path.startsWith("/crawl/jobs/") && path.endsWith("/urls") && method === "GET") {
+    if (
+      path.startsWith("/crawl/jobs/") &&
+      path.endsWith("/urls") &&
+      method === "GET"
+    ) {
       const jobId = path.split("/")[3];
       return getDiscoveredUrls(jobId, env);
     }
-    if (path.startsWith("/crawl/jobs/") && path.endsWith("/pages") && method === "GET") {
+    if (
+      path.startsWith("/crawl/jobs/") &&
+      path.endsWith("/pages") &&
+      method === "GET"
+    ) {
       const jobId = path.split("/")[3];
       return getCrawlJobPages(jobId, env);
     }
@@ -106,15 +111,31 @@ async function handleApiRoutes(request: Request, env: Env): Promise<Response> {
     if (path === "/extracted/events" && method === "GET") {
       return getExtractedEntities("event", request, env);
     }
-    if (path.match(/^\/extracted\/(artists|gallerys|events)\/[a-z0-9-]+$/) && method === "GET") {
+    if (
+      path.match(/^\/extracted\/(artists|gallerys|events)\/[a-z0-9-]+$/) &&
+      method === "GET"
+    ) {
       const [, , type, id] = path.split("/");
       // Convert plural to singular: "artists" -> "artist", "gallerys" -> "gallery", "events" -> "event"
-      const singularType = type === "artists" ? "artist" : type === "gallerys" ? "gallery" : "event";
+      const singularType =
+        type === "artists"
+          ? "artist"
+          : type === "gallerys"
+            ? "gallery"
+            : "event";
       return getExtractedEntity(singularType as any, id, env);
     }
-    if (path.match(/^\/extracted\/(artists|gallerys|events)\/[a-z0-9-]+$/) && method === "PATCH") {
+    if (
+      path.match(/^\/extracted\/(artists|gallerys|events)\/[a-z0-9-]+$/) &&
+      method === "PATCH"
+    ) {
       const [, , type, id] = path.split("/");
-      const singularType = type === "artists" ? "artist" : type === "gallerys" ? "gallery" : "event";
+      const singularType =
+        type === "artists"
+          ? "artist"
+          : type === "gallerys"
+            ? "gallery"
+            : "event";
       return updateExtractedEntity(singularType as any, id, request, env);
     }
     if (path === "/extracted/artists/bulk-approve" && method === "POST") {
@@ -156,14 +177,34 @@ async function handleApiRoutes(request: Request, env: Env): Promise<Response> {
     if (path === "/similarity/pairs/events" && method === "GET") {
       return getSimilarityPairs("event", request, env);
     }
-    if (path.match(/^\/similarity\/pairs\/[a-z0-9-]+\/(artists|gallerys|events)\/merge$/) && method === "POST") {
+    if (
+      path.match(
+        /^\/similarity\/pairs\/[a-z0-9-]+\/(artists|gallerys|events)\/merge$/
+      ) &&
+      method === "POST"
+    ) {
       const [, , , linkId, type] = path.split("/");
-      const singularType = type === "artists" ? "artist" : type === "gallerys" ? "gallery" : "event";
+      const singularType =
+        type === "artists"
+          ? "artist"
+          : type === "gallerys"
+            ? "gallery"
+            : "event";
       return markPairForMerge(linkId, singularType as any, request, env);
     }
-    if (path.match(/^\/similarity\/pairs\/[a-z0-9-]+\/(artists|gallerys|events)\/dismiss$/) && method === "POST") {
+    if (
+      path.match(
+        /^\/similarity\/pairs\/[a-z0-9-]+\/(artists|gallerys|events)\/dismiss$/
+      ) &&
+      method === "POST"
+    ) {
       const [, , , linkId, type] = path.split("/");
-      const singularType = type === "artists" ? "artist" : type === "gallerys" ? "gallery" : "event";
+      const singularType =
+        type === "artists"
+          ? "artist"
+          : type === "gallerys"
+            ? "gallery"
+            : "event";
       return dismissPair(linkId, singularType as any, request, env);
     }
 
@@ -193,7 +234,7 @@ async function handleApiRoutes(request: Request, env: Env): Promise<Response> {
   } catch (error) {
     console.error("API error:", error);
     return jsonResponse(500, {
-      error: error instanceof Error ? error.message : "Internal server error",
+      error: error instanceof Error ? error.message : "Internal server error"
     });
   }
 }

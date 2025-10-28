@@ -1,5 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from "@/components/ui/select";
 import type { CrawlJobsResponse } from "../../types/curator";
 
 interface CrawlJobSelectorProps {
@@ -14,13 +20,15 @@ export function CrawlJobSelector({ value, onChange }: CrawlJobSelectorProps) {
       const res = await fetch("/api/crawl/jobs");
       if (!res.ok) throw new Error("Failed to fetch crawl jobs");
       return res.json();
-    },
+    }
   });
 
   return (
     <Select value={value} onValueChange={onChange} disabled={isLoading}>
       <SelectTrigger className="w-[400px]">
-        <SelectValue placeholder={isLoading ? "Loading jobs..." : "Select crawl job..."} />
+        <SelectValue
+          placeholder={isLoading ? "Loading jobs..." : "Select crawl job..."}
+        />
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="">All Crawl Jobs</SelectItem>

@@ -10,8 +10,7 @@ import type {
   PagesResponse,
   PageEntitiesResponse,
   ExtractedEntity,
-  BulkApproveByPageRequest,
-  BulkApproveByPageResponse,
+  BulkApproveByPageRequest
 } from "../../types/curator";
 
 interface HierarchicalEntityViewProps {
@@ -19,14 +18,24 @@ interface HierarchicalEntityViewProps {
   entityType: EntityType;
 }
 
-export function HierarchicalEntityView({ crawlJobId, entityType }: HierarchicalEntityViewProps) {
+export function HierarchicalEntityView({
+  crawlJobId,
+  entityType
+}: HierarchicalEntityViewProps) {
   const queryClient = useQueryClient();
 
   const [expandedPages, setExpandedPages] = useState<Set<string>>(new Set());
   const [selectedPages, setSelectedPages] = useState<Set<string>>(new Set());
-  const [selectedEntities, setSelectedEntities] = useState<Set<string>>(new Set());
+  const [selectedEntities, setSelectedEntities] = useState<Set<string>>(
+    new Set()
+  );
   const [editingEntityId, setEditingEntityId] = useState<string | null>(null);
-  const [entitiesByPage, setEntitiesByPage] = useState<Record<string, ExtractedEntity[]>>({});
+  const [entityPageMap, setEntityPageMap] = useState<Record<string, string>>(
+    {}
+  );
+  const [entitiesByPage, setEntitiesByPage] = useState<
+    Record<string, ExtractedEntity[]>
+  >({});
 
   // Fetch pages for this crawl job
   const { data: pagesData, isLoading } = useQuery<PagesResponse>({
@@ -36,11 +45,13 @@ export function HierarchicalEntityView({ crawlJobId, entityType }: HierarchicalE
       if (!res.ok) throw new Error("Failed to fetch pages");
       return res.json();
     },
-    enabled: !!crawlJobId,
+    enabled: !!crawlJobId
   });
 
   // Fetch entities when a page is expanded
-  const fetchPageEntities = async (pageUrl: string): Promise<ExtractedEntity[]> => {
+  const fetchPageEntities = async (
+    pageUrl: string
+  ): Promise<ExtractedEntity[]> => {
     const encoded = encodeURIComponent(pageUrl);
     const res = await fetch(`/api/pages/${encoded}/entities`);
     if (!res.ok) throw new Error("Failed to fetch entities");
@@ -82,12 +93,28 @@ export function HierarchicalEntityView({ crawlJobId, entityType }: HierarchicalE
         pageEntityIds.forEach((id) => next.delete(id));
         return next;
       });
+      setEntityPageMap((prev) => {
+        if (pageEntityIds.length === 0) {
+          return prev;
+        }
+
+        const next = { ...prev };
+        pageEntityIds.forEach((id) => {
+          delete next[id];
+        });
+
+        return next;
+      });
     }
 
     setSelectedPages(newSelected);
   };
 
-  const handleSelectEntity = (entityId: string, checked: boolean) => {
+  const handleSelectEntity = (
+    pageUrl: string,
+    entityId: string,
+    checked: boolean
+  ) => {
     const newSelected = new Set(selectedEntities);
 
     if (checked) {
@@ -97,32 +124,108 @@ export function HierarchicalEntityView({ crawlJobId, entityType }: HierarchicalE
     }
 
     setSelectedEntities(newSelected);
+    setEntityPageMap((prev) => {
+      if (checked) {
+        if (prev[entityId] === pageUrl) {
+          return prev;
+        }
+
+        return { ...prev, [entityId]: pageUrl };
+      }
+
+      if (!(entityId in prev)) {
+        return prev;
+      }
+
+      const { [entityId]: _removed, ...rest } = prev;
+      return rest;
+    });
   };
 
-  const bulkApproveMutation = useMutation<BulkApproveByPageResponse, Error, { triggerSimilarity: boolean }>({
+  const bulkApproveMutation = useMutation<
+    void,
+    Error,
+    { triggerSimilarity: boolean }
+  >({
     mutationFn: async ({ triggerSimilarity }) => {
       const pageUrls = Array.from(selectedPages);
-      const payload: BulkApproveByPageRequest = {
-        page_urls: pageUrls,
-        entity_types: [entityType],
-        trigger_similarity: triggerSimilarity,
-        threshold: 0.85,
-      };
-
-      const res = await fetch("/api/extracted/bulk-approve-by-page", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+      const selectedEntityIds = Array.from(selectedEntities);
+      const pageSet = new Set(pageUrls);
+      const entityIds = selectedEntityIds.filter((id) => {
+        const sourcePage = entityPageMap[id];
+        if (!sourcePage) return true;
+        return !pageSet.has(sourcePage);
       });
 
-      if (!res.ok) throw new Error("Failed to approve entities");
-      return res.json();
+      if (pageUrls.length === 0 && entityIds.length === 0) {
+        throw new Error("Select at least one page or entity before approving.");
+      }
+
+      if (pageUrls.length > 0) {
+        const payload: BulkApproveByPageRequest = {
+          page_urls: pageUrls,
+          entity_types: [entityType],
+          trigger_similarity: triggerSimilarity,
+          threshold: 0.85
+        };
+
+        const response = await fetch("/api/extracted/bulk-approve-by-page", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to approve entities for selected pages.");
+        }
+      }
+
+      if (entityIds.length > 0) {
+        const response = await fetch(
+          `/api/extracted/${entityType}s/bulk-approve`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              entity_ids: entityIds,
+              trigger_similarity: triggerSimilarity,
+              threshold: 0.85
+            })
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error("Failed to approve selected entities.");
+        }
+      }
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      const pagesToRefresh = Array.from(expandedPages);
+
+      if (pagesToRefresh.length > 0) {
+        const refreshed = await Promise.all(
+          pagesToRefresh.map(async (pageUrl) => {
+            const entities = await fetchPageEntities(pageUrl);
+            return { pageUrl, entities };
+          })
+        );
+
+        setEntitiesByPage((prev) => {
+          const next = { ...prev };
+          refreshed.forEach(({ pageUrl, entities }) => {
+            next[pageUrl] = entities;
+          });
+          return next;
+        });
+      }
+
       setSelectedPages(new Set());
       setSelectedEntities(new Set());
-      queryClient.invalidateQueries({ queryKey: ["crawl-job-pages", crawlJobId] });
-    },
+      setEntityPageMap({});
+      queryClient.invalidateQueries({
+        queryKey: ["crawl-job-pages", crawlJobId]
+      });
+    }
   });
 
   const pages = pagesData?.pages || [];
@@ -143,7 +246,8 @@ export function HierarchicalEntityView({ crawlJobId, entityType }: HierarchicalE
     );
   }
 
-  const entityCountKey = `${entityType}s` as keyof typeof pages[0]["entity_counts"];
+  const entityCountKey =
+    `${entityType}s` as keyof (typeof pages)[0]["entity_counts"];
 
   return (
     <div>
@@ -172,7 +276,9 @@ export function HierarchicalEntityView({ crawlJobId, entityType }: HierarchicalE
                   >
                     <Checkbox
                       checked={selectedEntities.has(entity.id)}
-                      onCheckedChange={(checked) => handleSelectEntity(entity.id, !!checked)}
+                      onCheckedChange={(checked) =>
+                        handleSelectEntity(page.url, entity.id, !!checked)
+                      }
                     />
 
                     <button
@@ -180,16 +286,20 @@ export function HierarchicalEntityView({ crawlJobId, entityType }: HierarchicalE
                       className="flex-1 text-left hover:text-blue-600"
                     >
                       <div className="font-medium">
-                        {"name" in entity ? entity.name : "title" in entity ? entity.title : ""}
+                        {"name" in entity
+                          ? entity.name
+                          : "title" in entity
+                            ? entity.title
+                            : ""}
                       </div>
                       <div className="text-sm text-gray-600 truncate">
                         {"bio" in entity
                           ? entity.bio
                           : "description" in entity
-                          ? entity.description
-                          : "venue_name" in entity
-                          ? entity.venue_name
-                          : ""}
+                            ? entity.description
+                            : "venue_name" in entity
+                              ? entity.venue_name
+                              : ""}
                       </div>
                     </button>
 
@@ -198,8 +308,8 @@ export function HierarchicalEntityView({ crawlJobId, entityType }: HierarchicalE
                         entity.review_status === "approved"
                           ? "default"
                           : entity.review_status === "rejected"
-                          ? "destructive"
-                          : "secondary"
+                            ? "destructive"
+                            : "secondary"
                       }
                     >
                       {entity.review_status}
@@ -215,14 +325,19 @@ export function HierarchicalEntityView({ crawlJobId, entityType }: HierarchicalE
       <BulkActionsBar
         selectedEntities={selectedEntities.size}
         selectedPages={selectedPages.size}
-        onApprove={() => bulkApproveMutation.mutate({ triggerSimilarity: false })}
+        onApprove={() =>
+          bulkApproveMutation.mutate({ triggerSimilarity: false })
+        }
         onReject={() => {
           /* TODO: implement reject */
         }}
-        onTriggerSimilarity={() => bulkApproveMutation.mutate({ triggerSimilarity: true })}
+        onTriggerSimilarity={() =>
+          bulkApproveMutation.mutate({ triggerSimilarity: true })
+        }
         onClearSelection={() => {
           setSelectedPages(new Set());
           setSelectedEntities(new Set());
+          setEntityPageMap({});
         }}
       />
 
@@ -233,10 +348,12 @@ export function HierarchicalEntityView({ crawlJobId, entityType }: HierarchicalE
           onClose={() => setEditingEntityId(null)}
           onSave={async () => {
             // Refresh entities for all loaded pages
-            const promises = Object.keys(entitiesByPage).map(async (pageUrl) => {
-              const entities = await fetchPageEntities(pageUrl);
-              return { pageUrl, entities };
-            });
+            const promises = Object.keys(entitiesByPage).map(
+              async (pageUrl) => {
+                const entities = await fetchPageEntities(pageUrl);
+                return { pageUrl, entities };
+              }
+            );
 
             const results = await Promise.all(promises);
             const newEntitiesByPage: Record<string, ExtractedEntity[]> = {};

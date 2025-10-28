@@ -10,7 +10,7 @@ export function Tabs({
   value,
   onValueChange,
   children,
-  className,
+  className
 }: {
   value: string;
   onValueChange: (value: string) => void;
@@ -26,7 +26,7 @@ export function Tabs({
 
 export function TabsList({
   children,
-  className,
+  className
 }: {
   children: React.ReactNode;
   className?: string;
@@ -46,7 +46,7 @@ export function TabsList({
 export function TabsTrigger({
   value,
   children,
-  className,
+  className
 }: {
   value: string;
   children: React.ReactNode;
@@ -73,7 +73,7 @@ export function TabsTrigger({
 export function TabsContent({
   value,
   children,
-  className,
+  className
 }: {
   value: string;
   children: React.ReactNode;

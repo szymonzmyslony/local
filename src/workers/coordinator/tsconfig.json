@@ -12,15 +12,8 @@
       "@/types/*": ["../../../src/types/*"],
       "@/*": ["../../../src/*"]
     },
-    "types": [
-      "@cloudflare/workers-types",
-      "node",
-      "vite/client"
-    ]
+    "types": ["@cloudflare/workers-types", "node", "vite/client"]
   },
-  "include": [
-    "src/**/*",
-    "worker-configuration.d.ts"
-  ],
+  "include": ["src/**/*", "worker-configuration.d.ts"],
   "exclude": ["tests"]
 }

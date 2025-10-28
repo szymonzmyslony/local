@@ -17,7 +17,7 @@ export function Badge({
           "border-transparent bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100":
             variant === "secondary",
           "border-transparent bg-red-500 text-white": variant === "destructive",
-          "text-neutral-950 dark:text-neutral-50": variant === "outline",
+          "text-neutral-950 dark:text-neutral-50": variant === "outline"
         },
         className
       )}

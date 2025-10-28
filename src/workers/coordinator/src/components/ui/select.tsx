@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 export function Select({
   value,
   onValueChange,
-  children,
+  children
 }: {
   value: string;
   onValueChange: (value: string) => void;
@@ -25,7 +25,7 @@ export function Select({
 
 export function SelectTrigger({
   className,
-  children,
+  children
 }: {
   className?: string;
   children: React.ReactNode;
@@ -43,7 +43,7 @@ export function SelectContent({ children }: { children: React.ReactNode }) {
 
 export function SelectItem({
   value,
-  children,
+  children
 }: {
   value: string;
   children: React.ReactNode;

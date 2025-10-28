@@ -6,7 +6,10 @@ export function Checkbox({
   onCheckedChange,
   className,
   ...props
-}: Omit<React.InputHTMLAttributes<HTMLInputElement>, "type" | "checked" | "onChange"> & {
+}: Omit<
+  React.InputHTMLAttributes<HTMLInputElement>,
+  "type" | "checked" | "onChange"
+> & {
   checked?: boolean;
   onCheckedChange?: (checked: boolean) => void;
 }) {

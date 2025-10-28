@@ -1,10 +1,20 @@
 import { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import type { EntityType, ExtractedArtist, ExtractedGallery, ExtractedEvent } from "../../types/curator";
+import type {
+  EntityType,
+  ExtractedArtist,
+  ExtractedGallery,
+  ExtractedEvent
+} from "../../types/curator";
 
 interface EntityEditDialogProps {
   entityType: EntityType;
@@ -15,7 +25,12 @@ interface EntityEditDialogProps {
 
 type EntityData = ExtractedArtist | ExtractedGallery | ExtractedEvent;
 
-export function EntityEditDialog({ entityType, entityId, onClose, onSave }: EntityEditDialogProps) {
+export function EntityEditDialog({
+  entityType,
+  entityId,
+  onClose,
+  onSave
+}: EntityEditDialogProps) {
   const [entity, setEntity] = useState<EntityData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -41,14 +56,17 @@ export function EntityEditDialog({ entityType, entityId, onClose, onSave }: Enti
     await fetch(`/api/extracted/${entityType}s/${entityId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(entity),
+      body: JSON.stringify(entity)
     });
 
     onSave();
     onClose();
   };
 
-  const updateField = <K extends keyof EntityData>(field: K, value: EntityData[K]) => {
+  const updateField = <K extends keyof EntityData>(
+    field: K,
+    value: EntityData[K]
+  ) => {
     if (!entity) return;
     setEntity({ ...entity, [field]: value });
   };
@@ -95,11 +113,16 @@ export function EntityEditDialog({ entityType, entityId, onClose, onSave }: Enti
                 entityType === "event"
                   ? (entity as ExtractedEvent).title
                   : "name" in entity
-                  ? entity.name
-                  : ""
+                    ? entity.name
+                    : ""
               }
               onChange={(e) =>
-                updateField(entityType === "event" ? "title" : ("name" as keyof EntityData), e.target.value as EntityData[keyof EntityData])
+                updateField(
+                  entityType === "event"
+                    ? "title"
+                    : ("name" as keyof EntityData),
+                  e.target.value as EntityData[keyof EntityData]
+                )
               }
             />
           </div>
@@ -116,7 +139,9 @@ export function EntityEditDialog({ entityType, entityId, onClose, onSave }: Enti
                 }
                 onChange={(e) =>
                   updateField(
-                    (entityType === "artist" ? "bio" : "description") as keyof EntityData,
+                    (entityType === "artist"
+                      ? "bio"
+                      : "description") as keyof EntityData,
                     e.target.value as EntityData[keyof EntityData]
                   )
                 }
@@ -131,7 +156,12 @@ export function EntityEditDialog({ entityType, entityId, onClose, onSave }: Enti
                 <Label>Description</Label>
                 <Textarea
                   value={(entity as ExtractedEvent).description || ""}
-                  onChange={(e) => updateField("description" as keyof EntityData, e.target.value as EntityData[keyof EntityData])}
+                  onChange={(e) =>
+                    updateField(
+                      "description" as keyof EntityData,
+                      e.target.value as EntityData[keyof EntityData]
+                    )
+                  }
                   rows={3}
                 />
               </div>
@@ -140,7 +170,12 @@ export function EntityEditDialog({ entityType, entityId, onClose, onSave }: Enti
                 <Label>Venue</Label>
                 <Input
                   value={(entity as ExtractedEvent).venue_name || ""}
-                  onChange={(e) => updateField("venue_name" as keyof EntityData, e.target.value as EntityData[keyof EntityData])}
+                  onChange={(e) =>
+                    updateField(
+                      "venue_name" as keyof EntityData,
+                      e.target.value as EntityData[keyof EntityData]
+                    )
+                  }
                 />
               </div>
             </>
@@ -152,7 +187,12 @@ export function EntityEditDialog({ entityType, entityId, onClose, onSave }: Enti
               <Label>Website</Label>
               <Input
                 value={"website" in entity ? entity.website || "" : ""}
-                onChange={(e) => updateField("website" as keyof EntityData, e.target.value as EntityData[keyof EntityData])}
+                onChange={(e) =>
+                  updateField(
+                    "website" as keyof EntityData,
+                    e.target.value as EntityData[keyof EntityData]
+                  )
+                }
               />
             </div>
           )}
@@ -162,7 +202,12 @@ export function EntityEditDialog({ entityType, entityId, onClose, onSave }: Enti
               <Label>Event URL</Label>
               <Input
                 value={(entity as ExtractedEvent).url || ""}
-                onChange={(e) => updateField("url" as keyof EntityData, e.target.value as EntityData[keyof EntityData])}
+                onChange={(e) =>
+                  updateField(
+                    "url" as keyof EntityData,
+                    e.target.value as EntityData[keyof EntityData]
+                  )
+                }
               />
             </div>
           )}
@@ -173,7 +218,12 @@ export function EntityEditDialog({ entityType, entityId, onClose, onSave }: Enti
               <Label>Address</Label>
               <Input
                 value={(entity as ExtractedGallery).address || ""}
-                onChange={(e) => updateField("address" as keyof EntityData, e.target.value as EntityData[keyof EntityData])}
+                onChange={(e) =>
+                  updateField(
+                    "address" as keyof EntityData,
+                    e.target.value as EntityData[keyof EntityData]
+                  )
+                }
               />
             </div>
           )}

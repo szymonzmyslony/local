@@ -20,15 +20,23 @@ export function PageNode({
   expanded,
   onToggle,
   onSelectPage,
-  children,
+  children
 }: PageNodeProps) {
-  const truncatedUrl = url.length > 80 ? url.substring(0, 80) + "..." : url;
+  const truncatedUrl = url.length > 80 ? `${url.substring(0, 80)}...` : url;
 
   return (
     <div className="border rounded-lg mb-2">
       <div
         className="flex items-center gap-2 p-3 hover:bg-gray-50 cursor-pointer"
+        role="button"
+        tabIndex={0}
         onClick={onToggle}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onToggle();
+          }
+        }}
       >
         <Checkbox
           checked={selected}

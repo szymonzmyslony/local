@@ -5,12 +5,18 @@ import type { Database } from "@/types/database_types";
 
 // Table row types
 export type CrawlJob = Database["public"]["Tables"]["crawl_jobs"]["Row"];
-export type ExtractedArtist = Database["public"]["Tables"]["extracted_artists"]["Row"];
-export type ExtractedGallery = Database["public"]["Tables"]["extracted_galleries"]["Row"];
-export type ExtractedEvent = Database["public"]["Tables"]["extracted_events"]["Row"];
+export type ExtractedArtist =
+  Database["public"]["Tables"]["extracted_artists"]["Row"];
+export type ExtractedGallery =
+  Database["public"]["Tables"]["extracted_galleries"]["Row"];
+export type ExtractedEvent =
+  Database["public"]["Tables"]["extracted_events"]["Row"];
 
 // Union type for extracted entities
-export type ExtractedEntity = ExtractedArtist | ExtractedGallery | ExtractedEvent;
+export type ExtractedEntity =
+  | ExtractedArtist
+  | ExtractedGallery
+  | ExtractedEvent;
 
 // Entity type enum
 export type EntityType = "artist" | "gallery" | "event";
@@ -64,8 +70,8 @@ export interface BulkApproveByPageRequest {
   threshold?: number;
 }
 
-export interface BulkApproveByPageResponse {
+export interface BulkApproveResponse {
   approved: number;
   queued_for_similarity: number;
-  entity_ids: Record<string, string[]>;
+  entity_ids: Record<EntityType, string[]>;
 }

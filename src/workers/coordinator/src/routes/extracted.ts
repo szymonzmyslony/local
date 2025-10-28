@@ -1,72 +1,101 @@
 import { jsonResponse, readJson } from "@/shared/http";
 import { getServiceClient } from "@/shared/supabase";
 import type { EntityType } from "@/shared/messages";
-import { getExtractedTableName, getSearchFieldName, queryExtractedEntities } from "../lib/table-helpers";
+import type { Enums } from "@/types/database_types";
+import {
+  getExtractedTableName,
+  getSearchFieldName,
+  queryExtractedEntities
+} from "../lib/table-helpers";
+
+type ReviewStatus = Enums<"review_status">;
+
+const REVIEWABLE_STATUSES: ReadonlyArray<ReviewStatus | null> = [
+  "pending_review",
+  "modified",
+  null
+];
+
+const REJECTED_STATUS: ReviewStatus = "rejected";
+
+function createEntityMap(): Record<EntityType, string[]> {
+  return {
+    artist: [],
+    gallery: [],
+    event: []
+  };
+}
+
+function getSimilarityQueueType(
+  entityType: EntityType
+): `similarity.compute.${EntityType}` {
+  return `similarity.compute.${entityType}`;
+}
 
 /**
  * GET /api/extracted/:type
  * List extracted entities with filtering and pagination
  */
 export async function getExtractedEntities(
-	entityType: EntityType,
-	request: Request,
-	env: Env
+  entityType: EntityType,
+  request: Request,
+  env: Env
 ): Promise<Response> {
-	const url = new URL(request.url);
-	const limit = parseInt(url.searchParams.get("limit") || "50");
-	const offset = parseInt(url.searchParams.get("offset") || "0");
-	const status = url.searchParams.get("status"); // pending_review, approved, rejected, modified
-	const search = url.searchParams.get("search");
-	const pageUrl = url.searchParams.get("page_url");
-	const crawlJobId = url.searchParams.get("crawl_job_id");
+  const url = new URL(request.url);
+  const limit = parseInt(url.searchParams.get("limit") || "50");
+  const offset = parseInt(url.searchParams.get("offset") || "0");
+  const status = url.searchParams.get("status"); // pending_review, approved, rejected, modified
+  const search = url.searchParams.get("search");
+  const pageUrl = url.searchParams.get("page_url");
+  const crawlJobId = url.searchParams.get("crawl_job_id");
 
-	const sb = getServiceClient(env);
+  const sb = getServiceClient(env);
 
-	let query = queryExtractedEntities(sb, entityType)
-		.select("*", { count: "exact" })
-		.order("created_at", { ascending: false })
-		.range(offset, offset + limit - 1);
+  let query = queryExtractedEntities(sb, entityType)
+    .select("*", { count: "exact" })
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
 
-	if (status) {
-		query = query.eq("review_status", status);
-	}
+  if (status) {
+    query = query.eq("review_status", status);
+  }
 
-	if (search) {
-		// Search by name/title depending on entity type
-		const searchField = getSearchFieldName(entityType);
-		query = query.ilike(searchField, `%${search}%`);
-	}
+  if (search) {
+    // Search by name/title depending on entity type
+    const searchField = getSearchFieldName(entityType);
+    query = query.ilike(searchField, `%${search}%`);
+  }
 
-	if (pageUrl) {
-		query = query.eq("page_url", pageUrl);
-	}
+  if (pageUrl) {
+    query = query.eq("page_url", pageUrl);
+  }
 
-	if (crawlJobId) {
-		// Filter by crawl job: get URLs from discovered_urls for this job
-		const { data: jobUrls } = await sb
-			.from("discovered_urls")
-			.select("url")
-			.eq("job_id", crawlJobId);
+  if (crawlJobId) {
+    // Filter by crawl job: get URLs from discovered_urls for this job
+    const { data: jobUrls } = await sb
+      .from("discovered_urls")
+      .select("url")
+      .eq("job_id", crawlJobId);
 
-		const urls = jobUrls?.map(u => u.url) || [];
-		if (urls.length > 0) {
-			query = query.in("page_url", urls);
-		} else {
-			// No URLs for this job, return empty
-			return jsonResponse(200, { entities: [], total: 0 });
-		}
-	}
+    const urls = jobUrls?.map((u) => u.url) || [];
+    if (urls.length > 0) {
+      query = query.in("page_url", urls);
+    } else {
+      // No URLs for this job, return empty
+      return jsonResponse(200, { entities: [], total: 0 });
+    }
+  }
 
-	const { data, error, count } = await query;
+  const { data, error, count } = await query;
 
-	if (error) {
-		return jsonResponse(500, { error: error.message });
-	}
+  if (error) {
+    return jsonResponse(500, { error: error.message });
+  }
 
-	return jsonResponse(200, {
-		entities: data || [],
-		total: count || 0,
-	});
+  return jsonResponse(200, {
+    entities: data || [],
+    total: count || 0
+  });
 }
 
 /**
@@ -74,26 +103,26 @@ export async function getExtractedEntities(
  * Get single extracted entity by ID
  */
 export async function getExtractedEntity(
-	entityType: EntityType,
-	entityId: string,
-	env: Env
+  entityType: EntityType,
+  entityId: string,
+  env: Env
 ): Promise<Response> {
-	const sb = getServiceClient(env);
+  const sb = getServiceClient(env);
 
-	const { data, error } = await queryExtractedEntities(sb, entityType)
-		.select("*")
-		.eq("id", entityId)
-		.maybeSingle();
+  const { data, error } = await queryExtractedEntities(sb, entityType)
+    .select("*")
+    .eq("id", entityId)
+    .maybeSingle();
 
-	if (error) {
-		return jsonResponse(500, { error: error.message });
-	}
+  if (error) {
+    return jsonResponse(500, { error: error.message });
+  }
 
-	if (!data) {
-		return jsonResponse(404, { error: "Entity not found" });
-	}
+  if (!data) {
+    return jsonResponse(404, { error: "Entity not found" });
+  }
 
-	return jsonResponse(200, { entity: data });
+  return jsonResponse(200, { entity: data });
 }
 
 /**
@@ -101,41 +130,41 @@ export async function getExtractedEntity(
  * Edit extracted entity fields (curator corrections before approval)
  */
 export async function updateExtractedEntity(
-	entityType: EntityType,
-	entityId: string,
-	request: Request,
-	env: Env
+  entityType: EntityType,
+  entityId: string,
+  request: Request,
+  env: Env
 ): Promise<Response> {
-	const body = await readJson<Record<string, unknown>>(request);
+  const body = await readJson<Record<string, unknown>>(request);
 
-	if (!body || Object.keys(body).length === 0) {
-		return jsonResponse(400, { error: "No fields provided to update" });
-	}
+  if (!body || Object.keys(body).length === 0) {
+    return jsonResponse(400, { error: "No fields provided to update" });
+  }
 
-	const sb = getServiceClient(env);
+  const sb = getServiceClient(env);
 
-	// Set review_status to 'modified' when curator edits
-	const updates = {
-		...body,
-		review_status: "modified",
-		reviewed_at: new Date().toISOString(),
-	};
+  // Set review_status to 'modified' when curator edits
+  const updates = {
+    ...body,
+    review_status: "modified",
+    reviewed_at: new Date().toISOString()
+  };
 
-	const { data, error } = await queryExtractedEntities(sb, entityType)
-		.update(updates)
-		.eq("id", entityId)
-		.select()
-		.maybeSingle();
+  const { data, error } = await queryExtractedEntities(sb, entityType)
+    .update(updates)
+    .eq("id", entityId)
+    .select()
+    .maybeSingle();
 
-	if (error) {
-		return jsonResponse(500, { error: error.message });
-	}
+  if (error) {
+    return jsonResponse(500, { error: error.message });
+  }
 
-	if (!data) {
-		return jsonResponse(404, { error: "Entity not found" });
-	}
+  if (!data) {
+    return jsonResponse(404, { error: "Entity not found" });
+  }
 
-	return jsonResponse(200, { entity: data });
+  return jsonResponse(200, { entity: data });
 }
 
 /**
@@ -143,54 +172,77 @@ export async function updateExtractedEntity(
  * Approve multiple entities and optionally trigger similarity
  */
 export async function bulkApproveEntities(
-	entityType: EntityType,
-	request: Request,
-	env: Env
+  entityType: EntityType,
+  request: Request,
+  env: Env
 ): Promise<Response> {
-	const body = await readJson<{
-		entity_ids: string[];
-		trigger_similarity?: boolean;
-		threshold?: number;
-	}>(request);
+  const body = await readJson<{
+    entity_ids: string[];
+    trigger_similarity?: boolean;
+    threshold?: number;
+  }>(request);
 
-	if (!body?.entity_ids || body.entity_ids.length === 0) {
-		return jsonResponse(400, { error: "entity_ids array is required" });
-	}
+  if (!body?.entity_ids || body.entity_ids.length === 0) {
+    return jsonResponse(400, { error: "entity_ids array is required" });
+  }
 
-	const sb = getServiceClient(env);
+  const sb = getServiceClient(env);
 
-	// Update entities to approved
-	const { data, error } = await queryExtractedEntities(sb, entityType)
-		.update({
-			review_status: "approved",
-			reviewed_at: new Date().toISOString(),
-		})
-		.in("id", body.entity_ids)
-		.select("id");
+  const { data: existing, error: fetchError } = await queryExtractedEntities(
+    sb,
+    entityType
+  )
+    .select("id, review_status")
+    .in("id", body.entity_ids);
 
-	if (error) {
-		return jsonResponse(500, { error: error.message });
-	}
+  if (fetchError) {
+    return jsonResponse(500, { error: fetchError.message });
+  }
 
-	const approvedCount = data?.length || 0;
+  const entities = existing ?? [];
+  const reviewedAt = new Date().toISOString();
 
-	// Optionally trigger similarity computation
-	if (body.trigger_similarity && approvedCount > 0) {
-		const queue = env.SIMILARITY_PRODUCER;
+  const idsNeedingApproval = entities
+    .filter((record) => REVIEWABLE_STATUSES.includes(record.review_status))
+    .map((record) => record.id);
 
-		for (const entity of data) {
-			await queue.send({
-				type: `similarity.compute.${entityType}` as `similarity.compute.${EntityType}`,
-				entityId: entity.id,
-				threshold: body.threshold,
-			});
-		}
-	}
+  if (idsNeedingApproval.length > 0) {
+    const { error: updateError } = await queryExtractedEntities(sb, entityType)
+      .update({
+        review_status: "approved",
+        reviewed_at: reviewedAt
+      })
+      .in("id", idsNeedingApproval);
 
-	return jsonResponse(200, {
-		approved: approvedCount,
-		similarity_triggered: body.trigger_similarity && approvedCount > 0,
-	});
+    if (updateError) {
+      return jsonResponse(500, { error: updateError.message });
+    }
+  }
+
+  const queueCandidates = entities
+    .filter((record) => record.review_status !== REJECTED_STATUS)
+    .map((record) => record.id);
+
+  if (body.trigger_similarity && queueCandidates.length > 0) {
+    const queue = env.SIMILARITY_PRODUCER;
+
+    for (const entityId of queueCandidates) {
+      await queue.send({
+        type: getSimilarityQueueType(entityType),
+        entityId,
+        threshold: body.threshold
+      });
+    }
+  }
+
+  const entityIdsMap = createEntityMap();
+  entityIdsMap[entityType] = queueCandidates;
+
+  return jsonResponse(200, {
+    approved: idsNeedingApproval.length,
+    queued_for_similarity: body.trigger_similarity ? queueCandidates.length : 0,
+    entity_ids: entityIdsMap
+  });
 }
 
 /**
@@ -198,33 +250,33 @@ export async function bulkApproveEntities(
  * Reject multiple entities
  */
 export async function bulkRejectEntities(
-	entityType: EntityType,
-	request: Request,
-	env: Env
+  entityType: EntityType,
+  request: Request,
+  env: Env
 ): Promise<Response> {
-	const body = await readJson<{ entity_ids: string[] }>(request);
+  const body = await readJson<{ entity_ids: string[] }>(request);
 
-	if (!body?.entity_ids || body.entity_ids.length === 0) {
-		return jsonResponse(400, { error: "entity_ids array is required" });
-	}
+  if (!body?.entity_ids || body.entity_ids.length === 0) {
+    return jsonResponse(400, { error: "entity_ids array is required" });
+  }
 
-	const sb = getServiceClient(env);
+  const sb = getServiceClient(env);
 
-	const { data, error } = await queryExtractedEntities(sb, entityType)
-		.update({
-			review_status: "rejected",
-			reviewed_at: new Date().toISOString(),
-		})
-		.in("id", body.entity_ids)
-		.select("id");
+  const { data, error } = await queryExtractedEntities(sb, entityType)
+    .update({
+      review_status: "rejected",
+      reviewed_at: new Date().toISOString()
+    })
+    .in("id", body.entity_ids)
+    .select("id");
 
-	if (error) {
-		return jsonResponse(500, { error: error.message });
-	}
+  if (error) {
+    return jsonResponse(500, { error: error.message });
+  }
 
-	return jsonResponse(200, {
-		rejected: data?.length || 0,
-	});
+  return jsonResponse(200, {
+    rejected: data?.length || 0
+  });
 }
 
 /**
@@ -232,64 +284,91 @@ export async function bulkRejectEntities(
  * Approve all entities from specific pages (curator workflow)
  */
 export async function bulkApproveByPage(
-	request: Request,
-	env: Env
+  request: Request,
+  env: Env
 ): Promise<Response> {
-	const body = await readJson<{
-		page_urls: string[];
-		entity_types: EntityType[];
-		trigger_similarity?: boolean;
-		threshold?: number;
-	}>(request);
+  const body = await readJson<{
+    page_urls: string[];
+    entity_types: EntityType[];
+    trigger_similarity?: boolean;
+    threshold?: number;
+  }>(request);
 
-	if (!body?.page_urls || body.page_urls.length === 0) {
-		return jsonResponse(400, { error: "page_urls array is required" });
-	}
+  if (!body?.page_urls || body.page_urls.length === 0) {
+    return jsonResponse(400, { error: "page_urls array is required" });
+  }
 
-	if (!body?.entity_types || body.entity_types.length === 0) {
-		return jsonResponse(400, { error: "entity_types array is required" });
-	}
+  if (!body?.entity_types || body.entity_types.length === 0) {
+    return jsonResponse(400, { error: "entity_types array is required" });
+  }
 
-	const sb = getServiceClient(env);
-	let totalApproved = 0;
-	const entityIdsByType: Record<string, string[]> = {};
+  const sb = getServiceClient(env);
+  let totalApproved = 0;
+  let totalQueued = 0;
+  const entityIdsByType = createEntityMap();
+  const reviewedAt = new Date().toISOString();
 
-	// Approve all entities from specified pages
-	for (const entityType of body.entity_types) {
-		const { data, error } = await queryExtractedEntities(sb, entityType)
-			.update({
-				review_status: "approved",
-				reviewed_at: new Date().toISOString(),
-			})
-			.in("page_url", body.page_urls)
-			.eq("review_status", "pending_review")
-			.select("id");
+  // Approve all entities from specified pages
+  for (const entityType of body.entity_types) {
+    const { data: existing, error: fetchError } = await queryExtractedEntities(
+      sb,
+      entityType
+    )
+      .select("id, review_status")
+      .in("page_url", body.page_urls);
 
-		if (error) {
-			return jsonResponse(500, { error: error.message });
-		}
+    if (fetchError) {
+      return jsonResponse(500, { error: fetchError.message });
+    }
 
-		const ids = data?.map(e => e.id) || [];
-		entityIdsByType[entityType] = ids;
-		totalApproved += ids.length;
+    const entities = existing ?? [];
 
-		// Queue for similarity if requested
-		if (body.trigger_similarity && ids.length > 0) {
-			const queue = env.SIMILARITY_PRODUCER;
+    const idsNeedingApproval = entities
+      .filter((record) => REVIEWABLE_STATUSES.includes(record.review_status))
+      .map((record) => record.id);
 
-			for (const id of ids) {
-				await queue.send({
-					type: `similarity.compute.${entityType}` as `similarity.compute.${EntityType}`,
-					entityId: id,
-					threshold: body.threshold,
-				});
-			}
-		}
-	}
+    if (idsNeedingApproval.length > 0) {
+      const { error: updateError } = await queryExtractedEntities(
+        sb,
+        entityType
+      )
+        .update({
+          review_status: "approved",
+          reviewed_at: reviewedAt
+        })
+        .in("id", idsNeedingApproval);
 
-	return jsonResponse(200, {
-		approved: totalApproved,
-		queued_for_similarity: body.trigger_similarity ? totalApproved : 0,
-		entity_ids: entityIdsByType,
-	});
+      if (updateError) {
+        return jsonResponse(500, { error: updateError.message });
+      }
+    }
+
+    const queueCandidates = entities
+      .filter((record) => record.review_status !== REJECTED_STATUS)
+      .map((record) => record.id);
+
+    entityIdsByType[entityType] = queueCandidates;
+    totalApproved += idsNeedingApproval.length;
+
+    // Queue for similarity if requested
+    if (body.trigger_similarity && queueCandidates.length > 0) {
+      const queue = env.SIMILARITY_PRODUCER;
+
+      for (const entityId of queueCandidates) {
+        await queue.send({
+          type: getSimilarityQueueType(entityType),
+          entityId,
+          threshold: body.threshold
+        });
+      }
+
+      totalQueued += queueCandidates.length;
+    }
+  }
+
+  return jsonResponse(200, {
+    approved: totalApproved,
+    queued_for_similarity: body.trigger_similarity ? totalQueued : 0,
+    entity_ids: entityIdsByType
+  });
 }

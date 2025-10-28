@@ -16,7 +16,10 @@ export function ReviewTab() {
       </div>
 
       {selectedJob ? (
-        <Tabs value={entityType} onValueChange={(v) => setEntityType(v as EntityType)}>
+        <Tabs
+          value={entityType}
+          onValueChange={(v) => setEntityType(v as EntityType)}
+        >
           <TabsList>
             <TabsTrigger value="artist">Artists</TabsTrigger>
             <TabsTrigger value="gallery">Galleries</TabsTrigger>
@@ -24,21 +27,32 @@ export function ReviewTab() {
           </TabsList>
 
           <TabsContent value="artist">
-            <HierarchicalEntityView crawlJobId={selectedJob} entityType="artist" />
+            <HierarchicalEntityView
+              crawlJobId={selectedJob}
+              entityType="artist"
+            />
           </TabsContent>
 
           <TabsContent value="gallery">
-            <HierarchicalEntityView crawlJobId={selectedJob} entityType="gallery" />
+            <HierarchicalEntityView
+              crawlJobId={selectedJob}
+              entityType="gallery"
+            />
           </TabsContent>
 
           <TabsContent value="event">
-            <HierarchicalEntityView crawlJobId={selectedJob} entityType="event" />
+            <HierarchicalEntityView
+              crawlJobId={selectedJob}
+              entityType="event"
+            />
           </TabsContent>
         </Tabs>
       ) : (
         <div className="flex items-center justify-center p-12 border rounded-lg bg-gray-50">
           <div className="text-center text-gray-500">
-            <p className="text-lg">Select a crawl job to review extracted entities</p>
+            <p className="text-lg">
+              Select a crawl job to review extracted entities
+            </p>
             <p className="text-sm mt-2">
               Use the dropdown above to choose a crawl job and start reviewing
             </p>
