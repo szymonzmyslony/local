@@ -5,8 +5,8 @@ import { Button } from "@/components/button/Button";
 import { Moon, Sun, ArrowClockwise } from "@phosphor-icons/react";
 import { OverviewTab } from "./components/tabs/OverviewTab";
 import { CrawlTab } from "./components/tabs/CrawlTab";
-import { ExtractionTab } from "./components/tabs/ExtractionTab";
-import { IdentityTab } from "./components/tabs/IdentityTab";
+import { ReviewTab } from "./components/tabs/ReviewTab";
+import { SimilarityTab } from "./components/tabs/SimilarityTab";
 import { GoldenTab } from "./components/tabs/GoldenTab";
 
 const queryClient = new QueryClient({
@@ -98,7 +98,7 @@ export default function App() {
 								Crawl
 							</NavLink>
 							<NavLink
-								to="/extraction"
+								to="/review"
 								className={({ isActive }) =>
 									`px-4 py-2 rounded-t-lg font-medium transition-colors ${
 										isActive
@@ -107,10 +107,10 @@ export default function App() {
 									}`
 								}
 							>
-								Extraction
+								Review
 							</NavLink>
 							<NavLink
-								to="/identity"
+								to="/similarity"
 								className={({ isActive }) =>
 									`px-4 py-2 rounded-t-lg font-medium transition-colors ${
 										isActive
@@ -119,7 +119,7 @@ export default function App() {
 									}`
 								}
 							>
-								Identity
+								Similarity
 							</NavLink>
 							<NavLink
 								to="/golden"
@@ -142,8 +142,8 @@ export default function App() {
 					<Routes>
 						<Route path="/" element={<OverviewTab />} />
 						<Route path="/crawl" element={<CrawlTab />} />
-						<Route path="/extraction" element={<ExtractionTab />} />
-						<Route path="/identity" element={<IdentityTab />} />
+						<Route path="/review" element={<ReviewTab />} />
+						<Route path="/similarity" element={<SimilarityTab />} />
 						<Route path="/golden" element={<GoldenTab />} />
 					</Routes>
 				</div>

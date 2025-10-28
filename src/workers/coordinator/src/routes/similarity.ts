@@ -59,6 +59,7 @@ export async function getSimilarityPairs(
 	);
 	const limit = parseInt(url.searchParams.get("limit") || "50");
 	const status = url.searchParams.get("status") || "pending"; // pending, merged, dismissed
+	const crawlJobId = url.searchParams.get("crawl_job_id");
 
 	const sb = getServiceClient(env);
 
@@ -90,6 +91,22 @@ export async function getSimilarityPairs(
 		}
 
 		pairs = filteredPairs || [];
+	}
+
+	// Filter by crawl job if specified (cross-job pairs by default)
+	if (crawlJobId && pairs.length > 0) {
+		// Get URLs from this crawl job
+		const { data: jobUrls } = await sb
+			.from("discovered_urls")
+			.select("url")
+			.eq("job_id", crawlJobId);
+
+		const urlSet = new Set(jobUrls?.map(u => u.url) || []);
+
+		// Filter pairs where both entities are from this job's pages
+		pairs = pairs.filter((pair: { source_a_page_url: string; source_b_page_url: string }) =>
+			urlSet.has(pair.source_a_page_url) && urlSet.has(pair.source_b_page_url)
+		);
 	}
 
 	return jsonResponse(200, {

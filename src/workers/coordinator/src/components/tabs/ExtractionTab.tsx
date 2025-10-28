@@ -79,11 +79,10 @@ export function ExtractionTab() {
 									<tr key={page.url} className="border-b border-neutral-200 dark:border-neutral-700">
 										<td className="py-2 px-4 text-neutral-700 dark:text-neutral-300 truncate max-w-md">{page.url}</td>
 										<td className="py-2 px-4">
-											<span className={`text-xs ${
-												page.extraction_status === 'complete' ? 'text-green-600 dark:text-green-400' :
-												page.extraction_status === 'failed' ? 'text-red-600 dark:text-red-400' :
-												'text-yellow-600 dark:text-yellow-400'
-											}`}>
+											<span className={`text-xs ${page.extraction_status === 'complete' ? 'text-green-600 dark:text-green-400' :
+													page.extraction_status === 'failed' ? 'text-red-600 dark:text-red-400' :
+														'text-yellow-600 dark:text-yellow-400'
+												}`}>
 												{page.extraction_status}
 											</span>
 										</td>
@@ -108,31 +107,28 @@ export function ExtractionTab() {
 				<div className="flex gap-2 mb-4 border-b border-neutral-200 dark:border-neutral-700">
 					<button
 						onClick={() => { setEntityTab("artists"); setPage(0); }}
-						className={`px-4 py-2 font-medium transition-colors ${
-							entityTab === "artists"
+						className={`px-4 py-2 font-medium transition-colors ${entityTab === "artists"
 								? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400"
 								: "text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
-						}`}
+							}`}
 					>
 						Artists
 					</button>
 					<button
 						onClick={() => { setEntityTab("galleries"); setPage(0); }}
-						className={`px-4 py-2 font-medium transition-colors ${
-							entityTab === "galleries"
+						className={`px-4 py-2 font-medium transition-colors ${entityTab === "galleries"
 								? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400"
 								: "text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
-						}`}
+							}`}
 					>
 						Galleries
 					</button>
 					<button
 						onClick={() => { setEntityTab("events"); setPage(0); }}
-						className={`px-4 py-2 font-medium transition-colors ${
-							entityTab === "events"
+						className={`px-4 py-2 font-medium transition-colors ${entityTab === "events"
 								? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400"
 								: "text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
-						}`}
+							}`}
 					>
 						Events
 					</button>

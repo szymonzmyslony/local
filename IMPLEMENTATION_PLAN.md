@@ -1,1108 +1,585 @@
-# 🏗️ Gallery Agents Refactoring Implementation Plan
+# Curator Dashboard Refactor Plan
 
 ## Overview
-Transform the automated pipeline into a curator-controlled workflow with manual checkpoints. Implement incrementally, testing each stage in the dashboard.
-
-**Philosophy**:
-- 🔥 **Delete legacy code aggressively** - No backward compatibility needed
-- 🎨 **Use shadcn/ui components** - Install via `bunx --bun shadcn@latest add <component>`
-- ✅ **Test incrementally** - Each worker + dashboard feature before moving on
+Refactor the dashboard to support a hierarchical curator workflow: **Crawl Jobs → Pages (via discovered_urls) → Extracted Entities**, with bulk actions, inline editing, and per-job similarity review.
 
 ---
 
-## 🎯 Architecture Summary
+## Core Database Relationships
 
+**Existing Schema (No Changes Needed)**:
 ```
-Crawler → Extract → Similarity → Cluster
-  (auto)    ⛔ UI      ⛔ UI      ⛔ UI
-            approval   trigger    merge
+crawl_jobs (id, seed_url, status, urls_discovered, urls_fetched)
+    ↓ 1:N (via job_id)
+discovered_urls (url, job_id, status, fetch_attempts)
+    ↓ N:1 (via url match)
+pages (url, md, extraction_status, fetched_at)
+    ↓ 1:N (via page_url)
+extracted_* tables (artists, galleries, events)
 ```
 
-**Key Decisions**:
-- Similarity threshold: UI slider (not stored in DB)
-- Manual merge links: `similarity_score = 1.0` (curator confirmed)
-- Cluster commit: Direct write to golden tables (no worker)
-
----
-
-## Phase 1: Database Migration
-
-### Migration: `20251028_add_similarity_config.sql`
-
+**Key Insight**: Use `discovered_urls` as the link between `crawl_jobs` and `pages`:
 ```sql
--- Allow NULL similarity_score for manual curator merges
-ALTER TABLE extracted_artist_links
-  ALTER COLUMN similarity_score DROP NOT NULL;
-
-ALTER TABLE extracted_gallery_links
-  ALTER COLUMN similarity_score DROP NOT NULL;
-
-ALTER TABLE extracted_event_links
-  ALTER COLUMN similarity_score DROP NOT NULL;
-
--- Track who created link (system vs curator)
-ALTER TABLE extracted_artist_links ADD COLUMN created_by TEXT DEFAULT 'system';
-ALTER TABLE extracted_gallery_links ADD COLUMN created_by TEXT DEFAULT 'system';
-ALTER TABLE extracted_event_links ADD COLUMN created_by TEXT DEFAULT 'system';
-
-COMMENT ON COLUMN extracted_artist_links.similarity_score IS
-  'NULL or <1.0 = system detected, 1.0 = curator confirmed';
+SELECT p.*, du.job_id
+FROM pages p
+INNER JOIN discovered_urls du ON p.url = du.url
+WHERE du.job_id = $1
 ```
-
-**Test**: `bunx supabase db push && bunx supabase gen types typescript --local > src/types/database_types.ts`
 
 ---
 
-## Phase 2: Extraction Worker (Already Done ✅)
+## Phase 1: Backend API - Hierarchical Queries
 
-**Changes**:
-- ✅ Updated to use `extracted_*` tables
-- ✅ Sets `review_status='pending_review'`
-- ✅ Removed queue sends
+### 1.1 Crawl Job → Pages Endpoint
 
-**Test**: Start crawl, verify entities appear in `extracted_artists` table
+**File**: `src/workers/coordinator/src/routes/crawl.ts`
 
----
+Add endpoint to get all pages for a crawl job via `discovered_urls`:
 
-## Phase 3: Extraction Dashboard
+```typescript
+// GET /api/crawl/jobs/{jobId}/pages
+export async function getCrawlJobPages(jobId: string, env: Env): Promise<Response> {
+  const sb = getServiceClient(env);
 
-### 3.1 Install shadcn/ui Components
+  // Join pages with discovered_urls to get pages for this job
+  const { data: pages, error } = await sb
+    .from("discovered_urls")
+    .select(`
+      url,
+      status,
+      pages!inner(
+        url,
+        extraction_status,
+        fetched_at
+      )
+    `)
+    .eq("job_id", jobId)
+    .eq("status", "fetched");
 
-```bash
-# Core components for this phase
-bunx --bun shadcn@latest add table
-bunx --bun shadcn@latest add badge
-bunx --bun shadcn@latest add button
-bunx --bun shadcn@latest add checkbox
-bunx --bun shadcn@latest add select
-bunx --bun shadcn@latest add dialog
-bunx --bun shadcn@latest add input
+  if (error) {
+    return jsonResponse(500, { error: error.message });
+  }
+
+  // Get entity counts for each page
+  const pageUrls = pages?.map(p => p.url) || [];
+  const [artistCounts, galleryCounts, eventCounts] = await Promise.all([
+    sb.from("extracted_artists").select("page_url", { count: "exact" }).in("page_url", pageUrls),
+    sb.from("extracted_galleries").select("page_url", { count: "exact" }).in("page_url", pageUrls),
+    sb.from("extracted_events").select("page_url", { count: "exact" }).in("page_url", pageUrls),
+  ]);
+
+  // Transform to include entity counts
+  const pagesWithCounts = pages?.map(p => ({
+    url: p.url,
+    extraction_status: p.pages.extraction_status,
+    fetched_at: p.pages.fetched_at,
+    entity_counts: {
+      artists: artistCounts?.filter(c => c.page_url === p.url).length || 0,
+      galleries: galleryCounts?.filter(c => c.page_url === p.url).length || 0,
+      events: eventCounts?.filter(c => c.page_url === p.url).length || 0,
+    }
+  }));
+
+  return jsonResponse(200, { pages: pagesWithCounts, total: pages?.length || 0 });
+}
 ```
 
-### 3.2 Create Extracted Entities API
+### 1.2 Page → Entities Endpoint
 
-**File**: `src/workers/coordinator/src/routes/extracted.ts` (NEW)
+**File**: `src/workers/coordinator/src/routes/pages.ts` (NEW)
 
 ```typescript
 import { jsonResponse } from "@/shared/http";
 import { getServiceClient } from "@/shared/supabase";
 
-// GET /api/extracted/artists?limit=50&offset=0&review_status=pending_review
-export async function getExtractedEntities(request: Request, env: Env, type: string) {
+// GET /api/pages/:encodedUrl/entities
+export async function getPageEntities(encodedUrl: string, env: Env): Promise<Response> {
+  const url = decodeURIComponent(encodedUrl);
+  const sb = getServiceClient(env);
+
+  const [artists, galleries, events] = await Promise.all([
+    sb.from("extracted_artists").select("*").eq("page_url", url),
+    sb.from("extracted_galleries").select("*").eq("page_url", url),
+    sb.from("extracted_events").select("*").eq("page_url", url),
+  ]);
+
+  return jsonResponse(200, {
+    url,
+    entities: {
+      artists: artists.data || [],
+      galleries: galleries.data || [],
+      events: events.data || [],
+    }
+  });
+}
+```
+
+### 1.3 Enhanced Extracted Entities Endpoint
+
+**File**: `src/workers/coordinator/src/routes/extracted.ts`
+
+Add filter params to existing endpoint:
+
+```typescript
+// GET /api/extracted/{type}?crawl_job_id=xxx&page_url=xxx&review_status=pending_review
+export async function getExtractedEntities(
+  entityType: "artist" | "gallery" | "event",
+  request: Request,
+  env: Env
+): Promise<Response> {
   const url = new URL(request.url);
   const limit = parseInt(url.searchParams.get("limit") || "50");
   const offset = parseInt(url.searchParams.get("offset") || "0");
-  const status = url.searchParams.get("review_status");
+  const reviewStatus = url.searchParams.get("review_status");
+  const pageUrl = url.searchParams.get("page_url");
+  const crawlJobId = url.searchParams.get("crawl_job_id");
 
   const sb = getServiceClient(env);
+  const tableName = `extracted_${entityType}s`;
+
   let query = sb
-    .from(`extracted_${type}s`)
+    .from(tableName)
     .select("*", { count: "exact" })
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
-  if (status) query = query.eq("review_status", status);
+  if (reviewStatus) {
+    query = query.eq("review_status", reviewStatus);
+  }
+
+  if (pageUrl) {
+    query = query.eq("page_url", pageUrl);
+  }
+
+  if (crawlJobId) {
+    // Filter by crawl job: join through discovered_urls
+    const { data: jobUrls } = await sb
+      .from("discovered_urls")
+      .select("url")
+      .eq("job_id", crawlJobId);
+
+    const urls = jobUrls?.map(u => u.url) || [];
+    query = query.in("page_url", urls);
+  }
 
   const { data, count, error } = await query;
-  if (error) return jsonResponse(500, { error: error.message });
-  return jsonResponse(200, { data, count });
-}
 
-// PUT /api/extracted/artists/:id
-export async function updateEntity(request: Request, env: Env, type: string, id: string) {
-  const updates = await request.json();
-  const sb = getServiceClient(env);
+  if (error) {
+    return jsonResponse(500, { error: error.message });
+  }
 
-  const { data, error } = await sb
-    .from(`extracted_${type}s`)
-    .update({
-      ...updates,
-      review_status: "modified",
-      reviewed_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .select()
-    .single();
-
-  if (error) return jsonResponse(500, { error: error.message });
-  return jsonResponse(200, { data });
-}
-
-// DELETE /api/extracted/artists/:id
-export async function deleteEntity(request: Request, env: Env, type: string, id: string) {
-  const sb = getServiceClient(env);
-  const { error } = await sb.from(`extracted_${type}s`).delete().eq("id", id);
-  if (error) return jsonResponse(500, { error: error.message });
-  return jsonResponse(200, { ok: true });
-}
-
-// POST /api/extracted/artists/bulk-status
-export async function bulkUpdateStatus(request: Request, env: Env, type: string) {
-  const { ids, review_status } = await request.json();
-  const sb = getServiceClient(env);
-
-  const { error } = await sb
-    .from(`extracted_${type}s`)
-    .update({ review_status, reviewed_at: new Date().toISOString() })
-    .in("id", ids);
-
-  if (error) return jsonResponse(500, { error: error.message });
-  return jsonResponse(200, { ok: true });
+  return jsonResponse(200, { entities: data, total: count });
 }
 ```
 
-**Add to server.ts**:
+### 1.4 Bulk Approve by Page
+
+**File**: `src/workers/coordinator/src/routes/extracted.ts`
+
 ```typescript
-// DELETE old source-enhanced.ts routes entirely
+// POST /api/extracted/bulk-approve-by-page
+export async function bulkApproveByPage(request: Request, env: Env): Promise<Response> {
+  const { page_urls, entity_types, trigger_similarity, threshold } = await request.json();
+  const sb = getServiceClient(env);
 
-if (path === "/extracted/artists" && method === "GET")
-  return getExtractedEntities(request, env, "artist");
-if (path.match(/^\/extracted\/artists\/([^\/]+)$/) && method === "PUT")
-  return updateEntity(request, env, "artist", path.split("/")[3]);
-if (path.match(/^\/extracted\/artists\/([^\/]+)$/) && method === "DELETE")
-  return deleteEntity(request, env, "artist", path.split("/")[3]);
-if (path === "/extracted/artists/bulk-status" && method === "POST")
-  return bulkUpdateStatus(request, env, "artist");
+  let totalApproved = 0;
+  const entityIds: Record<string, string[]> = {};
 
-// Repeat for galleries, events
+  // Approve all entities from specified pages
+  for (const type of entity_types) {
+    const tableName = `extracted_${type}s`;
+
+    const { data: entities } = await sb
+      .from(tableName)
+      .update({
+        review_status: "approved",
+        reviewed_at: new Date().toISOString(),
+      })
+      .in("page_url", page_urls)
+      .eq("review_status", "pending_review")
+      .select("id");
+
+    const ids = entities?.map(e => e.id) || [];
+    entityIds[type] = ids;
+    totalApproved += ids.length;
+
+    // Queue for similarity if requested
+    if (trigger_similarity && ids.length > 0) {
+      for (const id of ids) {
+        await env.SIMILARITY_PRODUCER.send({
+          type: "similarity.compute",
+          entity_type: type,
+          entity_id: id,
+          threshold,
+        });
+      }
+    }
+  }
+
+  return jsonResponse(200, {
+    approved: totalApproved,
+    queued_for_similarity: trigger_similarity ? totalApproved : 0,
+    entity_ids: entityIds,
+  });
+}
 ```
 
-### 3.3 Refactor ExtractionTab with shadcn/ui
+### 1.5 Similarity Pairs with Job Filter
 
-**File**: `src/workers/coordinator/src/components/tabs/ExtractionTab.tsx`
+**File**: `src/workers/coordinator/src/routes/similarity.ts`
 
-**DELETE OLD CODE**: Remove entire existing implementation
+```typescript
+// GET /api/similarity/pairs/{type}?crawl_job_id=xxx&min_similarity=0.8&max_similarity=1.0
+export async function getSimilarityPairs(
+  entityType: "artist" | "gallery" | "event",
+  request: Request,
+  env: Env
+): Promise<Response> {
+  const url = new URL(request.url);
+  const minSimilarity = parseFloat(url.searchParams.get("min_similarity") || "0.7");
+  const maxSimilarity = parseFloat(url.searchParams.get("max_similarity") || "1.0");
+  const crawlJobId = url.searchParams.get("crawl_job_id");
+  const limit = parseInt(url.searchParams.get("limit") || "50");
 
-**NEW IMPLEMENTATION**:
-```tsx
-import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+  const sb = getServiceClient(env);
+
+  // Get pairs from database function
+  const { data: pairs, error } = await sb.rpc(`get_${entityType}_pairs_for_review`, {
+    min_similarity: minSimilarity,
+    max_similarity: maxSimilarity,
+    review_limit: limit,
+  });
+
+  if (error) {
+    return jsonResponse(500, { error: error.message });
+  }
+
+  // If job filter is specified, filter pairs where BOTH entities are from that job
+  let filteredPairs = pairs;
+  if (crawlJobId) {
+    // Get URLs from this crawl job
+    const { data: jobUrls } = await sb
+      .from("discovered_urls")
+      .select("url")
+      .eq("job_id", crawlJobId);
+
+    const urlSet = new Set(jobUrls?.map(u => u.url) || []);
+
+    // Filter pairs where both entities are from this job's pages
+    filteredPairs = pairs?.filter((pair: any) =>
+      urlSet.has(pair.source_a_page_url) && urlSet.has(pair.source_b_page_url)
+    );
+  }
+
+  return jsonResponse(200, { pairs: filteredPairs, total: filteredPairs?.length || 0 });
+}
+```
+
+### 1.6 Update server.ts Routes
+
+**File**: `src/workers/coordinator/src/server.ts`
+
+Add new routes:
+
+```typescript
+// Crawl job pages
+if (path.match(/^\/crawl\/jobs\/[^\/]+\/pages$/) && method === "GET") {
+  const jobId = path.split("/")[3];
+  return getCrawlJobPages(jobId, env);
+}
+
+// Page entities
+if (path.match(/^\/pages\/.+\/entities$/) && method === "GET") {
+  const encodedUrl = path.split("/")[2];
+  return getPageEntities(encodedUrl, env);
+}
+
+// Bulk approve by page
+if (path === "/extracted/bulk-approve-by-page" && method === "POST") {
+  return bulkApproveByPage(request, env);
+}
+```
+
+---
+
+## Phase 2: Frontend Components - Shared UI
+
+### 2.1 CrawlJobSelector Component
+
+**File**: `src/workers/coordinator/src/components/common/CrawlJobSelector.tsx`
+
+```typescript
+import { useQuery } from "@tanstack/react-query";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 
-type ReviewStatus = "pending_review" | "approved" | "rejected" | "modified";
+interface CrawlJobSelectorProps {
+  value: string;
+  onChange: (jobId: string) => void;
+}
 
-const statusColors: Record<ReviewStatus, string> = {
-  pending_review: "bg-yellow-500",
-  approved: "bg-green-500",
-  rejected: "bg-red-500",
-  modified: "bg-blue-500",
-};
-
-export function ExtractionTab() {
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [statusFilter, setStatusFilter] = useState<ReviewStatus | "all">("pending_review");
-  const [editingId, setEditingId] = useState<string | null>(null);
-
-  const { data, refetch } = useQuery({
-    queryKey: ["extracted", "artists", statusFilter],
+export function CrawlJobSelector({ value, onChange }: CrawlJobSelectorProps) {
+  const { data: jobs } = useQuery({
+    queryKey: ["crawl-jobs"],
     queryFn: async () => {
-      const params = new URLSearchParams({ limit: "50", offset: "0" });
-      if (statusFilter !== "all") params.set("review_status", statusFilter);
-      const res = await fetch(`/api/extracted/artists?${params}`);
-      return res.json();
+      const res = await fetch("/api/crawl/jobs");
+      const json = await res.json();
+      return json.jobs;
     },
-  });
-
-  const bulkUpdate = useMutation({
-    mutationFn: async (status: ReviewStatus) => {
-      await fetch("/api/extracted/artists/bulk-status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: selectedIds, review_status: status }),
-      });
-    },
-    onSuccess: () => {
-      setSelectedIds([]);
-      refetch();
-    },
-  });
-
-  const deleteEntity = useMutation({
-    mutationFn: async (id: string) => {
-      await fetch(`/api/extracted/artists/${id}`, { method: "DELETE" });
-    },
-    onSuccess: () => refetch(),
   });
 
   return (
-    <div className="space-y-4">
-      {/* Header with filters and actions */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[200px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="pending_review">Pending Review</SelectItem>
-              <SelectItem value="approved">Approved</SelectItem>
-              <SelectItem value="rejected">Rejected</SelectItem>
-              <SelectItem value="modified">Modified</SelectItem>
-            </SelectContent>
-          </Select>
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger className="w-[300px]">
+        <SelectValue placeholder="Select crawl job..." />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="">All Crawl Jobs</SelectItem>
+        {jobs?.map((job: any) => (
+          <SelectItem key={job.id} value={job.id}>
+            {job.seed_url} ({job.status}) - {new Date(job.created_at).toLocaleDateString()}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+```
 
-          <span className="text-sm text-muted-foreground">
-            {data?.count || 0} entities
-          </span>
-        </div>
+### 2.2 BulkActionsBar Component
 
-        {selectedIds.length > 0 && (
-          <div className="flex gap-2">
-            <Badge variant="outline">{selectedIds.length} selected</Badge>
-            <Button size="sm" onClick={() => bulkUpdate.mutate("approved")}>
-              ✓ Approve
-            </Button>
-            <Button size="sm" variant="destructive" onClick={() => bulkUpdate.mutate("rejected")}>
-              ✗ Reject
-            </Button>
-          </div>
-        )}
+**File**: `src/workers/coordinator/src/components/review/BulkActionsBar.tsx`
+
+```typescript
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+
+interface BulkActionsBarProps {
+  selectedEntities: number;
+  selectedPages: number;
+  onApprove: () => void;
+  onReject: () => void;
+  onTriggerSimilarity: () => void;
+  onClearSelection: () => void;
+}
+
+export function BulkActionsBar({
+  selectedEntities,
+  selectedPages,
+  onApprove,
+  onReject,
+  onTriggerSimilarity,
+  onClearSelection,
+}: BulkActionsBarProps) {
+  if (selectedEntities === 0 && selectedPages === 0) return null;
+
+  return (
+    <div className="sticky bottom-0 bg-white border-t p-4 flex items-center justify-between shadow-lg">
+      <div className="flex items-center gap-2">
+        {selectedPages > 0 && <Badge variant="outline">{selectedPages} pages</Badge>}
+        {selectedEntities > 0 && <Badge variant="outline">{selectedEntities} entities</Badge>}
       </div>
 
-      {/* Table */}
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-12">
-              <Checkbox
-                checked={selectedIds.length === data?.data?.length}
-                onCheckedChange={(checked) => {
-                  setSelectedIds(checked ? data?.data?.map((e: any) => e.id) || [] : []);
-                }}
-              />
-            </TableHead>
-            <TableHead>Name</TableHead>
-            <TableHead>Bio</TableHead>
-            <TableHead>Website</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {data?.data?.map((entity: any) => (
-            <TableRow key={entity.id}>
-              <TableCell>
-                <Checkbox
-                  checked={selectedIds.includes(entity.id)}
-                  onCheckedChange={(checked) => {
-                    setSelectedIds(checked
-                      ? [...selectedIds, entity.id]
-                      : selectedIds.filter(id => id !== entity.id)
-                    );
-                  }}
-                />
-              </TableCell>
-              <TableCell>
-                <button
-                  className="text-blue-600 hover:underline"
-                  onClick={() => setEditingId(entity.id)}
-                >
-                  {entity.name}
-                </button>
-              </TableCell>
-              <TableCell className="max-w-xs truncate">{entity.bio}</TableCell>
-              <TableCell className="max-w-xs truncate">{entity.website}</TableCell>
-              <TableCell>
-                <Badge className={statusColors[entity.review_status as ReviewStatus]}>
-                  {entity.review_status}
-                </Badge>
-              </TableCell>
-              <TableCell>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => deleteEntity.mutate(entity.id)}
-                >
-                  🗑️
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" onClick={onClearSelection}>
+          Clear Selection
+        </Button>
+        <Button variant="outline" size="sm" onClick={onReject}>
+          Reject
+        </Button>
+        <Button variant="outline" size="sm" onClick={onApprove}>
+          Approve
+        </Button>
+        <Button size="sm" onClick={onTriggerSimilarity}>
+          Approve & Queue for Similarity
+        </Button>
+      </div>
+    </div>
+  );
+}
+```
 
-      {/* Edit Dialog */}
-      {editingId && (
-        <EditEntityDialog
-          entityId={editingId}
-          onClose={() => {
-            setEditingId(null);
-            refetch();
-          }}
+### 2.3 PageNode Component
+
+**File**: `src/workers/coordinator/src/components/review/PageNode.tsx`
+
+```typescript
+import { useState } from "react";
+import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+
+interface PageNodeProps {
+  url: string;
+  entityCount: number;
+  selected: boolean;
+  onSelectPage: (selected: boolean) => void;
+  children: React.ReactNode;
+}
+
+export function PageNode({ url, entityCount, selected, onSelectPage, children }: PageNodeProps) {
+  const [expanded, setExpanded] = useState(false);
+
+  const truncatedUrl = url.length > 60 ? url.substring(0, 60) + "..." : url;
+
+  return (
+    <div className="border rounded-lg mb-2">
+      <div
+        className="flex items-center gap-2 p-3 hover:bg-gray-50 cursor-pointer"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <Checkbox
+          checked={selected}
+          onCheckedChange={onSelectPage}
+          onClick={(e) => e.stopPropagation()}
         />
+
+        {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+
+        <span className="font-mono text-sm flex-1">{truncatedUrl}</span>
+
+        <Badge variant="secondary">{entityCount} entities</Badge>
+
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="text-blue-600 hover:text-blue-800"
+        >
+          <ExternalLink size={16} />
+        </a>
+      </div>
+
+      {expanded && (
+        <div className="border-t p-4 bg-gray-50">
+          {children}
+        </div>
       )}
     </div>
   );
 }
+```
 
-function EditEntityDialog({ entityId, onClose }: { entityId: string; onClose: () => void }) {
+### 2.4 EntityEditDialog Component
+
+**File**: `src/workers/coordinator/src/components/review/EntityEditDialog.tsx`
+
+```typescript
+import { useState, useEffect } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+
+interface EntityEditDialogProps {
+  entityType: "artist" | "gallery" | "event";
+  entityId: string;
+  onClose: () => void;
+  onSave: () => void;
+}
+
+export function EntityEditDialog({ entityType, entityId, onClose, onSave }: EntityEditDialogProps) {
   const [entity, setEntity] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`/api/extracted/artists/${entityId}`)
+    fetch(`/api/extracted/${entityType}s/${entityId}`)
       .then(r => r.json())
-      .then(d => setEntity(d.data));
-  }, [entityId]);
+      .then(data => {
+        setEntity(data);
+        setLoading(false);
+      });
+  }, [entityId, entityType]);
 
   const handleSave = async () => {
-    await fetch(`/api/extracted/artists/${entityId}`, {
-      method: "PUT",
+    await fetch(`/api/extracted/${entityType}s/${entityId}`, {
+      method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(entity),
     });
+    onSave();
     onClose();
   };
 
-  if (!entity) return null;
-
-  return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Edit Artist</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div>
-            <label className="text-sm font-medium">Name</label>
-            <Input
-              value={entity.name}
-              onChange={e => setEntity({ ...entity, name: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium">Bio</label>
-            <Input
-              value={entity.bio || ""}
-              onChange={e => setEntity({ ...entity, bio: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium">Website</label>
-            <Input
-              value={entity.website || ""}
-              onChange={e => setEntity({ ...entity, website: e.target.value })}
-            />
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
-            <Button onClick={handleSave}>Save</Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-```
-
-**Test**:
-1. See entities in table with status badges
-2. Edit entity name → status changes to "Modified"
-3. Bulk select → Approve 3 entities
-4. Filter by "Approved" → see only approved entities
-
----
-
-## Phase 4: Similarity Worker + Trigger
-
-### 4.1 Update messages.ts
-
-**File**: `src/shared/messages.ts`
-
-**DELETE**: All `Identity*` message types
-
-**ADD**:
-```typescript
-export type SimilarityMessage = {
-  type: "similarity.compute";
-  entity_type: "artist" | "gallery" | "event";
-  entity_id: string;
-  threshold?: number; // Optional override from UI
-};
-
-export type SimilarityQueueMessage = SimilarityMessage;
-
-// Update QueueMessage union
-export type QueueMessage =
-  | CrawlerQueueMessage
-  | SourceQueueMessage
-  | SimilarityQueueMessage;
-```
-
-### 4.2 Refactor Similarity Worker
-
-**RENAME FOLDER**: `src/workers/identity/` → `src/workers/similarity/`
-
-**File**: `src/workers/similarity/similarity.ts`
-
-**DELETE**: Entire existing file
-
-**NEW IMPLEMENTATION**:
-```typescript
-/// <reference path="./worker-configuration.d.ts" />
-
-import { createEmbedder } from "@/shared/embedding";
-import { jsonResponse } from "@/shared/http";
-import type { SimilarityQueueMessage } from "@/shared/messages";
-import { getServiceClient } from "@/shared/supabase";
-import { toPgVector } from "@/shared/vector";
-
-const DEFAULT_THRESHOLDS = { artist: 0.86, gallery: 0.86, event: 0.88 };
-
-export default {
-  async queue(batch: MessageBatch<SimilarityQueueMessage>, env: Env) {
-    const sb = getServiceClient(env);
-    const embedder = createEmbedder(env.OPENAI_API_KEY);
-
-    for (const message of batch.messages) {
-      try {
-        const { entity_type, entity_id, threshold } = message.body;
-        await computeSimilarity(
-          sb,
-          entity_type,
-          entity_id,
-          embedder,
-          threshold || DEFAULT_THRESHOLDS[entity_type]
-        );
-        message.ack();
-      } catch (error) {
-        console.error("Similarity error:", error);
-        message.retry();
-      }
-    }
-  },
-} satisfies ExportedHandler<Env, SimilarityQueueMessage>;
-
-async function computeSimilarity(
-  sb: any,
-  type: string,
-  id: string,
-  embedder: any,
-  threshold: number
-) {
-  // 1. Fetch entity (must be approved)
-  const { data: entity, error } = await sb
-    .from(`extracted_${type}s`)
-    .select("*")
-    .eq("id", id)
-    .eq("review_status", "approved")
-    .single();
-
-  if (error || !entity) {
-    console.log(`Entity ${id} not approved, skipping`);
-    return;
-  }
-
-  // 2. Compute embedding if not exists
-  if (!entity.embedding) {
-    const text = buildEmbeddingText(entity, type);
-    const embedding = await embedder(text);
-    await sb
-      .from(`extracted_${type}s`)
-      .update({ embedding: toPgVector(embedding) })
-      .eq("id", id);
-    entity.embedding = toPgVector(embedding);
-  }
-
-  // 3. Find similar entities
-  const { data: similar } = await sb.rpc(`find_similar_${type}s`, {
-    query_embedding: entity.embedding,
-    match_threshold: threshold,
-    match_count: 20,
-  });
-
-  // 4. Create similarity links
-  for (const match of similar || []) {
-    if (match.id === id) continue;
-
-    const [a, b] = [id, match.id].sort();
-
-    await sb.from(`extracted_${type}_links`).upsert({
-      source_a_id: a,
-      source_b_id: b,
-      similarity_score: match.similarity,
-      curator_decision: "pending",
-      created_by: "system",
-    }, { onConflict: "source_a_id,source_b_id" });
-  }
-}
-
-function buildEmbeddingText(entity: any, type: string): string {
-  if (type === "event") {
-    return [entity.title, entity.description, entity.venue_name].filter(Boolean).join(" ");
-  }
-  return [entity.name, entity.bio, entity.website, ...(entity.socials || [])]
-    .filter(Boolean)
-    .join(" ");
-}
-```
-
-**Update wrangler.jsonc**:
-```jsonc
-{
-  "name": "citychat-similarity",
-  "main": "similarity.ts",
-  "queues": {
-    "consumers": [{ "queue": "identity", "max_batch_size": 10 }]
-  }
-}
-```
-
-### 4.3 Add Trigger Similarity API
-
-**Update coordinator wrangler.jsonc**:
-```jsonc
-{
-  "queues": {
-    "producers": [
-      { "queue": "identity", "binding": "SIMILARITY_PRODUCER" }
-    ]
-  }
-}
-```
-
-**File**: `src/workers/coordinator/src/routes/extracted.ts` (add)
-
-```typescript
-// POST /api/extracted/artists/trigger-similarity
-export async function triggerSimilarity(request: Request, env: Env, type: string) {
-  const { ids, threshold } = await request.json();
-  const sb = getServiceClient(env);
-
-  // Get approved entities
-  let query = sb.from(`extracted_${type}s`).select("id").eq("review_status", "approved");
-  if (ids?.length) query = query.in("id", ids);
-
-  const { data } = await query;
-
-  // Send to queue
-  for (const entity of data || []) {
-    await env.SIMILARITY_PRODUCER.send({
-      type: "similarity.compute",
-      entity_type: type,
-      entity_id: entity.id,
-      threshold,
-    });
-  }
-
-  return jsonResponse(200, { queued: data?.length || 0 });
-}
-```
-
-**Add to server.ts**:
-```typescript
-if (path === "/extracted/artists/trigger-similarity" && method === "POST")
-  return triggerSimilarity(request, env, "artist");
-```
-
-### 4.4 Update ExtractionTab (Add Trigger UI)
-
-**Install component**:
-```bash
-bunx --bun shadcn@latest add slider
-```
-
-**Add to ExtractionTab.tsx** (after bulk actions):
-```tsx
-const [threshold, setThreshold] = useState(0.86);
-
-const triggerSimilarity = useMutation({
-  mutationFn: async () => {
-    await fetch("/api/extracted/artists/trigger-similarity", {
+  const handleQueueSimilarity = async () => {
+    await handleSave();
+    await fetch(`/api/extracted/${entityType}s/${entityId}/queue-similarity`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids: selectedIds, threshold }),
     });
-  },
-  onSuccess: () => alert(`Queued ${selectedIds.length} for similarity check`),
-});
-
-// In JSX, add before table:
-<div className="border p-4 rounded-lg space-y-2">
-  <h3 className="font-semibold">Find Similar Entities</h3>
-  <div className="flex items-center gap-4">
-    <label className="text-sm">Threshold: {threshold.toFixed(2)}</label>
-    <Slider
-      value={[threshold]}
-      onValueChange={([v]) => setThreshold(v)}
-      min={0.7}
-      max={0.99}
-      step={0.01}
-      className="w-48"
-    />
-    <Button
-      onClick={() => triggerSimilarity.mutate()}
-      disabled={selectedIds.length === 0}
-    >
-      🔍 Find Similar ({selectedIds.length})
-    </Button>
-  </div>
-</div>
-```
-
-**Test**:
-1. Approve 5 entities
-2. Select them
-3. Set threshold to 0.90
-4. Click "Find Similar"
-5. Check `extracted_artist_links` table for new rows
-
----
-
-## Phase 5: Clustering Dashboard
-
-### 5.1 Install Components
-
-```bash
-bunx --bun shadcn@latest add tabs
-bunx --bun shadcn@latest add card
-bunx --bun shadcn@latest add textarea
-bunx --bun shadcn@latest add radio-group
-```
-
-### 5.2 Create Clustering APIs
-
-**File**: `src/workers/coordinator/src/routes/cluster.ts` (NEW)
-
-```typescript
-import { jsonResponse } from "@/shared/http";
-import { getServiceClient } from "@/shared/supabase";
-
-// GET /api/similarity/pairs?type=artist&min=0.85&max=0.95
-export async function getSimilarityPairs(request: Request, env: Env) {
-  const url = new URL(request.url);
-  const type = url.searchParams.get("type") || "artist";
-  const min = parseFloat(url.searchParams.get("min") || "0.85");
-  const max = parseFloat(url.searchParams.get("max") || "0.95");
-
-  const sb = getServiceClient(env);
-  const { data, error } = await sb.rpc(`get_${type}_pairs_for_review`, {
-    min_similarity: min,
-    max_similarity: max,
-    review_limit: 50,
-  });
-
-  if (error) return jsonResponse(500, { error: error.message });
-  return jsonResponse(200, { data });
-}
-
-// POST /api/similarity/dismiss
-export async function dismissPair(request: Request, env: Env) {
-  const { type, source_a_id, source_b_id } = await request.json();
-  const sb = getServiceClient(env);
-
-  const { error } = await sb
-    .from(`extracted_${type}_links`)
-    .update({ curator_decision: "dismissed", curator_decided_at: new Date().toISOString() })
-    .eq("source_a_id", source_a_id)
-    .eq("source_b_id", source_b_id);
-
-  if (error) return jsonResponse(500, { error: error.message });
-  return jsonResponse(200, { ok: true });
-}
-
-// GET /api/extracted/search?type=artist&q=marina
-export async function searchEntities(request: Request, env: Env) {
-  const url = new URL(request.url);
-  const type = url.searchParams.get("type") || "artist";
-  const q = url.searchParams.get("q") || "";
-
-  const sb = getServiceClient(env);
-  const nameCol = type === "event" ? "title" : "name";
-
-  const { data, error } = await sb
-    .from(`extracted_${type}s`)
-    .select("*")
-    .ilike(nameCol, `%${q}%`)
-    .is("cluster_id", null)
-    .limit(20);
-
-  if (error) return jsonResponse(500, { error: error.message });
-  return jsonResponse(200, { data });
-}
-
-// POST /api/cluster/preview
-export async function previewCluster(request: Request, env: Env) {
-  const { type, entity_ids } = await request.json();
-  const sb = getServiceClient(env);
-
-  const { data: entities } = await sb
-    .from(`extracted_${type}s`)
-    .select("*")
-    .in("id", entity_ids);
-
-  // Aggregate field options
-  const preview = {
-    name: countFrequency(entities.map((e: any) => e.name || e.title)),
-    bio: entities
-      .filter((e: any) => e.bio)
-      .map((e: any) => ({ value: e.bio, length: e.bio.length }))
-      .sort((a, b) => b.length - a.length)
-      .slice(0, 3),
-    website: countFrequency(entities.map((e: any) => e.website).filter(Boolean)),
-    socials: [...new Set(entities.flatMap((e: any) => e.socials || []))],
-  };
-
-  return jsonResponse(200, { preview });
-}
-
-function countFrequency(values: string[]) {
-  const counts = new Map();
-  values.forEach(v => counts.set(v, (counts.get(v) || 0) + 1));
-  return Array.from(counts.entries())
-    .map(([value, count]) => ({ value, count }))
-    .sort((a, b) => b.count - a.count || b.value.length - a.value.length);
-}
-
-// POST /api/cluster/commit
-export async function commitCluster(request: Request, env: Env) {
-  const { type, entity_ids, field_selections, created_by } = await request.json();
-  const sb = getServiceClient(env);
-  const cluster_id = crypto.randomUUID();
-
-  try {
-    // 1. Update extracted entities
-    await sb.from(`extracted_${type}s`).update({ cluster_id }).in("id", entity_ids);
-
-    // 2. Create similarity links (score = 1.0 for manual)
-    for (let i = 0; i < entity_ids.length; i++) {
-      for (let j = i + 1; j < entity_ids.length; j++) {
-        const [a, b] = [entity_ids[i], entity_ids[j]].sort();
-        await sb.from(`extracted_${type}_links`).upsert({
-          source_a_id: a,
-          source_b_id: b,
-          similarity_score: 1.0, // Curator confirmed
-          curator_decision: "merged",
-          curator_decided_at: new Date().toISOString(),
-          created_by: created_by || "manual",
-        });
-      }
-    }
-
-    // 3. Write golden record
-    await sb.from(`golden_${type}s`).upsert({
-      cluster_id,
-      ...field_selections,
-      updated_at: new Date().toISOString(),
-    });
-
-    // 4. Merge history
-    await sb.from("merge_history").insert({
-      cluster_id,
-      entity_type: type,
-      merged_source_ids: entity_ids,
-      merge_type: "manual_cluster",
-      field_selections,
-      created_by,
-    });
-
-    return jsonResponse(200, { cluster_id });
-  } catch (error: any) {
-    return jsonResponse(500, { error: error.message });
-  }
-}
-```
-
-**Add to server.ts**:
-```typescript
-if (path === "/similarity/pairs" && method === "GET") return getSimilarityPairs(request, env);
-if (path === "/similarity/dismiss" && method === "POST") return dismissPair(request, env);
-if (path === "/extracted/search" && method === "GET") return searchEntities(request, env);
-if (path === "/cluster/preview" && method === "POST") return previewCluster(request, env);
-if (path === "/cluster/commit" && method === "POST") return commitCluster(request, env);
-```
-
-### 5.3 Create ClusteringTab Component
-
-**File**: `src/workers/coordinator/src/components/tabs/ClusteringTab.tsx` (NEW)
-
-**DELETE**: Old `IdentityTab.tsx` entirely
-
-**NEW**:
-```tsx
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Dialog } from "@/components/ui/dialog";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Textarea } from "@/components/ui/textarea";
-import { useQuery, useMutation } from "@tanstack/react-query";
-
-export function ClusteringTab() {
-  return (
-    <Tabs defaultValue="queue">
-      <TabsList>
-        <TabsTrigger value="queue">Curator Queue</TabsTrigger>
-        <TabsTrigger value="manual">Manual Clustering</TabsTrigger>
-      </TabsList>
-
-      <TabsContent value="queue">
-        <CuratorQueue />
-      </TabsContent>
-
-      <TabsContent value="manual">
-        <ManualClustering />
-      </TabsContent>
-    </Tabs>
-  );
-}
-
-function CuratorQueue() {
-  const { data, refetch } = useQuery({
-    queryKey: ["similarity-pairs"],
-    queryFn: async () => {
-      const res = await fetch("/api/similarity/pairs?type=artist&min=0.85&max=0.95");
-      return res.json();
-    },
-  });
-
-  const [mergeIds, setMergeIds] = useState<string[]>([]);
-
-  return (
-    <div className="space-y-4">
-      <h3 className="text-lg font-semibold">Similar Entities ({data?.data?.length || 0})</h3>
-      {data?.data?.map((pair: any) => (
-        <Card key={`${pair.source_a_id}-${pair.source_b_id}`} className="p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <strong>{pair.source_a_name}</strong>
-            </div>
-            <div className="px-4 text-center">
-              <div className="text-2xl font-bold">
-                {(pair.similarity_score * 100).toFixed(0)}%
-              </div>
-              <div className="text-xs text-muted-foreground">match</div>
-            </div>
-            <div className="flex-1 text-right">
-              <strong>{pair.source_b_name}</strong>
-            </div>
-          </div>
-          <div className="flex gap-2 mt-4 justify-end">
-            <Button
-              size="sm"
-              onClick={() => setMergeIds([pair.source_a_id, pair.source_b_id])}
-            >
-              Merge
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={async () => {
-                await fetch("/api/similarity/dismiss", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    type: "artist",
-                    source_a_id: pair.source_a_id,
-                    source_b_id: pair.source_b_id,
-                  }),
-                });
-                refetch();
-              }}
-            >
-              Dismiss
-            </Button>
-          </div>
-        </Card>
-      ))}
-
-      {mergeIds.length > 0 && (
-        <MergePreviewModal
-          entityIds={mergeIds}
-          onClose={() => {
-            setMergeIds([]);
-            refetch();
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-function ManualClustering() {
-  const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<string[]>([]);
-  const [showPreview, setShowPreview] = useState(false);
-
-  const { data: results, refetch } = useQuery({
-    queryKey: ["search", query],
-    queryFn: async () => {
-      if (!query) return { data: [] };
-      const res = await fetch(`/api/extracted/search?type=artist&q=${query}`);
-      return res.json();
-    },
-    enabled: query.length > 0,
-  });
-
-  return (
-    <div className="space-y-4">
-      <div className="flex gap-2">
-        <Input
-          placeholder="Search entities..."
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          onKeyDown={e => e.key === "Enter" && refetch()}
-        />
-        <Button onClick={() => refetch()}>Search</Button>
-      </div>
-
-      <div className="grid gap-2">
-        {results?.data?.map((entity: any) => (
-          <Card
-            key={entity.id}
-            className={`p-3 cursor-pointer ${selected.includes(entity.id) ? "bg-blue-50" : ""}`}
-            onClick={() => {
-              setSelected(prev =>
-                prev.includes(entity.id)
-                  ? prev.filter(id => id !== entity.id)
-                  : [...prev, entity.id]
-              );
-            }}
-          >
-            <div className="flex items-center gap-2">
-              <input type="checkbox" checked={selected.includes(entity.id)} readOnly />
-              <div>
-                <strong>{entity.name}</strong>
-                <p className="text-sm text-muted-foreground truncate">
-                  {entity.bio?.substring(0, 100)}
-                </p>
-              </div>
-            </div>
-          </Card>
-        ))}
-      </div>
-
-      {selected.length >= 2 && (
-        <Button onClick={() => setShowPreview(true)}>
-          Preview Merge ({selected.length} selected)
-        </Button>
-      )}
-
-      {showPreview && (
-        <MergePreviewModal
-          entityIds={selected}
-          onClose={() => {
-            setShowPreview(false);
-            setSelected([]);
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-function MergePreviewModal({ entityIds, onClose }: any) {
-  const [preview, setPreview] = useState<any>(null);
-  const [selections, setSelections] = useState<any>({});
-
-  useEffect(() => {
-    fetch("/api/cluster/preview", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "artist", entity_ids: entityIds }),
-    })
-      .then(r => r.json())
-      .then(d => {
-        setPreview(d.preview);
-        setSelections({
-          name: d.preview.name[0]?.value,
-          bio: d.preview.bio[0]?.value,
-          website: d.preview.website[0]?.value,
-          socials: d.preview.socials,
-        });
-      });
-  }, []);
-
-  const handleCommit = async () => {
-    await fetch("/api/cluster/commit", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        type: "artist",
-        entity_ids: entityIds,
-        field_selections: selections,
-        created_by: "curator@example.com",
-      }),
-    });
-    alert("Cluster created!");
     onClose();
   };
 
-  if (!preview) return null;
+  if (loading || !entity) return null;
 
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Merge Preview ({entityIds.length} entities)</DialogTitle>
+          <DialogTitle>Edit {entityType}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Name field */}
           <div>
-            <label className="font-medium">Name</label>
-            <RadioGroup value={selections.name} onValueChange={v => setSelections({...selections, name: v})}>
-              {preview.name.map((opt: any) => (
-                <div key={opt.value} className="flex items-center gap-2">
-                  <RadioGroupItem value={opt.value} />
-                  <label>{opt.value} ({opt.count} sources)</label>
-                </div>
-              ))}
-            </RadioGroup>
+            <Label>Name</Label>
             <Input
-              placeholder="Or enter custom..."
-              className="mt-2"
-              onChange={e => setSelections({...selections, name: e.target.value})}
+              value={entity.name || entity.title || ""}
+              onChange={e => setEntity({ ...entity, name: e.target.value })}
             />
           </div>
 
-          {/* Bio field */}
-          <div>
-            <label className="font-medium">Bio</label>
-            <RadioGroup value={selections.bio} onValueChange={v => setSelections({...selections, bio: v})}>
-              {preview.bio.map((opt: any, i: number) => (
-                <div key={i} className="flex items-center gap-2">
-                  <RadioGroupItem value={opt.value} />
-                  <label>{opt.length} characters</label>
-                </div>
-              ))}
-            </RadioGroup>
-            <Textarea
-              placeholder="Or enter custom..."
-              className="mt-2"
-              onChange={e => setSelections({...selections, bio: e.target.value})}
-            />
-          </div>
+          {entityType !== "event" && (
+            <>
+              <div>
+                <Label>Bio / Description</Label>
+                <Textarea
+                  value={entity.bio || entity.description || ""}
+                  onChange={e => setEntity({ ...entity, bio: e.target.value })}
+                  rows={4}
+                />
+              </div>
 
-          {/* Website field */}
-          <div>
-            <label className="font-medium">Website</label>
-            <RadioGroup value={selections.website} onValueChange={v => setSelections({...selections, website: v})}>
-              {preview.website.map((opt: any) => (
-                <div key={opt.value} className="flex items-center gap-2">
-                  <RadioGroupItem value={opt.value} />
-                  <label>{opt.value} ({opt.count} sources)</label>
-                </div>
-              ))}
-            </RadioGroup>
-            <Input
-              placeholder="Or enter custom..."
-              className="mt-2"
-              onChange={e => setSelections({...selections, website: e.target.value})}
-            />
-          </div>
+              <div>
+                <Label>Website</Label>
+                <Input
+                  value={entity.website || ""}
+                  onChange={e => setEntity({ ...entity, website: e.target.value })}
+                />
+              </div>
+            </>
+          )}
 
-          {/* Actions */}
+          {entityType === "event" && (
+            <>
+              <div>
+                <Label>Description</Label>
+                <Textarea
+                  value={entity.description || ""}
+                  onChange={e => setEntity({ ...entity, description: e.target.value })}
+                  rows={3}
+                />
+              </div>
+
+              <div>
+                <Label>Venue</Label>
+                <Input
+                  value={entity.venue_name || ""}
+                  onChange={e => setEntity({ ...entity, venue_name: e.target.value })}
+                />
+              </div>
+            </>
+          )}
+
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
-            <Button onClick={handleCommit}>Commit Merge</Button>
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave}>
+              Save
+            </Button>
+            <Button onClick={handleQueueSimilarity}>
+              Save & Queue for Similarity
+            </Button>
           </div>
         </div>
       </DialogContent>
@@ -1111,69 +588,502 @@ function MergePreviewModal({ entityIds, onClose }: any) {
 }
 ```
 
-**Update App.tsx**: Replace `<IdentityTab />` with `<ClusteringTab />`
+---
 
-**Test**:
-1. Go to Clustering tab → Curator Queue
-2. See auto-detected pairs
-3. Click "Merge" → modal opens with field options
-4. Select fields, commit
-5. Verify `golden_artists` has new record
-6. Go to Manual Clustering
-7. Search "marina", select 2 entities
-8. Preview merge, commit
-9. Verify `extracted_artist_links` has `similarity_score = 1.0`
+## Phase 3: Frontend - ReviewTab (Hierarchical View)
+
+### 3.1 HierarchicalEntityView Component
+
+**File**: `src/workers/coordinator/src/components/review/HierarchicalEntityView.tsx`
+
+```typescript
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { PageNode } from "./PageNode";
+import { EntityEditDialog } from "./EntityEditDialog";
+import { BulkActionsBar } from "./BulkActionsBar";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+
+interface HierarchicalEntityViewProps {
+  crawlJobId: string;
+  entityType: "artist" | "gallery" | "event";
+}
+
+export function HierarchicalEntityView({ crawlJobId, entityType }: HierarchicalEntityViewProps) {
+  const [expandedPages, setExpandedPages] = useState<Set<string>>(new Set());
+  const [selectedPages, setSelectedPages] = useState<Set<string>>(new Set());
+  const [selectedEntities, setSelectedEntities] = useState<Set<string>>(new Set());
+  const [editingEntityId, setEditingEntityId] = useState<string | null>(null);
+  const [entitiesByPage, setEntitiesByPage] = useState<Record<string, any[]>>({});
+
+  // Fetch pages for this crawl job
+  const { data: pagesData, refetch: refetchPages } = useQuery({
+    queryKey: ["crawl-job-pages", crawlJobId],
+    queryFn: async () => {
+      const res = await fetch(`/api/crawl/jobs/${crawlJobId}/pages`);
+      return res.json();
+    },
+    enabled: !!crawlJobId,
+  });
+
+  // Fetch entities when a page is expanded
+  const fetchPageEntities = async (pageUrl: string) => {
+    const encoded = encodeURIComponent(pageUrl);
+    const res = await fetch(`/api/pages/${encoded}/entities`);
+    const data = await res.json();
+    return data.entities[`${entityType}s`] || [];
+  };
+
+  const togglePage = async (pageUrl: string) => {
+    if (expandedPages.has(pageUrl)) {
+      setExpandedPages(prev => {
+        const next = new Set(prev);
+        next.delete(pageUrl);
+        return next;
+      });
+    } else {
+      setExpandedPages(prev => new Set(prev).add(pageUrl));
+
+      // Fetch entities if not already loaded
+      if (!entitiesByPage[pageUrl]) {
+        const entities = await fetchPageEntities(pageUrl);
+        setEntitiesByPage(prev => ({ ...prev, [pageUrl]: entities }));
+      }
+    }
+  };
+
+  const handleSelectPage = (pageUrl: string, checked: boolean) => {
+    setSelectedPages(prev => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(pageUrl);
+      } else {
+        next.delete(pageUrl);
+        // Also deselect all entities from this page
+        const pageEntityIds = entitiesByPage[pageUrl]?.map(e => e.id) || [];
+        setSelectedEntities(prevEntities => {
+          const nextEntities = new Set(prevEntities);
+          pageEntityIds.forEach(id => nextEntities.delete(id));
+          return nextEntities;
+        });
+      }
+      return next;
+    });
+  };
+
+  const handleSelectEntity = (entityId: string, checked: boolean) => {
+    setSelectedEntities(prev => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(entityId);
+      } else {
+        next.delete(entityId);
+      }
+      return next;
+    });
+  };
+
+  const bulkApprove = useMutation({
+    mutationFn: async (triggerSimilarity: boolean) => {
+      const pageUrls = Array.from(selectedPages);
+      await fetch("/api/extracted/bulk-approve-by-page", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          page_urls: pageUrls,
+          entity_types: [entityType],
+          trigger_similarity: triggerSimilarity,
+          threshold: 0.85,
+        }),
+      });
+    },
+    onSuccess: () => {
+      setSelectedPages(new Set());
+      setSelectedEntities(new Set());
+      refetchPages();
+    },
+  });
+
+  const pages = pagesData?.pages || [];
+
+  return (
+    <div>
+      <div className="space-y-2 mb-20">
+        {pages.map((page: any) => (
+          <PageNode
+            key={page.url}
+            url={page.url}
+            entityCount={page.entity_counts[`${entityType}s`] || 0}
+            selected={selectedPages.has(page.url)}
+            onSelectPage={(checked) => handleSelectPage(page.url, checked)}
+          >
+            {/* Entity list */}
+            <div className="space-y-2">
+              {(entitiesByPage[page.url] || []).map((entity: any) => (
+                <div key={entity.id} className="flex items-center gap-2 p-2 border rounded hover:bg-white">
+                  <Checkbox
+                    checked={selectedEntities.has(entity.id)}
+                    onCheckedChange={(checked) => handleSelectEntity(entity.id, !!checked)}
+                  />
+
+                  <button
+                    onClick={() => setEditingEntityId(entity.id)}
+                    className="flex-1 text-left hover:text-blue-600"
+                  >
+                    <div className="font-medium">{entity.name || entity.title}</div>
+                    <div className="text-sm text-gray-600 truncate">
+                      {entity.bio || entity.description || entity.venue_name}
+                    </div>
+                  </button>
+
+                  <Badge variant={
+                    entity.review_status === "approved" ? "default" :
+                    entity.review_status === "rejected" ? "destructive" :
+                    "secondary"
+                  }>
+                    {entity.review_status}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </PageNode>
+        ))}
+      </div>
+
+      <BulkActionsBar
+        selectedEntities={selectedEntities.size}
+        selectedPages={selectedPages.size}
+        onApprove={() => bulkApprove.mutate(false)}
+        onReject={() => {/* TODO */}}
+        onTriggerSimilarity={() => bulkApprove.mutate(true)}
+        onClearSelection={() => {
+          setSelectedPages(new Set());
+          setSelectedEntities(new Set());
+        }}
+      />
+
+      {editingEntityId && (
+        <EntityEditDialog
+          entityType={entityType}
+          entityId={editingEntityId}
+          onClose={() => setEditingEntityId(null)}
+          onSave={() => {
+            // Refresh entities for affected pages
+            Object.keys(entitiesByPage).forEach(async (pageUrl) => {
+              const entities = await fetchPageEntities(pageUrl);
+              setEntitiesByPage(prev => ({ ...prev, [pageUrl]: entities }));
+            });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+```
+
+### 3.2 ReviewTab (Renamed from ExtractionTab)
+
+**File**: `src/workers/coordinator/src/components/tabs/ReviewTab.tsx`
+
+```typescript
+import { useState } from "react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CrawlJobSelector } from "../common/CrawlJobSelector";
+import { HierarchicalEntityView } from "../review/HierarchicalEntityView";
+
+export function ReviewTab() {
+  const [selectedJob, setSelectedJob] = useState<string>("");
+  const [entityType, setEntityType] = useState<"artist" | "gallery" | "event">("artist");
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-4">
+        <CrawlJobSelector value={selectedJob} onChange={setSelectedJob} />
+      </div>
+
+      {selectedJob ? (
+        <Tabs value={entityType} onValueChange={(v: any) => setEntityType(v)}>
+          <TabsList>
+            <TabsTrigger value="artist">Artists</TabsTrigger>
+            <TabsTrigger value="gallery">Galleries</TabsTrigger>
+            <TabsTrigger value="event">Events</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="artist">
+            <HierarchicalEntityView crawlJobId={selectedJob} entityType="artist" />
+          </TabsContent>
+
+          <TabsContent value="gallery">
+            <HierarchicalEntityView crawlJobId={selectedJob} entityType="gallery" />
+          </TabsContent>
+
+          <TabsContent value="event">
+            <HierarchicalEntityView crawlJobId={selectedJob} entityType="event" />
+          </TabsContent>
+        </Tabs>
+      ) : (
+        <div className="text-center text-gray-500 py-12">
+          Select a crawl job to review extracted entities
+        </div>
+      )}
+    </div>
+  );
+}
+```
 
 ---
 
-## Phase 6: Golden Tab (Verify)
+## Phase 4: Frontend - SimilarityTab (Renamed from IdentityTab)
 
-**File**: `src/workers/coordinator/src/components/tabs/GoldenTab.tsx`
+### 4.1 SimilarityTab Component
 
-**Already exists** - just verify it works with new schema
+**File**: `src/workers/coordinator/src/components/tabs/SimilarityTab.tsx`
 
-**Test**: See merged golden records, drill down to see source entities
+```typescript
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { CrawlJobSelector } from "../common/CrawlJobSelector";
+import { Slider } from "@/components/ui/slider";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+export function SimilarityTab() {
+  const [crawlJobFilter, setCrawlJobFilter] = useState<string>("");
+  const [entityType, setEntityType] = useState<"artist" | "gallery" | "event">("artist");
+  const [minScore, setMinScore] = useState(0.7);
+  const [maxScore, setMaxScore] = useState(1.0);
+
+  const { data: pairs, refetch } = useQuery({
+    queryKey: ["similarity-pairs", entityType, minScore, maxScore, crawlJobFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        min_similarity: minScore.toString(),
+        max_similarity: maxScore.toString(),
+      });
+      if (crawlJobFilter) {
+        params.set("crawl_job_id", crawlJobFilter);
+      }
+      const res = await fetch(`/api/similarity/pairs/${entityType}s?${params}`);
+      return res.json();
+    },
+  });
+
+  const handleDismiss = async (linkId: string) => {
+    await fetch(`/api/similarity/pairs/${linkId}/${entityType}/dismiss`, {
+      method: "POST",
+    });
+    refetch();
+  };
+
+  const handleMarkMerge = async (linkId: string) => {
+    await fetch(`/api/similarity/pairs/${linkId}/${entityType}/merge`, {
+      method: "POST",
+    });
+    refetch();
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Filters */}
+      <div className="flex items-center gap-4">
+        <CrawlJobSelector value={crawlJobFilter} onChange={setCrawlJobFilter} />
+
+        <div className="flex items-center gap-2">
+          <label className="text-sm">Similarity:</label>
+          <Slider
+            value={[minScore, maxScore]}
+            onValueChange={([min, max]) => {
+              setMinScore(min);
+              setMaxScore(max);
+            }}
+            min={0.5}
+            max={1.0}
+            step={0.01}
+            className="w-48"
+          />
+          <span className="text-sm">{minScore.toFixed(2)} - {maxScore.toFixed(2)}</span>
+        </div>
+      </div>
+
+      {/* Entity type tabs */}
+      <Tabs value={entityType} onValueChange={(v: any) => setEntityType(v)}>
+        <TabsList>
+          <TabsTrigger value="artist">Artists</TabsTrigger>
+          <TabsTrigger value="gallery">Galleries</TabsTrigger>
+          <TabsTrigger value="event">Events</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value={entityType}>
+          <div className="space-y-4">
+            <div className="text-sm text-gray-600">
+              {pairs?.total || 0} similar pairs found
+              {crawlJobFilter && " (filtered by crawl job)"}
+            </div>
+
+            {pairs?.pairs?.map((pair: any) => (
+              <Card key={`${pair.source_a_id}-${pair.source_b_id}`} className="p-4">
+                <div className="grid grid-cols-[1fr_auto_1fr] gap-4 items-center">
+                  {/* Entity A */}
+                  <div>
+                    <div className="font-semibold">{pair.source_a_name || pair.source_a_title}</div>
+                    <div className="text-sm text-gray-600 truncate">
+                      {pair.source_a_bio || pair.source_a_description}
+                    </div>
+                  </div>
+
+                  {/* Similarity Score */}
+                  <div className="text-center">
+                    <div className="text-3xl font-bold text-blue-600">
+                      {(pair.similarity_score * 100).toFixed(0)}%
+                    </div>
+                    <div className="text-xs text-gray-500">similarity</div>
+                  </div>
+
+                  {/* Entity B */}
+                  <div className="text-right">
+                    <div className="font-semibold">{pair.source_b_name || pair.source_b_title}</div>
+                    <div className="text-sm text-gray-600 truncate">
+                      {pair.source_b_bio || pair.source_b_description}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-2 mt-4 justify-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleDismiss(pair.link_id)}
+                  >
+                    Dismiss
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => handleMarkMerge(pair.link_id)}
+                  >
+                    Mark for Merge
+                  </Button>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+```
 
 ---
 
-## Summary of Changes
+## Phase 5: Update Main App
 
-### Files to DELETE:
-- ❌ `src/workers/golden/` (entire directory)
-- ❌ `src/workers/coordinator/src/routes/golden-enhanced.ts` (redundant)
-- ❌ `src/workers/coordinator/src/routes/source-enhanced.ts` (redundant)
-- ❌ `src/workers/coordinator/src/routes/identity-enhanced.ts` (redundant)
-- ❌ `src/workers/coordinator/src/components/tabs/IdentityTab.tsx` (replaced)
+### 5.1 Update Tab Names and Imports
 
-### Files to RENAME:
-- `src/workers/identity/` → `src/workers/similarity/`
+**File**: `src/workers/coordinator/src/App.tsx` (or main layout)
 
-### Files to CREATE:
-- `supabase/migrations/20251028_add_similarity_config.sql`
-- `src/workers/coordinator/src/routes/extracted.ts`
-- `src/workers/coordinator/src/routes/cluster.ts`
-- `src/workers/coordinator/src/components/tabs/ClusteringTab.tsx`
+```typescript
+// Replace imports
+import { ReviewTab } from "./components/tabs/ReviewTab"; // was ExtractionTab
+import { SimilarityTab } from "./components/tabs/SimilarityTab"; // was IdentityTab
 
-### Files to MODIFY:
-- `src/workers/source/source.ts` (✅ already done)
-- `src/workers/similarity/similarity.ts` (complete rewrite)
-- `src/workers/coordinator/src/server.ts` (add routes)
-- `src/workers/coordinator/src/components/tabs/ExtractionTab.tsx` (complete rewrite with shadcn)
-- `src/shared/messages.ts` (rename identity → similarity)
-- `src/workers/coordinator/wrangler.jsonc` (add SIMILARITY_PRODUCER)
+// Update tab list
+<Tabs>
+  <TabsList>
+    <TabsTrigger value="overview">Overview</TabsTrigger>
+    <TabsTrigger value="crawls">Crawls</TabsTrigger>
+    <TabsTrigger value="review">Review</TabsTrigger>  {/* was "extraction" */}
+    <TabsTrigger value="similarity">Similarity</TabsTrigger>  {/* was "identity" */}
+    <TabsTrigger value="golden">Golden</TabsTrigger>
+  </TabsList>
+
+  <TabsContent value="review">
+    <ReviewTab />
+  </TabsContent>
+
+  <TabsContent value="similarity">
+    <SimilarityTab />
+  </TabsContent>
+</Tabs>
+```
 
 ---
 
 ## Implementation Order
 
-1. ✅ Database migration
-2. ✅ Extraction worker (done)
-3. Extraction APIs
-4. Extraction Dashboard (shadcn components)
-5. Similarity worker refactor
-6. Trigger similarity API
-7. Clustering APIs
-8. Clustering Dashboard (shadcn components)
-9. End-to-end test
+### Step 1: Backend APIs (Days 1-2)
+1. ✅ Create `getCrawlJobPages()` in crawl.ts
+2. ✅ Create pages.ts with `getPageEntities()`
+3. ✅ Enhance extracted.ts with filters (crawl_job_id, page_url)
+4. ✅ Create `bulkApproveByPage()` in extracted.ts
+5. ✅ Enhance similarity.ts with crawl_job_id filter
+6. ✅ Update server.ts routes
+7. ✅ Test all endpoints with curl
 
-**Estimated Time**: ~6-8 hours for clean implementation
+### Step 2: Shared Components (Day 3)
+1. ✅ Create CrawlJobSelector
+2. ✅ Create BulkActionsBar
+3. ✅ Create PageNode
+4. ✅ Create EntityEditDialog
+
+### Step 3: ReviewTab (Days 4-5)
+1. ✅ Create HierarchicalEntityView
+2. ✅ Create ReviewTab wrapper
+3. ✅ Wire up expansion/collapse logic
+4. ✅ Wire up entity selection logic
+5. ✅ Wire up bulk actions
+6. ✅ Test full workflow
+
+### Step 4: SimilarityTab (Day 6)
+1. ✅ Create SimilarityTab with job filter
+2. ✅ Add similarity range slider
+3. ✅ Test filtering
+
+### Step 5: Integration & Testing (Day 7)
+1. ✅ Update App.tsx
+2. ✅ Delete old ExtractionTab.tsx and IdentityTab.tsx
+3. ✅ End-to-end testing
+4. ✅ Performance testing
+
+---
+
+## Files to Create
+
+### New Files
+- `src/workers/coordinator/src/routes/pages.ts`
+- `src/workers/coordinator/src/components/tabs/ReviewTab.tsx`
+- `src/workers/coordinator/src/components/tabs/SimilarityTab.tsx`
+- `src/workers/coordinator/src/components/review/HierarchicalEntityView.tsx`
+- `src/workers/coordinator/src/components/review/PageNode.tsx`
+- `src/workers/coordinator/src/components/review/EntityEditDialog.tsx`
+- `src/workers/coordinator/src/components/review/BulkActionsBar.tsx`
+- `src/workers/coordinator/src/components/common/CrawlJobSelector.tsx`
+
+### Files to Modify
+- `src/workers/coordinator/src/server.ts` (add new routes)
+- `src/workers/coordinator/src/routes/crawl.ts` (add getCrawlJobPages)
+- `src/workers/coordinator/src/routes/extracted.ts` (add filters, bulk-approve-by-page)
+- `src/workers/coordinator/src/routes/similarity.ts` (add job filter)
+- `src/workers/coordinator/src/App.tsx` (update tab names)
+
+### Files to Delete
+- `src/workers/coordinator/src/components/tabs/ExtractionTab.tsx`
+- `src/workers/coordinator/src/components/tabs/IdentityTab.tsx`
+
+---
+
+## Success Criteria
+
+✅ Curator can select a crawl job and see pages from that job
+✅ Curator can expand pages to see extracted entities
+✅ Curator can select entire pages or individual entities
+✅ Curator can edit entity fields inline
+✅ Curator can bulk approve pages (all entities from selected pages)
+✅ Curator can trigger similarity for approved pages (auto-approves + queues)
+✅ Similarity tab shows pairs with optional job filter (cross-job by default)
+✅ All entities maintain traceability: entity → page → discovered_url → crawl_job
+✅ Performance: Loading 100+ pages < 2s
+✅ UX: Clear loading states, empty states, error handling

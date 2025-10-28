@@ -17,6 +17,8 @@ export async function getExtractedEntities(
 	const offset = parseInt(url.searchParams.get("offset") || "0");
 	const status = url.searchParams.get("status"); // pending_review, approved, rejected, modified
 	const search = url.searchParams.get("search");
+	const pageUrl = url.searchParams.get("page_url");
+	const crawlJobId = url.searchParams.get("crawl_job_id");
 
 	const sb = getServiceClient(env);
 
@@ -33,6 +35,26 @@ export async function getExtractedEntities(
 		// Search by name/title depending on entity type
 		const searchField = getSearchFieldName(entityType);
 		query = query.ilike(searchField, `%${search}%`);
+	}
+
+	if (pageUrl) {
+		query = query.eq("page_url", pageUrl);
+	}
+
+	if (crawlJobId) {
+		// Filter by crawl job: get URLs from discovered_urls for this job
+		const { data: jobUrls } = await sb
+			.from("discovered_urls")
+			.select("url")
+			.eq("job_id", crawlJobId);
+
+		const urls = jobUrls?.map(u => u.url) || [];
+		if (urls.length > 0) {
+			query = query.in("page_url", urls);
+		} else {
+			// No URLs for this job, return empty
+			return jsonResponse(200, { entities: [], total: 0 });
+		}
 	}
 
 	const { data, error, count } = await query;
@@ -202,5 +224,72 @@ export async function bulkRejectEntities(
 
 	return jsonResponse(200, {
 		rejected: data?.length || 0,
+	});
+}
+
+/**
+ * POST /api/extracted/bulk-approve-by-page
+ * Approve all entities from specific pages (curator workflow)
+ */
+export async function bulkApproveByPage(
+	request: Request,
+	env: Env
+): Promise<Response> {
+	const body = await readJson<{
+		page_urls: string[];
+		entity_types: EntityType[];
+		trigger_similarity?: boolean;
+		threshold?: number;
+	}>(request);
+
+	if (!body?.page_urls || body.page_urls.length === 0) {
+		return jsonResponse(400, { error: "page_urls array is required" });
+	}
+
+	if (!body?.entity_types || body.entity_types.length === 0) {
+		return jsonResponse(400, { error: "entity_types array is required" });
+	}
+
+	const sb = getServiceClient(env);
+	let totalApproved = 0;
+	const entityIdsByType: Record<string, string[]> = {};
+
+	// Approve all entities from specified pages
+	for (const entityType of body.entity_types) {
+		const { data, error } = await queryExtractedEntities(sb, entityType)
+			.update({
+				review_status: "approved",
+				reviewed_at: new Date().toISOString(),
+			})
+			.in("page_url", body.page_urls)
+			.eq("review_status", "pending_review")
+			.select("id");
+
+		if (error) {
+			return jsonResponse(500, { error: error.message });
+		}
+
+		const ids = data?.map(e => e.id) || [];
+		entityIdsByType[entityType] = ids;
+		totalApproved += ids.length;
+
+		// Queue for similarity if requested
+		if (body.trigger_similarity && ids.length > 0) {
+			const queue = env.SIMILARITY_PRODUCER;
+
+			for (const id of ids) {
+				await queue.send({
+					type: `similarity.compute.${entityType}` as `similarity.compute.${EntityType}`,
+					entityId: id,
+					threshold: body.threshold,
+				});
+			}
+		}
+	}
+
+	return jsonResponse(200, {
+		approved: totalApproved,
+		queued_for_similarity: body.trigger_similarity ? totalApproved : 0,
+		entity_ids: entityIdsByType,
 	});
 }

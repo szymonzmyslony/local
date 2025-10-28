@@ -2,10 +2,9 @@
 
 import { jsonResponse } from "@/shared/http";
 import { getStats } from "./routes/stats";
-import { listCrawlJobs, startCrawl } from "./routes/crawl";
+import { listCrawlJobs, startCrawl, getCrawlJobPages } from "./routes/crawl";
 import { getDiscoveredUrls } from "./routes/crawl-enhanced";
-import { getSourceEntities, getPages as getPagesEnhanced } from "./routes/source-enhanced";
-import { getIdentityEntities, getCuratorQueueDirect } from "./routes/identity-enhanced";
+import { getPageEntities } from "./routes/pages";
 import { getGoldenEntities, approveCluster } from "./routes/golden-enhanced";
 import {
   getExtractedEntities,
@@ -13,6 +12,7 @@ import {
   updateExtractedEntity,
   bulkApproveEntities,
   bulkRejectEntities,
+  bulkApproveByPage,
 } from "./routes/extracted";
 import {
   triggerSimilarity,
@@ -85,34 +85,15 @@ async function handleApiRoutes(request: Request, env: Env): Promise<Response> {
       const jobId = path.split("/")[3];
       return getDiscoveredUrls(jobId, env);
     }
-
-    // Identity routes
-    if (path === "/identity/curator/queue" && method === "GET") {
-      return getCuratorQueueDirect(request, env);
-    }
-    if (path === "/identity/entities/artists" && method === "GET") {
-      return getIdentityEntities("artist", request, env);
-    }
-    if (path === "/identity/entities/galleries" && method === "GET") {
-      return getIdentityEntities("gallery", request, env);
-    }
-    if (path === "/identity/entities/events" && method === "GET") {
-      return getIdentityEntities("event", request, env);
+    if (path.startsWith("/crawl/jobs/") && path.endsWith("/pages") && method === "GET") {
+      const jobId = path.split("/")[3];
+      return getCrawlJobPages(jobId, env);
     }
 
-
-    // Source entities routes
-    if (path === "/source/pages" && method === "GET") {
-      return getPagesEnhanced(request, env);
-    }
-    if (path === "/source/entities/artists" && method === "GET") {
-      return getSourceEntities("artists", request, env);
-    }
-    if (path === "/source/entities/galleries" && method === "GET") {
-      return getSourceEntities("galleries", request, env);
-    }
-    if (path === "/source/entities/events" && method === "GET") {
-      return getSourceEntities("events", request, env);
+    // Page entity routes
+    if (path.match(/^\/pages\/.+\/entities$/) && method === "GET") {
+      const encodedUrl = path.split("/")[2];
+      return getPageEntities(encodedUrl, env);
     }
 
     // Extracted entity routes
@@ -125,13 +106,16 @@ async function handleApiRoutes(request: Request, env: Env): Promise<Response> {
     if (path === "/extracted/events" && method === "GET") {
       return getExtractedEntities("event", request, env);
     }
-    if (path.match(/^\/extracted\/(artist|gallery|event)\/[a-z0-9-]+$/) && method === "GET") {
+    if (path.match(/^\/extracted\/(artists|gallerys|events)\/[a-z0-9-]+$/) && method === "GET") {
       const [, , type, id] = path.split("/");
-      return getExtractedEntity(type as any, id, env);
+      // Convert plural to singular: "artists" -> "artist", "gallerys" -> "gallery", "events" -> "event"
+      const singularType = type === "artists" ? "artist" : type === "gallerys" ? "gallery" : "event";
+      return getExtractedEntity(singularType as any, id, env);
     }
-    if (path.match(/^\/extracted\/(artist|gallery|event)\/[a-z0-9-]+$/) && method === "PATCH") {
+    if (path.match(/^\/extracted\/(artists|gallerys|events)\/[a-z0-9-]+$/) && method === "PATCH") {
       const [, , type, id] = path.split("/");
-      return updateExtractedEntity(type as any, id, request, env);
+      const singularType = type === "artists" ? "artist" : type === "gallerys" ? "gallery" : "event";
+      return updateExtractedEntity(singularType as any, id, request, env);
     }
     if (path === "/extracted/artists/bulk-approve" && method === "POST") {
       return bulkApproveEntities("artist", request, env);
@@ -151,6 +135,9 @@ async function handleApiRoutes(request: Request, env: Env): Promise<Response> {
     if (path === "/extracted/events/bulk-reject" && method === "POST") {
       return bulkRejectEntities("event", request, env);
     }
+    if (path === "/extracted/bulk-approve-by-page" && method === "POST") {
+      return bulkApproveByPage(request, env);
+    }
 
     // Similarity routes
     if (path === "/similarity/trigger" && method === "POST") {
@@ -162,16 +149,22 @@ async function handleApiRoutes(request: Request, env: Env): Promise<Response> {
     if (path === "/similarity/pairs/galleries" && method === "GET") {
       return getSimilarityPairs("gallery", request, env);
     }
+    if (path === "/similarity/pairs/gallerys" && method === "GET") {
+      // Accept naive pluralization "gallerys"
+      return getSimilarityPairs("gallery", request, env);
+    }
     if (path === "/similarity/pairs/events" && method === "GET") {
       return getSimilarityPairs("event", request, env);
     }
-    if (path.match(/^\/similarity\/pairs\/[a-z0-9-]+\/(artist|gallery|event)\/merge$/) && method === "POST") {
+    if (path.match(/^\/similarity\/pairs\/[a-z0-9-]+\/(artists|gallerys|events)\/merge$/) && method === "POST") {
       const [, , , linkId, type] = path.split("/");
-      return markPairForMerge(linkId, type as any, request, env);
+      const singularType = type === "artists" ? "artist" : type === "gallerys" ? "gallery" : "event";
+      return markPairForMerge(linkId, singularType as any, request, env);
     }
-    if (path.match(/^\/similarity\/pairs\/[a-z0-9-]+\/(artist|gallery|event)\/dismiss$/) && method === "POST") {
+    if (path.match(/^\/similarity\/pairs\/[a-z0-9-]+\/(artists|gallerys|events)\/dismiss$/) && method === "POST") {
       const [, , , linkId, type] = path.split("/");
-      return dismissPair(linkId, type as any, request, env);
+      const singularType = type === "artists" ? "artist" : type === "gallerys" ? "gallery" : "event";
+      return dismissPair(linkId, singularType as any, request, env);
     }
 
     // Cluster routes
