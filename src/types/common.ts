@@ -44,7 +44,6 @@ export type EventOccurrenceUpdate = TablesUpdate<"event_occurrences">;
 
 // Enum types
 export type EventStatus = Enums<"event_status">;
-export type ExtractionKind = Enums<"extraction_kind">;
 export type FetchStatus = Enums<"fetch_status">;
 export type PageKind = Enums<"page_kind">;
 export type ParseStatus = Enums<"parse_status">;

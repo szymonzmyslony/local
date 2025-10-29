@@ -32,7 +32,7 @@ export class DiscoverLinks extends WorkflowEntrypoint<Env, Params> {
                     gallery_id: galleryId,
                     url: l,
                     normalized_url: normalizeUrl(l),
-                    kind: "event_detail" as const,
+                    kind: "event_candidate" as const,
                     fetch_status: "never" as const,
                 })) satisfies PageInsert[];
                 const { error } = await supabase.from("pages").upsert(rows, { onConflict: "normalized_url" });

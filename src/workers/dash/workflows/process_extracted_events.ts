@@ -2,7 +2,7 @@ import { WorkflowEntrypoint } from "cloudflare:workers";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 import { getServiceClient } from "../../../shared/supabase";
 import type { EventInsert, EventInfoInsert, EventOccurrenceInsert } from "../../../types/common";
-import type { PageExtraction } from "../../../shared/schema";
+import { pageExtractionSchema, type EventExtraction } from "../../../shared/schema";
 
 type Params = { pageIds: string[] };
 
@@ -11,9 +11,12 @@ type PageWithGallery = {
     gallery_id: string;
 };
 
+type EventDetailExtraction = { type: "event_detail"; payload: EventExtraction };
+
 type ExtractionRow = {
     page_id: string;
-    data: PageExtraction;
+    data: EventDetailExtraction;
+    extracted_page_kind: "event_detail";
 };
 
 export class ProcessExtractedEvents extends WorkflowEntrypoint<Env, Params> {
@@ -27,13 +30,24 @@ export class ProcessExtractedEvents extends WorkflowEntrypoint<Env, Params> {
         const extractions: ExtractionRow[] = await step.do("load-extractions", async () => {
             const { data, error } = await supabase
                 .from("page_structured")
-                .select("page_id, data")
+                .select("page_id, data, extracted_page_kind")
                 .in("page_id", pageIds)
-                .eq("extracted_kind", "event")
+                .eq("extracted_page_kind", "event_detail")
                 .eq("parse_status", "ok");
             if (error) throw error;
-            console.log(`[ProcessExtractedEvents] Found ${data.length} event extractions`);
-            return data as ExtractionRow[];
+            const rows: ExtractionRow[] = [];
+            for (const row of data ?? []) {
+                if (row.extracted_page_kind !== "event_detail") continue;
+                const parsed = pageExtractionSchema.parse(row.data);
+                if (parsed.type !== "event_detail" || !parsed.payload) continue;
+                rows.push({
+                    page_id: row.page_id,
+                    data: { type: "event_detail", payload: parsed.payload },
+                    extracted_page_kind: "event_detail"
+                });
+            }
+            console.log(`[ProcessExtractedEvents] Found ${rows.length} event extractions`);
+            return rows;
         });
 
         // Load page info to get gallery_id
@@ -44,8 +58,14 @@ export class ProcessExtractedEvents extends WorkflowEntrypoint<Env, Params> {
                 .in("id", pageIds)
                 .not("gallery_id", "is", null);
             if (error) throw error;
-            console.log(`[ProcessExtractedEvents] Loaded ${data.length} pages with gallery IDs`);
-            return data as PageWithGallery[];
+            const rows = data ?? [];
+            console.log(`[ProcessExtractedEvents] Loaded ${rows.length} pages with gallery IDs`);
+            const mapped: PageWithGallery[] = [];
+            for (const row of rows) {
+                if (!row.gallery_id) continue;
+                mapped.push({ id: row.id, gallery_id: row.gallery_id });
+            }
+            return mapped;
         });
 
         const pageMap = new Map(pages.map(p => [p.id, p]));
@@ -58,14 +78,7 @@ export class ProcessExtractedEvents extends WorkflowEntrypoint<Env, Params> {
                 continue;
             }
 
-            const pageExtraction = extraction.data as PageExtraction;
-
-            if (pageExtraction.type !== "event_detail") {
-                console.log(`[ProcessExtractedEvents] Skipping page ${extraction.page_id} - type is ${pageExtraction.type}`);
-                continue;
-            }
-
-            const payload = pageExtraction.payload;
+            const payload = extraction.data.payload;
             console.log(`[ProcessExtractedEvents] Processing event: "${payload.title}"`);
 
             await step.do(`create-event:${page.id}`, async () => {

@@ -1,6 +1,58 @@
+import { z } from "zod";
 import { getServiceClient } from "../../../shared/supabase";
-import { normalizeUrl } from "../src/utils/normalizeUrl";
 import { Constants } from "../../../types/database_types";
+import type {
+  Event,
+  EventInfo,
+  EventOccurrence,
+  Gallery,
+  GalleryHours,
+  GalleryInfo,
+  Page,
+  PageContent,
+  PageStructured
+} from "../../../types/common";
+
+const SeedGalleryBodySchema = z.object({
+  mainUrl: z.string().trim().url(),
+  aboutUrl: z.string().trim().url().nullable().optional()
+});
+
+const DiscoverLinksBodySchema = z.object({
+  galleryId: z.string().uuid(),
+  listUrls: z.array(z.string().trim().url()).default([]),
+  limit: z.number().int().positive().max(500).optional()
+});
+
+const PageIdsBodySchema = z.object({
+  pageIds: z.array(z.string().uuid()).min(1)
+});
+
+const EventIdsBodySchema = z.object({
+  eventIds: z.array(z.string().uuid()).min(1)
+});
+
+const ExtractGalleryBodySchema = z.object({
+  galleryId: z.string().uuid()
+});
+
+type GalleryWithRelations = Gallery & { gallery_info: GalleryInfo | null; gallery_hours: GalleryHours[] };
+
+type PipelinePage = Page & {
+  page_content: Pick<PageContent, "parsed_at"> | null;
+  page_structured: Pick<PageStructured, "parse_status" | "parsed_at" | "extracted_page_kind" | "extraction_error"> | null;
+};
+
+type PipelineEvent = Event & {
+  event_info: EventInfo | null;
+  event_occurrences: EventOccurrence[];
+};
+
+type GalleryPipeline = {
+  gallery: GalleryWithRelations;
+  pages: PipelinePage[];
+  events: PipelineEvent[];
+};
 // Re-export workflow entrypoints so the runtime can find them by class_name
 export { SeedGallery } from "../workflows/seed_gallery";
 export { DiscoverLinks } from "../workflows/discover_links";
@@ -16,44 +68,25 @@ export default {
     const supabase = getServiceClient(env);
     console.log(`[dash-worker] ${request.method} ${url.pathname}${url.search}`);
 
-    async function json() {
-      try {
-        return await request.json();
-      } catch {
-        return {} as any;
-      }
-    }
-
     // 0) Seed gallery
     if (request.method === "POST" && url.pathname === "/api/galleries/seed") {
-      const body = await json();
-      console.log("[dash-worker] Starting SeedGallery workflow", body);
-      const { mainUrl, aboutUrl = null, autoScrape = true } = body as { mainUrl: string; aboutUrl?: string | null; autoScrape?: boolean };
+      const body = SeedGalleryBodySchema.parse(await request.json());
+      const mainUrl = body.mainUrl;
+      const aboutUrl = body.aboutUrl ?? null;
+      console.log("[dash-worker] Starting SeedGallery workflow", { mainUrl, aboutUrl });
       const run = await env.SEED_GALLERY.create({ params: { mainUrl, aboutUrl } });
       const galleryId = run.id ?? run;
-
-      if (autoScrape !== false) {
-        const normalizedMain = normalizeUrl(mainUrl);
-        const { data: page } = await supabase
-          .from("pages")
-          .select("id")
-          .eq("normalized_url", normalizedMain)
-          .limit(1)
-          .maybeSingle();
-        if (page?.id) {
-          console.log(`[dash-worker] Auto-scraping main page ${page.id}`);
-          await env.SCRAPE_PAGES.create({ params: { pageIds: [page.id] } });
-        } else {
-          console.log(`[dash-worker] No page found for auto-scrape using normalized URL ${normalizedMain}`);
-        }
-      }
 
       return Response.json({ id: galleryId });
     }
 
     // List galleries
     if (request.method === "GET" && url.pathname === "/api/galleries") {
-      const { data, error } = await supabase.from("galleries").select("id, main_url, about_url, normalized_main_url").order("created_at", { ascending: false }).limit(100);
+      const { data, error } = await supabase
+        .from("galleries")
+        .select("id, main_url, about_url, normalized_main_url, gallery_info(name)")
+        .order("created_at", { ascending: false })
+        .limit(100);
       if (error) {
         console.error(`[dash-worker] Failed listing galleries`, error);
         return new Response(error.message, { status: 500 });
@@ -81,11 +114,77 @@ export default {
       return Response.json(gallery);
     }
 
+    // Get full gallery pipeline (pages, structured data, events)
+    if (request.method === "GET" && url.pathname.match(/^\/api\/galleries\/[^/]+\/pipeline$/)) {
+      const [, , , galleryId] = url.pathname.split("/");
+      if (!galleryId) {
+        return new Response("Gallery id required", { status: 400 });
+      }
+
+      const { data: gallery, error: galleryError } = await supabase
+        .from("galleries")
+        .select("*, gallery_info(*), gallery_hours(*)")
+        .eq("id", galleryId)
+        .maybeSingle();
+      if (galleryError) {
+        console.error(`[dash-worker] Failed loading gallery ${galleryId}`, galleryError);
+        return new Response(galleryError.message, { status: 500 });
+      }
+      if (!gallery) {
+        return new Response("Not found", { status: 404 });
+      }
+
+      const { data: pageRows, error: pagesError } = await supabase
+        .from("pages")
+        .select("id, gallery_id, url, normalized_url, kind, fetch_status, fetched_at, http_status, created_at, updated_at, page_content(markdown, parsed_at), page_structured(parse_status, parsed_at, extracted_page_kind, extraction_error)")
+        .eq("gallery_id", galleryId)
+        .order("created_at", { ascending: false })
+        .limit(200);
+      if (pagesError) {
+        console.error(`[dash-worker] Failed loading pages for gallery ${galleryId}`, pagesError);
+        return new Response(pagesError.message, { status: 500 });
+      }
+
+      const { data: eventRows, error: eventsError } = await supabase
+        .from("events")
+        .select("*, event_info(*), event_occurrences(*)")
+        .eq("gallery_id", galleryId)
+        .order("start_at", { ascending: true })
+        .limit(200);
+      if (eventsError) {
+        console.error(`[dash-worker] Failed loading events for gallery ${galleryId}`, eventsError);
+        return new Response(eventsError.message, { status: 500 });
+      }
+
+      const pages: PipelinePage[] = (pageRows ?? []).map((page): PipelinePage => ({
+        ...page,
+        page_content: page.page_content ?? null,
+        page_structured: page.page_structured ?? null
+      }));
+
+      const events: PipelineEvent[] = (eventRows ?? []).map((event): PipelineEvent => ({
+        ...event,
+        event_info: event.event_info ?? null,
+        event_occurrences: event.event_occurrences ?? []
+      }));
+
+      const pipeline: GalleryPipeline = {
+        gallery: {
+          ...gallery,
+          gallery_hours: gallery.gallery_hours ?? []
+        },
+        pages,
+        events
+      };
+
+      return Response.json(pipeline);
+    }
+
     // 1) Discover links
     if (request.method === "POST" && url.pathname === "/api/links/discover") {
-      const body = await json();
+      const body = DiscoverLinksBodySchema.parse(await request.json());
       console.log("[dash-worker] Starting DiscoverLinks workflow", body);
-      const run = await env.DISCOVER_LINKS.create({ params: { galleryId: body.galleryId, listUrls: body.listUrls ?? [], limit: body.limit ?? 100 } });
+      const run = await env.DISCOVER_LINKS.create({ params: { galleryId: body.galleryId, listUrls: body.listUrls, limit: body.limit ?? 100 } });
       return Response.json({ id: run.id ?? run });
     }
 
@@ -116,7 +215,7 @@ export default {
       console.log(`[dash-worker] Fetching page content for ${pageId}`);
       const { data, error } = await supabase
         .from("pages")
-        .select("id, url, normalized_url, kind, fetch_status, fetched_at, page_content(markdown, parsed_at)")
+        .select("id, url, normalized_url, kind, fetch_status, fetched_at, page_content(markdown, parsed_at), page_structured(parse_status, parsed_at, extracted_page_kind, extraction_error)")
         .eq("id", pageId)
         .maybeSingle();
       if (error) {
@@ -131,21 +230,21 @@ export default {
     }
 
     if (request.method === "POST" && url.pathname === "/api/pages/scrape") {
-      const body = await json();
+      const body = PageIdsBodySchema.parse(await request.json());
       console.log("[dash-worker] Starting ScrapePages workflow", body);
-      const run = await env.SCRAPE_PAGES.create({ params: { pageIds: body.pageIds ?? [] } });
+      const run = await env.SCRAPE_PAGES.create({ params: { pageIds: body.pageIds } });
       return Response.json({ id: run.id ?? run });
     }
 
     if (request.method === "POST" && url.pathname === "/api/pages/extract") {
-      const body = await json();
-      const run = await env.EXTRACT_EVENT_PAGES.create({ params: { pageIds: body.pageIds ?? [] } });
+      const body = PageIdsBodySchema.parse(await request.json());
+      const run = await env.EXTRACT_EVENT_PAGES.create({ params: { pageIds: body.pageIds } });
       return Response.json({ id: run.id ?? run });
     }
 
     if (request.method === "POST" && url.pathname === "/api/pages/process-events") {
-      const body = await json();
-      const run = await env.PROCESS_EXTRACTED_EVENTS.create({ params: { pageIds: body.pageIds ?? [] } });
+      const body = PageIdsBodySchema.parse(await request.json());
+      const run = await env.PROCESS_EXTRACTED_EVENTS.create({ params: { pageIds: body.pageIds } });
       return Response.json({ id: run.id ?? run });
     }
 
@@ -162,14 +261,14 @@ export default {
     }
 
     if (request.method === "POST" && url.pathname === "/api/embed/events") {
-      const body = await json();
-      const run = await env.EMBEDDING.create({ params: { eventIds: body.eventIds ?? [] } });
+      const body = EventIdsBodySchema.parse(await request.json());
+      const run = await env.EMBEDDING.create({ params: { eventIds: body.eventIds } });
       return Response.json({ id: run.id ?? run });
     }
 
     // Extract gallery
     if (request.method === "POST" && url.pathname === "/api/galleries/extract") {
-      const body = await json();
+      const body = ExtractGalleryBodySchema.parse(await request.json());
       console.log("[dash-worker] Starting ExtractGallery workflow", body);
       const run = await env.EXTRACT_GALLERY.create({ params: { galleryId: body.galleryId } });
       return Response.json({ id: run.id ?? run });

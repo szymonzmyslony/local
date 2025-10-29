@@ -2,9 +2,8 @@ import { WorkflowEntrypoint } from "cloudflare:workers";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 import { getServiceClient } from "../../../shared/supabase";
 import { createOpenAI } from "@ai-sdk/openai";
-import { extractFromMarkdown } from "../../../shared/ai";
+import { extractGalleryInfoFromMarkdown } from "../../../shared/ai";
 import type { GalleryInfoInsert, GalleryHoursInsert } from "../../../types/common";
-import type { GalleryExtraction } from "../../../shared/schema";
 
 type Params = { galleryId: string };
 
@@ -26,6 +25,17 @@ export class ExtractGallery extends WorkflowEntrypoint<Env, Params> {
             if (error) throw error;
             const rows = data ?? [];
             console.log(`[ExtractGallery] Loaded ${rows.length} gallery pages`);
+            const expectedKinds = new Set<"gallery_main" | "gallery_about">(["gallery_main", "gallery_about"]);
+            const presentKinds = new Set(rows.map(p => p.kind as "gallery_main" | "gallery_about"));
+            const missingKinds = [...expectedKinds].filter(kind => !presentKinds.has(kind));
+            const unexpectedKinds = rows.filter(row => !expectedKinds.has(row.kind as "gallery_main" | "gallery_about")).map(row => row.kind);
+            console.log(`[ExtractGallery] Expected kinds: ${[...expectedKinds].join(", ")} | Present kinds: ${[...presentKinds].join(", ") || "none"}`);
+            if (missingKinds.length > 0) {
+                console.log(`[ExtractGallery] Missing expected kinds: ${missingKinds.join(", ")}`);
+            }
+            if (unexpectedKinds.length > 0) {
+                console.log(`[ExtractGallery] Unexpected kinds encountered: ${unexpectedKinds.join(", ")}`);
+            }
             if (!rows.length) {
                 console.log("[ExtractGallery] No gallery pages found; ensure SeedGallery ran successfully.");
             } else {
@@ -82,10 +92,19 @@ export class ExtractGallery extends WorkflowEntrypoint<Env, Params> {
 
         // 3) Run gallery extractor
         const result = await step.do("extract-gallery", async () =>
-            extractFromMarkdown(openai, combinedMd, primaryUrl, 'gallery')
-        ) as GalleryExtraction;
+            extractGalleryInfoFromMarkdown(openai, combinedMd, primaryUrl)
+        );
 
         console.log(`[ExtractGallery] Extracted gallery: ${result.name ?? 'unnamed'}`);
+
+        const normalizeInstagramHandle = (value: string | undefined): string | null => {
+            if (!value) return null;
+            const trimmed = value.trim();
+            if (!trimmed) return null;
+            const withoutScheme = trimmed.replace(/^https?:\/\/(www\.)?instagram\.com\//i, "").replace(/\/+$/, "");
+            const handle = withoutScheme.startsWith("@") ? withoutScheme.slice(1) : withoutScheme;
+            return handle || null;
+        };
 
         // 4) Save to gallery_info with real columns populated
         await step.do("save-gallery-info", async () => {
@@ -94,20 +113,14 @@ export class ExtractGallery extends WorkflowEntrypoint<Env, Params> {
                 name: result.name ?? null,
                 about: result.about ?? null,
                 address: result.address ?? null,
-                city: result.city ?? null,
-                country_code: result.country_code ?? null,
-                timezone: result.timezone ?? null,
                 email: result.email ?? null,
                 phone: result.phone ?? null,
-                instagram: result.instagram ?? null,
-                twitter: result.twitter ?? null,
-                website: result.website ?? null,
+                instagram: normalizeInstagramHandle(result.instagram ?? undefined),
                 tags: result.tags ?? null,
                 data: result,
-                source_page_id: pages.find(p => p.kind === "gallery_about")?.id ?? pages.find(p => p.kind === "gallery_main")?.id ?? null,
                 updated_at: new Date().toISOString(),
             };
-            console.log(`[ExtractGallery] Saving gallery_info: name="${galleryInfoData.name}", city="${galleryInfoData.city}", email="${galleryInfoData.email}"`);
+            console.log(`[ExtractGallery] Saving gallery_info: name="${galleryInfoData.name}", email="${galleryInfoData.email}", instagram="${galleryInfoData.instagram}"`);
             const { error } = await supabase.from("gallery_info").upsert([galleryInfoData], { onConflict: "gallery_id" });
             if (error) {
                 console.error(`[ExtractGallery] Failed to save gallery_info:`, error);

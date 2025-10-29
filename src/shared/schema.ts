@@ -14,24 +14,19 @@ export const pricesSchema = z.object({
 /** ---- Gallery extraction schema ---- */
 // Aligns with gallery_info table columns
 export const galleryExtractionSchema = z.object({
-    name: z.string().optional(),
-    about: z.string().optional(),
-    address: z.string().optional(),
-    city: z.string().optional(),
-    country_code: z.string().length(2).optional(),
-    timezone: z.string().optional(),
-    email: z.string().email().optional(),
-    phone: z.string().optional(),
-    instagram: z.string().url().optional(),
-    twitter: z.string().url().optional(),
-    website: z.string().url().optional(),
-    tags: z.array(z.string()).optional(),
+    name: z.string().describe("Gallery name exactly as written on the site").optional(),
+    about: z.string().describe("About/mission paragraph in plain text").optional(),
+    address: z.string().describe("Postal address or street location").optional(),
+    email: z.string().describe("Primary contact email").optional(),
+    phone: z.string().describe("Primary phone number").optional(),
+    instagram: z.string().describe("Instagram handle (with or without leading @, no URL required)").optional(),
+    tags: z.array(z.string()).describe("List of tags or categories").optional(),
     hours: z.array(z.object({
-        dow: z.number().int().min(0).max(6),
-        open_time: z.string(),
-        close_time: z.string()
-    })).optional()
-});
+        dow: z.number().int().min(0).max(6).describe("Day of week number 0=Sunday"),
+        open_time: z.string().describe("Opening time as seen on the page"),
+        close_time: z.string().describe("Closing time as seen on the page")
+    })).describe("Weekly opening hours if present").optional()
+}).describe("Structured gallery information to persist in gallery_info and gallery_hours tables");
 
 /** ---- Event extraction schema ---- */
 // Aligns with event_occurrences table
@@ -61,23 +56,12 @@ export const eventExtractionSchema = eventItemSchema;
 
 // Page extraction discriminated union
 export const pageExtractionSchema = z.discriminatedUnion("type", [
-    z.object({
-        type: z.literal("gallery_main"),
-    }),
-    z.object({
-        type: z.literal("gallery_about"),
-    }),
-    z.object({
-        type: z.literal("event_detail"),
-        payload: eventExtractionSchema
-    }),
-    z.object({
-        type: z.literal("event_list"),
-    }),
-    z.object({
-        type: z.literal("other"),
-    })
-]);
+    z.object({ type: z.literal("gallery_main") }).describe("Gallery landing page"),
+    z.object({ type: z.literal("gallery_about") }).describe("Gallery about/biography page"),
+    z.object({ type: z.literal("event_list") }).describe("Events listing page"),
+    z.object({ type: z.literal("other") }).describe("Non-event, non-gallery supporting page"),
+    z.object({ type: z.literal("event_detail"), payload: eventExtractionSchema }).describe("Event detail page with structured payload")
+]).describe("Structured classification of page content");
 
 /** Convenience types */
 export type GalleryExtraction = z.infer<typeof galleryExtractionSchema>;

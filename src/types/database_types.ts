@@ -164,7 +164,6 @@ export type Database = {
         Row: {
           about_url: string | null
           created_at: string
-          events_url: string | null
           id: string
           main_url: string
           normalized_main_url: string
@@ -173,7 +172,6 @@ export type Database = {
         Insert: {
           about_url?: string | null
           created_at?: string
-          events_url?: string | null
           id?: string
           main_url: string
           normalized_main_url: string
@@ -182,7 +180,6 @@ export type Database = {
         Update: {
           about_url?: string | null
           created_at?: string
-          events_url?: string | null
           id?: string
           main_url?: string
           normalized_main_url?: string
@@ -226,8 +223,6 @@ export type Database = {
         Row: {
           about: string | null
           address: string | null
-          city: string | null
-          country_code: string | null
           data: Json
           email: string | null
           embedding: string | null
@@ -237,18 +232,12 @@ export type Database = {
           instagram: string | null
           name: string | null
           phone: string | null
-          source_page_id: string | null
           tags: string[] | null
-          timezone: string | null
-          twitter: string | null
           updated_at: string
-          website: string | null
         }
         Insert: {
           about?: string | null
           address?: string | null
-          city?: string | null
-          country_code?: string | null
           data?: Json
           email?: string | null
           embedding?: string | null
@@ -258,18 +247,12 @@ export type Database = {
           instagram?: string | null
           name?: string | null
           phone?: string | null
-          source_page_id?: string | null
           tags?: string[] | null
-          timezone?: string | null
-          twitter?: string | null
           updated_at?: string
-          website?: string | null
         }
         Update: {
           about?: string | null
           address?: string | null
-          city?: string | null
-          country_code?: string | null
           data?: Json
           email?: string | null
           embedding?: string | null
@@ -279,12 +262,8 @@ export type Database = {
           instagram?: string | null
           name?: string | null
           phone?: string | null
-          source_page_id?: string | null
           tags?: string[] | null
-          timezone?: string | null
-          twitter?: string | null
           updated_at?: string
-          website?: string | null
         }
         Relationships: [
           {
@@ -292,13 +271,6 @@ export type Database = {
             columns: ["gallery_id"]
             isOneToOne: true
             referencedRelation: "galleries"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "gallery_info_source_page_id_fkey"
-            columns: ["source_page_id"]
-            isOneToOne: false
-            referencedRelation: "pages"
             referencedColumns: ["id"]
           },
         ]
@@ -332,7 +304,7 @@ export type Database = {
       page_structured: {
         Row: {
           data: Json
-          extracted_kind: Database["public"]["Enums"]["extraction_kind"]
+          extracted_page_kind: Database["public"]["Enums"]["page_kind"] | null
           extraction_error: string | null
           page_id: string
           parse_status: Database["public"]["Enums"]["parse_status"]
@@ -341,7 +313,7 @@ export type Database = {
         }
         Insert: {
           data?: Json
-          extracted_kind?: Database["public"]["Enums"]["extraction_kind"]
+          extracted_page_kind?: Database["public"]["Enums"]["page_kind"] | null
           extraction_error?: string | null
           page_id: string
           parse_status?: Database["public"]["Enums"]["parse_status"]
@@ -350,7 +322,7 @@ export type Database = {
         }
         Update: {
           data?: Json
-          extracted_kind?: Database["public"]["Enums"]["extraction_kind"]
+          extracted_page_kind?: Database["public"]["Enums"]["page_kind"] | null
           extraction_error?: string | null
           page_id?: string
           parse_status?: Database["public"]["Enums"]["parse_status"]
@@ -428,7 +400,6 @@ export type Database = {
         | "postponed"
         | "rescheduled"
         | "unknown"
-      extraction_kind: "event" | "non_event" | "unknown"
       fetch_status: "never" | "queued" | "fetching" | "ok" | "error" | "skipped"
       page_kind:
         | "gallery_main"
@@ -436,6 +407,7 @@ export type Database = {
         | "event_list"
         | "event_detail"
         | "other"
+        | "event_candidate"
       parse_status: "never" | "queued" | "ok" | "error"
     }
     CompositeTypes: {
@@ -571,7 +543,6 @@ export const Constants = {
         "rescheduled",
         "unknown",
       ],
-      extraction_kind: ["event", "non_event", "unknown"],
       fetch_status: ["never", "queued", "fetching", "ok", "error", "skipped"],
       page_kind: [
         "gallery_main",
@@ -579,6 +550,7 @@ export const Constants = {
         "event_list",
         "event_detail",
         "other",
+        "event_candidate",
       ],
       parse_status: ["never", "queued", "ok", "error"],
     },

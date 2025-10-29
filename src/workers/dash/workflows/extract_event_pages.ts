@@ -2,10 +2,8 @@ import { WorkflowEntrypoint } from "cloudflare:workers";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 import { getServiceClient } from "../../../shared/supabase";
 import { createOpenAI } from "@ai-sdk/openai";
-import { generateObject } from "ai";
-import { pageExtractionSchema } from "../../../shared/schema";
 import type { PageStructuredInsert } from "../../../types/common";
-import { extractFromMarkdown } from "../../../shared/ai";
+import { extractPageContentFromMarkdown } from "../../../shared/ai";
 
 type Params = { pageIds: string[] };
 
@@ -62,50 +60,57 @@ export class ExtractEventPages extends WorkflowEntrypoint<Env, Params> {
                     continue;
                 }
 
-                const result = await step.do(`extract:${p.id}`, async () => {
+                const extraction = await step.do(`extract:${p.id}`, async () => {
                     console.log(`[ExtractEventPages] Running AI extraction for ${p.id}`);
-                    const response = await extractFromMarkdown(openai, md, p.url ?? p.normalized_url, "event");
-                    return response;
+                    return extractPageContentFromMarkdown(openai, md, p.url ?? p.normalized_url);
                 });
 
-                console.log(`[ExtractEventPages] Extracted as ${result.description} from ${p.url ?? p.normalized_url}`);
+                if (extraction.type === "event_detail" && !extraction.payload) {
+                    throw new Error("Event detail extraction returned without payload");
+                }
+
+                console.log(`[ExtractEventPages] Classified ${p.url ?? p.normalized_url} as ${extraction.type}`);
+
+                const extractedKind = extraction.type === "event_detail" || extraction.type === "event_list" ? extraction.type : "other";
 
                 await step.do(`save-structured:${p.id}`, async () => {
-                    const row = [
+                    const row: PageStructuredInsert[] = [
                         {
                             page_id: p.id,
-                            parse_status: "ok" as const,
+                            parse_status: "ok",
                             schema_version: null,
-                            data: result,
+                            data: extraction,
                             parsed_at: new Date().toISOString(),
-                            extracted_kind: "non_event",
+                            extracted_page_kind: extractedKind,
+                            extraction_error: null,
                         },
-                    ] satisfies PageStructuredInsert[];
+                    ];
                     const { error } = await supabase.from("page_structured").upsert(row, { onConflict: "page_id" });
                     if (error) throw error;
                     console.log(`[ExtractEventPages] Saved structured data for ${p.id}`);
                 });
                 successCount++;
                 console.log(`[ExtractEventPages] Success ${successCount}/${pages.length} - ${p.url ?? p.normalized_url}`);
-            } catch (err: unknown) {
+            } catch (error) {
                 errorCount++;
-                console.error(`[ExtractEventPages] Error ${errorCount}/${pages.length} - ${p.url ?? p.normalized_url}:`, err);
+                console.error(`[ExtractEventPages] Error ${errorCount}/${pages.length} - ${p.url ?? p.normalized_url}:`, error);
                 await step.do(`save-error:${p.id}`, async () => {
-                    const row = [
+                    const row: PageStructuredInsert[] = [
                         {
                             page_id: p.id,
-                            parse_status: "error" as const,
-                            extraction_error: String((err as { message?: unknown })?.message ?? err),
+                            parse_status: "error",
+                            extraction_error: error instanceof Error ? error.message : String(error),
+                            extracted_page_kind: null,
                         },
-                    ] satisfies PageStructuredInsert[];
-                    const { error } = await supabase.from("page_structured").upsert(row, { onConflict: "page_id" });
-                    if (error) throw error;
+                    ];
+                    const { error: upsertError } = await supabase.from("page_structured").upsert(row, { onConflict: "page_id" });
+                    if (upsertError) throw upsertError;
                     console.log(`[ExtractEventPages] Saved extraction error for ${p.id}`);
                 });
             }
         }
 
         console.log(`[ExtractEventPages] Complete - ${successCount} successes, ${errorCount} errors`);
-        return { ok: true as const };
+        return { ok: true };
     }
 }

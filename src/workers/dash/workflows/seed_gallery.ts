@@ -12,6 +12,7 @@ export class SeedGallery extends WorkflowEntrypoint<Env, Params> {
         const normalized_main_url = normalizeUrl(mainUrl);
         const normalized_about_url = aboutUrl ? normalizeUrl(aboutUrl) : null;
         const supabase = getServiceClient(this.env);
+        const pagesToScrape: string[] = [];
 
         console.log(`[SeedGallery] Starting - main: ${mainUrl}, about: ${aboutUrl ?? 'none'}`);
         console.log(`[SeedGallery] Normalized main=${normalized_main_url}${normalized_about_url ? ` about=${normalized_about_url}` : ""}`);
@@ -51,6 +52,9 @@ export class SeedGallery extends WorkflowEntrypoint<Env, Params> {
                 .maybeSingle();
             if (error) throw error;
             console.log(`[SeedGallery] Upserted main page id: ${data?.id ?? 'none'} for URL ${mainUrl}`);
+            if (data?.id) {
+                pagesToScrape.push(data.id);
+            }
         });
         if (aboutUrl) {
             await step.do("upsert_page_about", async () => {
@@ -70,11 +74,23 @@ export class SeedGallery extends WorkflowEntrypoint<Env, Params> {
                     .maybeSingle();
                 if (error) throw error;
                 console.log(`[SeedGallery] Upserted about page id: ${data?.id ?? 'none'} for URL ${aboutUrl}`);
+                if (data?.id) {
+                    pagesToScrape.push(data.id);
+                }
+            });
+        }
+
+        if (pagesToScrape.length > 0) {
+            await step.do("auto-scrape-pages", async () => {
+                console.log(`[SeedGallery] Triggering scrape for pages`, pagesToScrape);
+                await this.env.SCRAPE_PAGES.create({ params: { pageIds: pagesToScrape } });
             });
         }
 
         console.log(`[SeedGallery] Complete - gallery ${g.id} with ${aboutUrl ? 2 : 1} pages`);
-        console.log(`[SeedGallery] Reminder: run ScrapePages before ExtractGallery to populate page_content.`);
+        if (pagesToScrape.length > 0) {
+            console.log(`[SeedGallery] Auto-scrape queued for pages: ${pagesToScrape.join(", ")}`);
+        }
         return { galleryId: g.id };
     }
 }
