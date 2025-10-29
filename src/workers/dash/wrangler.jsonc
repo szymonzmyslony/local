@@ -1,0 +1,28 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "dash",
+	"main": "worker/index.ts",
+	"compatibility_date": "2025-10-24",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"assets": {
+		"not_found_handling": "single-page-application"
+	},
+	"observability": {
+		"enabled": true
+	},
+	"workflows": [
+		{ "name": "seed-gallery",   "binding": "SEED_GALLERY",   "class_name": "SeedGallery"   },
+		{ "name": "discover-links", "binding": "DISCOVER_LINKS", "class_name": "DiscoverLinks" },
+		{ "name": "scrape-pages",   "binding": "SCRAPE_PAGES",   "class_name": "ScrapePages"   },
+		{ "name": "extract-event-pages",  "binding": "EXTRACT_EVENT_PAGES",  "class_name": "ExtractEventPages"  },
+		{ "name": "extract-gallery",  "binding": "EXTRACT_GALLERY",  "class_name": "ExtractGallery"  },
+		{ "name": "embed",          "binding": "EMBEDDING",      "class_name": "Embed"         }
+	  ],
+	
+}
