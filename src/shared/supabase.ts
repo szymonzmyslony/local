@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "@/types/database_types";
+import type { Database } from "../types/database_types";
 
 export type SupabaseServiceClient = SupabaseClient<Database>;
 

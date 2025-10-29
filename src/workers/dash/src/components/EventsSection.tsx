@@ -1,41 +1,53 @@
-import { useMemo, useState } from "react";
-import { box, grid2, row, table } from "../uiStyles";
-
-type EventRow = { id: string; title: string; start_at?: string; status: string; page_id?: string };
+import { useEffect, useMemo, useState } from "react";
+import { box, row, table } from "../uiStyles";
+import type { Event } from "../../../../types/common";
 
 type Props = {
+    galleryId: string;
     get: <T = unknown>(path: string) => Promise<T>;
     post: <T = unknown>(path: string, payload: unknown) => Promise<T>;
 };
 
-export function EventsSection({ get, post }: Props) {
-    const [galleryId, setGalleryId] = useState("");
-    const [events, setEvents] = useState<EventRow[]>([]);
+export function EventsSection({ galleryId, get, post }: Props) {
+    const [events, setEvents] = useState<Event[]>([]);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [loading, setLoading] = useState(false);
 
     const selectedCount = useMemo(() => selectedIds.size, [selectedIds]);
     const toggle = (id: string) => setSelectedIds(prev => { const c = new Set(prev); c.has(id) ? c.delete(id) : c.add(id); return c; });
 
+    const loadEvents = async () => {
+        setLoading(true);
+        try {
+            const rows = await get<Event[]>(`/api/events?galleryId=${encodeURIComponent(galleryId)}`);
+            setEvents(rows);
+            setSelectedIds(new Set());
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadEvents();
+    }, [galleryId]);
+
     return (
         <section style={box}>
-            <h2>3) Events</h2>
-            <div style={grid2}>
-                <label>
-                    Gallery ID
-                    <input value={galleryId} onChange={e => setGalleryId(e.target.value)} placeholder="UUID" />
-                </label>
-                <div style={row}>
-                    <button type="button" onClick={async () => {
-                        const rows = await get<EventRow[]>(`/api/events?galleryId=${encodeURIComponent(galleryId)}`);
-                        setEvents(rows);
-                        setSelectedIds(new Set());
-                    }}>Load events</button>
-                </div>
+            <h2>Events</h2>
+
+            <div style={{ marginBottom: "1rem" }}>
+                <strong>Total:</strong> {events.length} events
+            </div>
+
+            <div style={row}>
+                <button type="button" onClick={loadEvents} disabled={loading}>
+                    {loading ? "Loading..." : "Refresh"}
+                </button>
             </div>
 
             {events.length > 0 && (
                 <>
-                    <div style={{ margin: "8px 0" }}>Selected events: {selectedCount}</div>
+                    <div style={{ margin: "8px 0" }}>Selected: {selectedCount}</div>
                     <table style={table}>
                         <thead><tr><th></th><th>Title</th><th>Start</th><th>Status</th></tr></thead>
                         <tbody>
@@ -53,7 +65,7 @@ export function EventsSection({ get, post }: Props) {
                         <button type="button" disabled={!selectedCount} onClick={async () => {
                             const { id } = await post<{ id: string }>("/api/embed/events", { eventIds: [...selectedIds] });
                             alert(`Embedding workflow started: ${id}`);
-                        }}>Embed selected</button>
+                        }}>Embed Selected</button>
                     </div>
                 </>
             )}

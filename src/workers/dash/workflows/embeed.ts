@@ -3,6 +3,7 @@ import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 import { getServiceClient } from "../../../shared/supabase";
 import { createEmbedder } from "../../../shared/embedding";
 import { AI_CONFIG } from "../../../shared/config/ai";
+import type { EventInfoUpdate, GalleryInfoUpdate } from "../../../types/common";
 
 /**
  * Assumes Supabase RPCs:
@@ -41,12 +42,14 @@ export class Embed extends WorkflowEntrypoint<Env, Params> {
             });
             for (const row of res ?? []) {
                 await step.do(`save-embedding:event:${row.event_id}`, async () => {
-                    const { error } = await supabase.from("event_info")
-                        .update({
-                            embedding: JSON.stringify(row.embedding),
-                            embedding_model: row.model,
-                            embedding_created_at: new Date().toISOString()
-                        })
+                    const update = {
+                        embedding: JSON.stringify(row.embedding),
+                        embedding_model: row.model,
+                        embedding_created_at: new Date().toISOString(),
+                    } satisfies EventInfoUpdate;
+                    const { error } = await supabase
+                        .from("event_info")
+                        .update(update)
                         .eq("event_id", row.event_id);
                     if (error) throw error;
                 });
@@ -77,12 +80,14 @@ export class Embed extends WorkflowEntrypoint<Env, Params> {
             });
             for (const row of res ?? []) {
                 await step.do(`save-embedding:gallery:${row.gallery_id}`, async () => {
-                    const { error } = await supabase.from("gallery_info")
-                        .update({
-                            embedding: JSON.stringify(row.embedding),
-                            embedding_model: row.model,
-                            embedding_created_at: new Date().toISOString()
-                        })
+                    const update = {
+                        embedding: JSON.stringify(row.embedding),
+                        embedding_model: row.model,
+                        embedding_created_at: new Date().toISOString(),
+                    } satisfies GalleryInfoUpdate;
+                    const { error } = await supabase
+                        .from("gallery_info")
+                        .update(update)
                         .eq("gallery_id", row.gallery_id);
                     if (error) throw error;
                 });

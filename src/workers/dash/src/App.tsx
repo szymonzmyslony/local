@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { SeedGallerySection } from "./components/SeedGallerySection";
-import { DiscoverLinksSection } from "./components/DiscoverLinksSection";
+import { GalleryOverview } from "./components/GalleryOverview";
 import { PagesSection } from "./components/PagesSection";
 import { EventsSection } from "./components/EventsSection";
 
@@ -15,13 +16,21 @@ async function get<T = unknown>(path: string): Promise<T> {
 }
 
 export function App() {
+  const [selectedGalleryId, setSelectedGalleryId] = useState<string | null>(null);
+
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", maxWidth: 980, margin: "2rem auto" }}>
-      <h1>Ingest Dashboard</h1>
-      <SeedGallerySection post={post} get={get} />
-      <DiscoverLinksSection post={post} />
-      <PagesSection get={get} post={post} />
-      <EventsSection get={get} post={post} />
+    <div style={{ fontFamily: "system-ui, sans-serif", maxWidth: 1200, margin: "2rem auto", padding: "0 1rem" }}>
+      <h1>Gallery Ingest Dashboard</h1>
+
+      <SeedGallerySection post={post} get={get} onGalleryCreated={setSelectedGalleryId} onGallerySelected={setSelectedGalleryId} />
+
+      {selectedGalleryId && (
+        <>
+          <GalleryOverview galleryId={selectedGalleryId} get={get} post={post} />
+          <PagesSection galleryId={selectedGalleryId} get={get} post={post} />
+          <EventsSection galleryId={selectedGalleryId} get={get} post={post} />
+        </>
+      )}
     </div>
   );
 }

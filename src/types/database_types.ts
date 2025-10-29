@@ -16,31 +16,46 @@ export type Database = {
     Tables: {
       event_info: {
         Row: {
+          artists: string[] | null
           data: Json
+          description: string | null
           embedding: string | null
           embedding_created_at: string | null
           embedding_model: string | null
           event_id: string
+          images: string[] | null
           md: string | null
+          prices: Json | null
           source_page_id: string | null
+          tags: string[] | null
         }
         Insert: {
+          artists?: string[] | null
           data?: Json
+          description?: string | null
           embedding?: string | null
           embedding_created_at?: string | null
           embedding_model?: string | null
           event_id: string
+          images?: string[] | null
           md?: string | null
+          prices?: Json | null
           source_page_id?: string | null
+          tags?: string[] | null
         }
         Update: {
+          artists?: string[] | null
           data?: Json
+          description?: string | null
           embedding?: string | null
           embedding_created_at?: string | null
           embedding_model?: string | null
           event_id?: string
+          images?: string[] | null
           md?: string | null
+          prices?: Json | null
           source_page_id?: string | null
+          tags?: string[] | null
         }
         Relationships: [
           {
@@ -149,27 +164,27 @@ export type Database = {
         Row: {
           about_url: string | null
           created_at: string
+          events_url: string | null
           id: string
           main_url: string
-          normalized_about_url: string | null
           normalized_main_url: string
           updated_at: string
         }
         Insert: {
           about_url?: string | null
           created_at?: string
+          events_url?: string | null
           id?: string
           main_url: string
-          normalized_about_url?: string | null
           normalized_main_url: string
           updated_at?: string
         }
         Update: {
           about_url?: string | null
           created_at?: string
+          events_url?: string | null
           id?: string
           main_url?: string
-          normalized_about_url?: string | null
           normalized_main_url?: string
           updated_at?: string
         }
@@ -207,71 +222,69 @@ export type Database = {
           },
         ]
       }
-      gallery_hours_exceptions: {
-        Row: {
-          close_time: string | null
-          date: string
-          gallery_id: string
-          id: string
-          note: string | null
-          open_time: string | null
-        }
-        Insert: {
-          close_time?: string | null
-          date: string
-          gallery_id: string
-          id?: string
-          note?: string | null
-          open_time?: string | null
-        }
-        Update: {
-          close_time?: string | null
-          date?: string
-          gallery_id?: string
-          id?: string
-          note?: string | null
-          open_time?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "gallery_hours_exceptions_gallery_id_fkey"
-            columns: ["gallery_id"]
-            isOneToOne: false
-            referencedRelation: "galleries"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       gallery_info: {
         Row: {
+          about: string | null
+          address: string | null
+          city: string | null
+          country_code: string | null
           data: Json
+          email: string | null
           embedding: string | null
           embedding_created_at: string | null
           embedding_model: string | null
           gallery_id: string
+          instagram: string | null
           name: string | null
+          phone: string | null
           source_page_id: string | null
+          tags: string[] | null
+          timezone: string | null
+          twitter: string | null
           updated_at: string
+          website: string | null
         }
         Insert: {
+          about?: string | null
+          address?: string | null
+          city?: string | null
+          country_code?: string | null
           data?: Json
+          email?: string | null
           embedding?: string | null
           embedding_created_at?: string | null
           embedding_model?: string | null
           gallery_id: string
+          instagram?: string | null
           name?: string | null
+          phone?: string | null
           source_page_id?: string | null
+          tags?: string[] | null
+          timezone?: string | null
+          twitter?: string | null
           updated_at?: string
+          website?: string | null
         }
         Update: {
+          about?: string | null
+          address?: string | null
+          city?: string | null
+          country_code?: string | null
           data?: Json
+          email?: string | null
           embedding?: string | null
           embedding_created_at?: string | null
           embedding_model?: string | null
           gallery_id?: string
+          instagram?: string | null
           name?: string | null
+          phone?: string | null
           source_page_id?: string | null
+          tags?: string[] | null
+          timezone?: string | null
+          twitter?: string | null
           updated_at?: string
+          website?: string | null
         }
         Relationships: [
           {
