@@ -43,13 +43,13 @@ const eventItemSchema = z.object({
     end_at: isoDateTime.optional(),
     timezone: z.string().optional(),
     status: z.enum(Constants.public.Enums.event_status).optional(),
-    ticket_url: z.string().url().optional(),
+    ticket_url: z.string().optional(),
     description: z.string().optional(),
     prices: pricesSchema.optional(),
     artists: z.array(z.string()).optional(),
     tags: z.array(z.string()).optional(),
     occurrences: z.array(eventOccurrenceSchema).optional(),
-    images: z.array(z.string().url()).optional()
+    images: z.array(z.string().()).optional()
 });
 
 export const eventExtractionSchema = eventItemSchema;

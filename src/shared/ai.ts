@@ -1,14 +1,45 @@
 import { generateObject } from "ai";
+import { z } from "zod";
 import type { OpenAIProvider } from "@ai-sdk/openai";
 import { AI_CONFIG } from "./config/ai";
 import {
     galleryExtractionSchema,
     pageExtractionSchema,
+    eventExtractionSchema,
     type GalleryExtraction,
-    type PageExtraction
+    type PageExtraction,
+    type EventExtraction
 } from "./schema";
 
 const MAX_MD_LENGTH = 50_000;
+
+const pageKindSchema = z.object({
+    kind: z.enum(["gallery_main", "gallery_about", "event_list", "event_detail", "other", "event_candidate"]).describe("Predicted page_kind classification")
+});
+
+export async function classifyPageKindFromMarkdown(openai: OpenAIProvider, md: string, url: string): Promise<z.infer<typeof pageKindSchema>["kind"]> {
+    const { object } = await generateObject({
+        model: openai(AI_CONFIG.CHAT_MODEL),
+        schema: pageKindSchema,
+        prompt: [
+            "Classify the Markdown content below into one of the following page kinds:",
+            "- gallery_main (home/landing page for the gallery)",
+            "- gallery_about (about/biography page for the gallery)",
+            "- event_list (lists multiple events or programs)",
+            "- event_detail (describes a single event in detail)",
+            "- other (any other supporting page)",
+            "- event_candidate (unclear, likely contains navigation or needs manual review)",
+            "",
+            "Return ONLY the classification string in the schema.",
+            "",
+            `URL: ${url}`,
+            "---",
+            md.slice(0, MAX_MD_LENGTH)
+        ].join("\n")
+    });
+
+    return object.kind;
+}
 
 export async function extractGalleryInfoFromMarkdown(openai: OpenAIProvider, md: string, url: string): Promise<GalleryExtraction> {
     try {
@@ -41,12 +72,10 @@ export async function extractPageContentFromMarkdown(openai: OpenAIProvider, md:
     try {
         const { object } = await generateObject({
             model: openai(AI_CONFIG.CHAT_MODEL),
-            schema: pageExtractionSchema,
+            schema: eventExtractionSchema,
             prompt: [
-                "Analyse the Markdown content below and determine what type of gallery page it represents.",
-                "Classify it as one of: gallery_main, gallery_about, event_list, event_detail, other.",
-                "If it is an event detail page, extract the full event payload using the provided schema.",
-                "Return a JSON object that strictly matches the page extraction schema.",
+                "You are given Markdown content for a page that describes a *single* event.",
+                "Extract structured event information matching the event extraction schema.",
                 "Only include facts explicitly present in the content.",
                 "",
                 `URL: ${url}`,
@@ -55,18 +84,11 @@ export async function extractPageContentFromMarkdown(openai: OpenAIProvider, md:
             ].join("\n")
         });
 
-        return object;
+        return { type: "event_detail", payload: object };
     } catch (error) {
-        const schemaDef = (pageExtractionSchema as unknown as { _def?: { options?: unknown[] } })._def;
-        const schemaCandidates = schemaDef?.options?.map(option => {
-            const asAny = option as { shape?: Record<string, { value?: string }> };
-            return asAny?.shape?.type?.value ?? "unknown";
-        }) ?? [];
-
         console.error("[extractPageContentFromMarkdown] Failed to generate object", {
             url,
             markdownLength: md.length,
-            allowedTypes: schemaCandidates,
             error
         });
         throw error;

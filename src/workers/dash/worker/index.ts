@@ -57,6 +57,7 @@ type GalleryPipeline = {
 export { SeedGallery } from "../workflows/seed_gallery";
 export { DiscoverLinks } from "../workflows/discover_links";
 export { ScrapePages } from "../workflows/scrape_pages";
+export { ClassifyPages } from "../workflows/classify_pages";
 export { ExtractEventPages } from "../workflows/extract_event_pages";
 export { ProcessExtractedEvents } from "../workflows/process_extracted_events";
 export { ExtractGallery } from "../workflows/extract_gallery";
@@ -233,6 +234,13 @@ export default {
       const body = PageIdsBodySchema.parse(await request.json());
       console.log("[dash-worker] Starting ScrapePages workflow", body);
       const run = await env.SCRAPE_PAGES.create({ params: { pageIds: body.pageIds } });
+      return Response.json({ id: run.id ?? run });
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/pages/classify") {
+      const body = PageIdsBodySchema.parse(await request.json());
+      console.log("[dash-worker] Starting ClassifyPages workflow", body);
+      const run = await env.CLASSIFY_PAGES.create({ params: { pageIds: body.pageIds } });
       return Response.json({ id: run.id ?? run });
     }
 

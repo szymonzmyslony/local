@@ -15,6 +15,7 @@ declare namespace Cloudflare {
 		SEED_GALLERY: Workflow<Parameters<import("./worker/index").SeedGallery['run']>[0]['payload']>;
 		DISCOVER_LINKS: Workflow<Parameters<import("./worker/index").DiscoverLinks['run']>[0]['payload']>;
 		SCRAPE_PAGES: Workflow<Parameters<import("./worker/index").ScrapePages['run']>[0]['payload']>;
+		CLASSIFY_PAGES: Workflow<Parameters<import("./worker/index").ClassifyPages['run']>[0]['payload']>;
 		EXTRACT_EVENT_PAGES: Workflow<Parameters<import("./worker/index").ExtractEventPages['run']>[0]['payload']>;
 		PROCESS_EXTRACTED_EVENTS: Workflow<Parameters<import("./worker/index").ProcessExtractedEvents['run']>[0]['payload']>;
 		EXTRACT_GALLERY: Workflow<Parameters<import("./worker/index").ExtractGallery['run']>[0]['payload']>;

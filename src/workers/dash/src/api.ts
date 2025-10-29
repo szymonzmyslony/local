@@ -178,6 +178,16 @@ export async function scrapePages(pageIds: string[]): Promise<string> {
   return id;
 }
 
+export async function classifyPages(pageIds: string[]): Promise<string> {
+  const response = await fetch("/api/pages/classify", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pageIds })
+  });
+  const { id } = await parseResponse(response, runResponseSchema);
+  return id;
+}
+
 export async function extractPages(pageIds: string[]): Promise<string> {
   const response = await fetch("/api/pages/extract", {
     method: "POST",

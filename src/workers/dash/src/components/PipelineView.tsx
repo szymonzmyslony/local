@@ -8,6 +8,7 @@ export type PipelineAction =
   | "refresh"
   | "discover"
   | "scrape"
+  | "classify"
   | "extract"
   | "process"
   | "embed"
@@ -20,6 +21,7 @@ type Props = {
   onExtractGallery: () => void;
   onDiscover: (payload: DiscoverPayload) => void;
   onScrape: (pageIds: string[]) => void;
+  onClassifyPages: (pageIds: string[]) => void;
   onExtractPages: (pageIds: string[]) => void;
   onProcessEvents: (pageIds: string[]) => void;
   onEmbedEvents: (eventIds: string[]) => void;
@@ -39,6 +41,7 @@ export function PipelineView({
   onDiscover,
   onScrape,
   onExtractPages,
+  onClassifyPages,
   onProcessEvents,
   onEmbedEvents,
   selectedPageIds,
@@ -67,6 +70,7 @@ export function PipelineView({
   const refreshDisabled = pendingAction === "refresh";
   const extractGalleryDisabled = pendingAction === "extractGallery";
   const scrapeDisabled = pendingAction === "scrape" || pageSelectionCount === 0;
+  const classifyDisabled = pendingAction === "classify" || pageSelectionCount === 0;
   const extractDisabled = pendingAction === "extract" || pageSelectionCount === 0;
   const processDisabled = pendingAction === "process" || pageSelectionCount === 0;
   const embedDisabled = pendingAction === "embed" || eventSelectionCount === 0;
@@ -277,6 +281,9 @@ export function PipelineView({
         <div className="actions">
           <button type="button" className="btn btn-primary" disabled={scrapeDisabled} onClick={() => onScrape(Array.from(selectedPageIds))}>
             {pendingAction === "scrape" ? "Scraping…" : "Scrape selected"}
+          </button>
+          <button type="button" className="btn btn-secondary" disabled={classifyDisabled} onClick={() => onClassifyPages(Array.from(selectedPageIds))}>
+            {pendingAction === "classify" ? "Classifying…" : "Classify selected"}
           </button>
           <button type="button" className="btn btn-secondary" disabled={extractDisabled} onClick={() => onExtractPages(Array.from(selectedPageIds))}>
             {pendingAction === "extract" ? "Extracting…" : "Extract selected"}

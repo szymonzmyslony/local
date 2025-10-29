@@ -19,12 +19,12 @@ export class ExtractEventPages extends WorkflowEntrypoint<Env, Params> {
         const pages = await step.do("load-pages", async () => {
             const { data, error } = await supabase
                 .from("pages")
-                .select("id, url, normalized_url")
+                .select("id, url, normalized_url, kind")
                 .in("id", pageIds);
             if (error) throw error;
             console.log(`[ExtractEventPages] Loaded ${data?.length ?? 0} pages`);
             (data ?? []).forEach(p => {
-                console.log(`[ExtractEventPages] Page ${p.id} url=${p.url ?? p.normalized_url}`);
+                console.log(`[ExtractEventPages] Page ${p.id} url=${p.url ?? p.normalized_url} kind=${p.kind}`);
             });
             return data ?? [];
         });
@@ -34,6 +34,10 @@ export class ExtractEventPages extends WorkflowEntrypoint<Env, Params> {
 
         for (const p of pages) {
             try {
+                if (p.kind !== "event_detail") {
+                    console.log(`[ExtractEventPages] Skipping ${p.id} - kind=${p.kind}`);
+                    continue;
+                }
                 console.log(`[ExtractEventPages] Extracting ${p.url ?? p.normalized_url}`);
                 const md = await step.do(`load-md:${p.id}`, async () => {
                     const { data, error } = await supabase

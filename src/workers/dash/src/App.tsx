@@ -5,6 +5,7 @@ import {
   embedEvents,
   extractGalleryInfo,
   extractPages,
+  classifyPages,
   fetchPipeline,
   listGalleries,
   processEvents,
@@ -129,6 +130,11 @@ export function App() {
     await runWorkflow("scrape", () => scrapePages(pageIds));
   }
 
+  async function handleClassify(pageIds: string[]): Promise<void> {
+    if (pageIds.length === 0) return;
+    await runWorkflow("classify", () => classifyPages(pageIds));
+  }
+
   async function handleExtract(pageIds: string[]): Promise<void> {
     if (pageIds.length === 0) return;
     await runWorkflow("extract", () => extractPages(pageIds));
@@ -206,6 +212,7 @@ export function App() {
           onExtractGallery={() => void handleExtractGallery()}
           onDiscover={payload => void handleDiscover(payload)}
           onScrape={ids => void handleScrape(ids)}
+          onClassifyPages={ids => void handleClassify(ids)}
           onExtractPages={ids => void handleExtract(ids)}
           onProcessEvents={ids => void handleProcess(ids)}
           onEmbedEvents={ids => void handleEmbed(ids)}
