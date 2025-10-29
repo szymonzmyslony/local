@@ -19,7 +19,11 @@ export async function fetchLinks(CF_ACCOUNT_ID: string, CF_API_TOKEN: string, ur
             "Authorization": `Bearer ${CF_API_TOKEN}`,
             "Content-Type": "application/json"
         },
-        body: JSON.stringify({ url })
+        body: JSON.stringify({
+            url,
+            visibleLinksOnly: true,
+            excludeExternalLinks: true
+        })
     });
     if (!res.ok) throw new Error(`links API ${res.status}`);
     const json = responseSchema.parse(await res.json());

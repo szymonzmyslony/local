@@ -38,7 +38,7 @@ export class DiscoverLinks extends WorkflowEntrypoint<Env, Params> {
                 const { error } = await supabase.from("pages").upsert(rows, { onConflict: "normalized_url" });
                 if (error) throw error;
                 console.log(`[DiscoverLinks] Upserted ${rows.length} pages for ${listUrl}`);
-                rows.forEach(r => console.log(`[DiscoverLinks]   -> ${r.normalized_url}`));
+                for (const r of rows) console.log(`[DiscoverLinks]   -> ${r.normalized_url}`);
             });
         }
         console.log(`[DiscoverLinks] Complete - discovered ${totalLinks} links total`);

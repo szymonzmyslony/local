@@ -49,7 +49,7 @@ const eventItemSchema = z.object({
     artists: z.array(z.string()).optional(),
     tags: z.array(z.string()).optional(),
     occurrences: z.array(eventOccurrenceSchema).optional(),
-    images: z.array(z.string().()).optional()
+    images: z.array(z.string()).optional()
 });
 
 export const eventExtractionSchema = eventItemSchema;
