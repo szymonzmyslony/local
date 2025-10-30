@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { listGalleries, seedGallery, type GalleryListItem } from "../api";
-import { normalizeUrl } from "../../workflows/utils/normalizeUrl";
+import { normalizeUrl } from "@shared";
 
-type SeedPayload = { mainUrl: string; aboutUrl: string | null };
+type SeedPayload = { mainUrl: string; aboutUrl: string | null; eventsUrl: string | null };
 
 type SeedResult = {
   workflowId: string;
@@ -40,10 +40,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   }, [refreshGalleries]);
 
   const handleSeedGallery = useCallback(
-    async ({ mainUrl, aboutUrl }: SeedPayload): Promise<SeedResult> => {
+    async ({ mainUrl, aboutUrl, eventsUrl }: SeedPayload): Promise<SeedResult> => {
       setSeeding(true);
       try {
-        const workflowId = await seedGallery({ mainUrl, aboutUrl });
+        const workflowId = await seedGallery({ mainUrl, aboutUrl, eventsUrl });
         const updated = await refreshGalleries();
         const normalized = normalizeUrl(mainUrl);
         const match = updated.find(gallery => gallery.normalized_main_url === normalized);

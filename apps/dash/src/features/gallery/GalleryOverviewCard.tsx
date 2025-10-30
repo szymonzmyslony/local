@@ -1,17 +1,18 @@
 import type { ReactNode } from "react";
-import type { PipelineData, PipelinePage } from "../../api";
+import type { GalleryDetail, GalleryPage } from "../../api";
 import { Button } from "@shared/ui";
 
 type PrimaryPage = {
   id: string;
   label: string;
-  page: PipelinePage | null;
+  page: GalleryPage | null;
 };
 
 type GalleryOverviewCardProps = {
-  gallery: PipelineData["gallery"];
-  mainPage: PipelinePage | null;
-  aboutPage: PipelinePage | null;
+  gallery: GalleryDetail;
+  mainPage: GalleryPage | null;
+  aboutPage: GalleryPage | null;
+  eventsPage?: GalleryPage | null;
   extractDisabled: boolean;
   scrapeDisabled: boolean;
   canExtract: boolean;
@@ -24,6 +25,7 @@ export function GalleryOverviewCard({
   gallery,
   mainPage,
   aboutPage,
+  eventsPage,
   extractDisabled,
   scrapeDisabled,
   canExtract,
@@ -33,7 +35,8 @@ export function GalleryOverviewCard({
 }: GalleryOverviewCardProps) {
   const primaryPages: PrimaryPage[] = [
     { id: "gallery_main", label: "Main page", page: mainPage },
-    { id: "gallery_about", label: "About page", page: aboutPage }
+    { id: "gallery_about", label: "About page", page: aboutPage },
+    { id: "event_list", label: "Events page", page: eventsPage ?? null }
   ];
 
   const info = gallery.gallery_info;
@@ -202,7 +205,7 @@ function InfoTile({
   );
 }
 
-function formatHours(gallery: PipelineData["gallery"]): string {
+function formatHours(gallery: GalleryDetail): string {
   return gallery.gallery_hours
     .slice()
     .sort((a, b) => a.dow - b.dow)

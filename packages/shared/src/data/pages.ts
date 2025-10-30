@@ -5,10 +5,9 @@ import type {
   PageContentInsert,
   PageInsert,
   PageStructuredInsert,
-  PageUpdate,
-  PageKind
+  PageUpdate
 } from "../types/common";
-import type { PageDetail, PageListItem } from "../types/domain";
+import type { PageDetail, PageWithRelations } from "../types/domain";
 
 export type PageSummary = Pick<Page, "id" | "url" | "normalized_url" | "kind" | "gallery_id">;
 
@@ -120,6 +119,32 @@ export async function getPageDetail(
   } satisfies PageDetail;
 }
 
+export async function selectPagesWithRelations(
+  client: SupabaseServiceClient,
+  galleryId: string
+): Promise<PageWithRelations[]> {
+  const { data, error } = await client
+    .from("pages")
+    .select(
+      "*, page_content(markdown, parsed_at), page_structured(parse_status, parsed_at, extraction_error)"
+    )
+    .eq("gallery_id", galleryId)
+    .order("created_at", { ascending: false })
+    .limit(200);
+
+  if (error) {
+    throw toError("selectPagesWithRelations", error);
+  }
+
+  const rows = (data ?? []).map(record => ({
+    ...record,
+    page_content: record.page_content ?? null,
+    page_structured: record.page_structured ?? null
+  }));
+
+  return rows as PageWithRelations[];
+}
+
 export async function upsertPageContent(
   client: SupabaseServiceClient,
   record: PageContentInsert
@@ -225,31 +250,4 @@ export async function deleteEventOccurrencesByEventId(
   if (error) {
     throw toError("deleteEventOccurrencesByEventId", error);
   }
-}
-
-export async function listPages(
-  client: SupabaseServiceClient,
-  filters: { galleryId?: string | null; kind?: PageKind | null; limit?: number } = {}
-): Promise<PageListItem[]> {
-  const { galleryId, kind, limit = 200 } = filters;
-  let query = client
-    .from("pages")
-    .select("id, url, normalized_url, kind, fetch_status")
-    .order("created_at", { ascending: false })
-    .limit(limit);
-
-  if (galleryId) {
-    query = query.eq("gallery_id", galleryId);
-  }
-  if (kind) {
-    query = query.eq("kind", kind);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    throw toError("listPages", error);
-  }
-
-  return (data ?? []) as PageListItem[];
 }

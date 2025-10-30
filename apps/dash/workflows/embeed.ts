@@ -6,8 +6,10 @@ import {
   getServiceClient,
   selectEventInfoText,
   selectEventTitle,
+  selectGalleryAbout,
   selectGalleryMainUrl,
   selectGalleryName,
+  selectGalleryTags,
   updateEventInfoEmbedding,
   updateGalleryInfoEmbedding
 } from "@shared";
@@ -58,13 +60,31 @@ export class Embed extends WorkflowEntrypoint<Env, Params> {
             const res = await step.do("embed-call:galleries", async () => {
                 const out: { gallery_id: string; embedding: number[]; model: string }[] = [];
                 for (const id of galleryIds) {
-                    // Prefer gallery_info.name; fallback to galleries.main_url
-                    let text = (await selectGalleryName(supabase, id)) ?? "";
-                    if (!text) {
-                        text = (await selectGalleryMainUrl(supabase, id)) ?? "";
+                    // Fetch gallery_info fields: name, tags, about
+                    const name = await selectGalleryName(supabase, id);
+                    const tags = await selectGalleryTags(supabase, id);
+                    const about = await selectGalleryAbout(supabase, id);
+
+                    // Build embedding text from available fields
+                    const parts: string[] = [];
+                    if (name) parts.push(`Gallery: ${name}`);
+                    if (tags?.length) parts.push(`Tags: ${tags.join(", ")}`);
+                    if (about) parts.push(`About: ${about}`);
+
+                    // Fallback to main_url if no gallery_info fields available
+                    if (parts.length === 0) {
+                        const mainUrl = await selectGalleryMainUrl(supabase, id);
+                        if (mainUrl) parts.push(`URL: ${mainUrl}`);
                     }
+
+                    const text = parts.join("\n");
                     const trimmed = text.trim();
-                    if (!trimmed) continue;
+                    if (!trimmed) {
+                        console.log(`[Embed] No content for gallery ${id}, skipping`);
+                        continue;
+                    }
+
+                    console.log(`[Embed] Embedding for gallery ${id}:\n${trimmed}`);
                     const vector = await embedder(trimmed);
                     out.push({ gallery_id: id, embedding: vector, model: AI_CONFIG.EMBEDDING_MODEL });
                 }

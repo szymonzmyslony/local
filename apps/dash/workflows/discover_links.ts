@@ -1,13 +1,13 @@
 import { WorkflowEntrypoint } from "cloudflare:workers";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 import {
-  findExistingNormalizedUrls,
-  getServiceClient,
-  insertPages
+    findExistingNormalizedUrls,
+    getServiceClient,
+    insertPages,
+    normalizeUrl
 } from "@shared";
 import type { PageInsert } from "@shared";
 import { fetchLinks } from "./utils/links";
-import { normalizeUrl } from "./utils/normalizeUrl";
 
 type Params = { galleryId: string; listUrls: string[]; limit?: number };
 

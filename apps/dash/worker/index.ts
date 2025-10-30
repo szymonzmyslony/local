@@ -2,20 +2,18 @@ import { z } from "zod";
 import {
   Constants,
   getServiceClient,
-  getGalleryPipeline,
   getGalleryWithInfo,
   getPageDetail,
-  listEvents,
-  listPages,
   listRecentGalleries,
+  selectEventsByGallery,
+  selectPagesWithRelations,
   updatePageById
 } from "@shared";
 import type {
-  EventListItem,
-  GalleryPipeline,
+  EventWithRelations,
   GalleryWithRelations,
   PageDetail,
-  PageListItem
+  PageWithRelations
 } from "@shared";
 
 const SeedGalleryBodySchema = z.object({
@@ -61,11 +59,11 @@ const ExtractGalleryBodySchema = z.object({
 export { SeedGallery } from "../workflows/seed_gallery";
 export { DiscoverLinks } from "../workflows/discover_links";
 export { ScrapePages } from "../workflows/scrape_pages";
-export { ClassifyPages } from "../workflows/classify_pages";
 export { ExtractEventPages } from "../workflows/extract_event_pages";
-export { ProcessExtractedEvents } from "../workflows/process_extracted_events";
 export { ExtractGallery } from "../workflows/extract_gallery";
 export { Embed } from "../workflows/embeed";
+export { ScrapeAndExtract } from "../workflows/scrape_and_extract";
+export { SeedAndStartupGallery } from "../workflows/seedAndStartupGallery";
 
 export default {
   async fetch(request, env) {
@@ -87,6 +85,22 @@ export default {
       const galleryId = run.id ?? run;
 
       return Response.json({ id: galleryId });
+    }
+
+    // 0b) Seed and startup gallery (full pipeline)
+    if (request.method === "POST" && url.pathname === "/api/galleries/seed-and-startup") {
+      const body = SeedGalleryBodySchema.parse(await request.json());
+      const mainUrl = body.mainUrl;
+      const aboutUrl = body.aboutUrl ?? null;
+      const eventsUrl = body.eventsUrl ?? null;
+      const name = body.name ?? null;
+      const address = body.address ?? null;
+      const instagram = body.instagram ?? null;
+      console.log("[dash-worker] Starting SeedAndStartupGallery workflow", { mainUrl, aboutUrl, eventsUrl, name, address, instagram });
+      const run = await env.SEED_AND_STARTUP_GALLERY.create({ params: { mainUrl, aboutUrl, eventsUrl, name, address, instagram } });
+      const workflowId = run.id ?? run;
+
+      return Response.json({ id: workflowId });
     }
 
     // List galleries
@@ -118,22 +132,32 @@ export default {
       }
     }
 
-    // Get full gallery pipeline (pages, structured data, events)
-    if (request.method === "GET" && url.pathname.match(/^\/api\/galleries\/[^/]+\/pipeline$/)) {
-      const [, , , galleryId] = url.pathname.split("/");
-      if (!galleryId) {
-        return new Response("Gallery id required", { status: 400 });
-      }
-      try {
-        const pipeline = await getGalleryPipeline(supabase, galleryId);
-        if (!pipeline) {
-          return new Response("Not found", { status: 404 });
+    // Get gallery pages with related content
+    if (request.method === "GET") {
+      const pagesMatch = url.pathname.match(/^\/api\/galleries\/([^/]+)\/pages$/);
+      if (pagesMatch) {
+        const galleryId = pagesMatch[1];
+        try {
+          const pages = await selectPagesWithRelations(supabase, galleryId);
+          return Response.json(pages satisfies PageWithRelations[]);
+        } catch (error) {
+          console.error(`[dash-worker] Failed loading pages for gallery ${galleryId}`, error);
+          const message = error instanceof Error ? error.message : String(error);
+          return new Response(message, { status: 500 });
         }
-        return Response.json(pipeline satisfies GalleryPipeline);
-      } catch (error) {
-        console.error(`[dash-worker] Failed loading pipeline for gallery ${galleryId}`, error);
-        const message = error instanceof Error ? error.message : String(error);
-        return new Response(message, { status: 500 });
+      }
+
+      const eventsMatch = url.pathname.match(/^\/api\/galleries\/([^/]+)\/events$/);
+      if (eventsMatch) {
+        const galleryId = eventsMatch[1];
+        try {
+          const events = await selectEventsByGallery(supabase, galleryId);
+          return Response.json(events satisfies EventWithRelations[]);
+        } catch (error) {
+          console.error(`[dash-worker] Failed loading events for gallery ${galleryId}`, error);
+          const message = error instanceof Error ? error.message : String(error);
+          return new Response(message, { status: 500 });
+        }
       }
     }
 
@@ -146,21 +170,6 @@ export default {
     }
 
     // 2) Pages
-    if (request.method === "GET" && url.pathname === "/api/pages") {
-      const galleryId = url.searchParams.get("galleryId");
-      type PageKind = (typeof Constants.public.Enums.page_kind)[number];
-      const kindParam = url.searchParams.get("kind") as PageKind | null;
-      console.log(`[dash-worker] Listing pages galleryId=${galleryId ?? "any"} kind=${kindParam ?? "any"}`);
-      try {
-        const pages = await listPages(supabase, { galleryId, kind: kindParam });
-        return Response.json(pages satisfies PageListItem[]);
-      } catch (error) {
-        console.error(`[dash-worker] Failed listing pages galleryId=${galleryId} kind=${kindParam}`, error);
-        const message = error instanceof Error ? error.message : String(error);
-        return new Response(message, { status: 500 });
-      }
-    }
-
     if (request.method === "POST" && url.pathname === "/api/pages/update-kind") {
       const body = UpdatePageKindsBodySchema.parse(await request.json());
       const timestamp = new Date().toISOString();
@@ -202,12 +211,6 @@ export default {
       return Response.json({ id: run.id ?? run });
     }
 
-    if (request.method === "POST" && url.pathname === "/api/pages/classify") {
-      const body = PageIdsBodySchema.parse(await request.json());
-      console.log("[dash-worker] Starting ClassifyPages workflow", body);
-      const run = await env.CLASSIFY_PAGES.create({ params: { pageIds: body.pageIds } });
-      return Response.json({ id: run.id ?? run });
-    }
 
     if (request.method === "POST" && url.pathname === "/api/pages/extract") {
       const body = PageIdsBodySchema.parse(await request.json());
@@ -217,22 +220,20 @@ export default {
 
     if (request.method === "POST" && url.pathname === "/api/pages/process-events") {
       const body = PageIdsBodySchema.parse(await request.json());
-      const run = await env.PROCESS_EXTRACTED_EVENTS.create({ params: { pageIds: body.pageIds } });
+      console.log("[dash-worker] Starting ScrapeAndExtract workflow via /process-events", {
+        count: body.pageIds.length
+      });
+      const run = await env.SCRAPE_AND_EXTRACT.create({ params: { pageIds: body.pageIds } });
       return Response.json({ id: run.id ?? run });
     }
 
-    // 3) Events
-    if (request.method === "GET" && url.pathname === "/api/events") {
-      const galleryId = url.searchParams.get("galleryId");
-      if (!galleryId) return new Response("galleryId required", { status: 400 });
-      try {
-        const events = await listEvents(supabase, galleryId);
-        return Response.json(events satisfies EventListItem[]);
-      } catch (error) {
-        console.error(`[dash-worker] Failed listing events for gallery ${galleryId}`, error);
-        const message = error instanceof Error ? error.message : String(error);
-        return new Response(message, { status: 500 });
-      }
+    if (request.method === "POST" && url.pathname === "/api/pages/promote-event") {
+      const body = PageIdsBodySchema.parse(await request.json());
+      console.log("[dash-worker] Starting ScrapeAndExtract workflow via /promote-event", {
+        count: body.pageIds.length
+      });
+      const run = await env.SCRAPE_AND_EXTRACT.create({ params: { pageIds: body.pageIds } });
+      return Response.json({ id: run.id ?? run });
     }
 
     if (request.method === "POST" && url.pathname === "/api/embed/events") {

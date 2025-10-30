@@ -22,27 +22,30 @@ import {
   embedGallery,
   extractGalleryInfo,
   extractPages,
-  fetchPipeline,
-  processEvents,
+  fetchGalleryDetail,
+  fetchGalleryEvents,
+  promotePagesToEvent,
   scrapePages,
   updatePageKinds,
   type DashboardAction,
-  type PageKindUpdate,
-  type PipelineData
+  type GalleryDetail,
+  type PageKindUpdate
 } from "../api";
 import { useDashboard } from "../providers/dashboard-context";
 
 export type GalleryRouteContext = {
   galleryId: string;
-  pipeline: PipelineData | null;
-  loadingPipeline: boolean;
+  gallery: GalleryDetail | null;
+  loadingGallery: boolean;
   pendingAction: DashboardAction | null;
   status: string | null;
   error: string | null;
-  refreshPipeline: () => Promise<void>;
+  dataVersion: number;
+  refreshData: () => void;
   runDiscover: (payload: { listUrls: string[]; limit?: number }) => Promise<void>;
   runScrapePages: (pageIds: string[]) => Promise<void>;
   runExtractPages: (pageIds: string[]) => Promise<boolean>;
+  runPromoteEventPages: (pageIds: string[]) => Promise<void>;
   runProcessEvents: (pageIds: string[]) => Promise<void>;
   runExtractGallery: () => Promise<void>;
   updatePageKinds: (updates: PageKindUpdate[]) => Promise<number>;
@@ -60,8 +63,9 @@ export function GalleryDetailLayout() {
   const { galleryId } = useParams<{ galleryId: string }>();
   const { galleries, refreshGalleries, loading: galleriesLoading } = useDashboard();
 
-  const [pipeline, setPipeline] = useState<PipelineData | null>(null);
-  const [loadingPipeline, setLoadingPipeline] = useState(false);
+  const [gallery, setGallery] = useState<GalleryDetail | null>(null);
+  const [loadingGallery, setLoadingGallery] = useState(false);
+  const [dataVersion, setDataVersion] = useState(0);
   const [pendingAction, setPendingAction] = useState<DashboardAction | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -72,11 +76,17 @@ export function GalleryDetailLayout() {
   } | null>(null);
 
   useEffect(() => {
-    if (!galleryId) return;
     setStatus(null);
     setError(null);
-    void loadPipeline(galleryId, { silent: false });
   }, [galleryId]);
+
+  useEffect(() => {
+    if (!galleryId) {
+      setGallery(null);
+      return;
+    }
+    void loadGallery(galleryId, { silent: dataVersion > 0 });
+  }, [galleryId, dataVersion]);
 
   useEffect(() => {
     if (!galleries.length && !galleriesLoading) {
@@ -85,37 +95,43 @@ export function GalleryDetailLayout() {
   }, [galleries.length, galleriesLoading, refreshGalleries]);
 
 
-  async function loadPipeline(id: string, options?: { silent?: boolean }) {
+  async function loadGallery(id: string, options?: { silent?: boolean }) {
     if (!options?.silent) {
-      setLoadingPipeline(true);
+      setLoadingGallery(true);
     }
     try {
-      const data = await fetchPipeline(id);
-      setPipeline(data);
+      const data = await fetchGalleryDetail(id);
+      setGallery(data);
     } catch (issue) {
+      setGallery(null);
       setError(issue instanceof Error ? issue.message : String(issue));
     } finally {
-      setLoadingPipeline(false);
+      setLoadingGallery(false);
     }
   }
 
-  async function refreshPipeline(): Promise<void> {
-    if (!galleryId) return;
-    await loadPipeline(galleryId, { silent: true });
+  function bumpDataVersion(): void {
+    setDataVersion(current => current + 1);
   }
 
-  async function runWorkflow(action: DashboardAction, task: () => Promise<string>): Promise<void> {
+  function refreshData(): void {
+    bumpDataVersion();
+  }
+
+  async function runWorkflow(action: DashboardAction, task: () => Promise<string>): Promise<boolean> {
     setPendingAction(action);
     setStatus(null);
     setError(null);
     try {
       const workflowId = await task();
       setStatus(`Workflow started (${workflowId})`);
+      return true;
     } catch (issue) {
       setError(issue instanceof Error ? issue.message : String(issue));
+      return false;
     } finally {
       setPendingAction(null);
-      await refreshPipeline();
+      bumpDataVersion();
     }
   }
 
@@ -126,38 +142,49 @@ export function GalleryDetailLayout() {
 
   async function runScrapePages(pageIds: string[]): Promise<void> {
     if (!pageIds.length) return;
-    await runWorkflow("scrape", () => scrapePages(pageIds));
+    const uniqueIds = Array.from(new Set(pageIds));
+    await runWorkflow("scrape", async () => {
+      const runs = await Promise.all(uniqueIds.map(id => scrapePages([id])));
+      return runs.join(", ");
+    });
   }
 
   async function runExtractPages(pageIds: string[]): Promise<boolean> {
     if (!pageIds.length) return false;
-    await runWorkflow("extract", () => extractPages(pageIds));
-    const eventPageIds = (pipeline?.pages ?? [])
-      .filter(page => page.kind === "event" && pageIds.includes(page.id))
-      .map(page => page.id);
-    if (eventPageIds.length) {
-      await runProcessEvents(eventPageIds);
+    const started = await runWorkflow("extract", () => extractPages(pageIds));
+    return started;
+  }
+
+  async function runPromoteEventPages(pageIds: string[]): Promise<void> {
+    if (!pageIds.length) return;
+    if (!galleryId) return;
+    const started = await runWorkflow("scrapeAndExtract", () => promotePagesToEvent(pageIds));
+    if (!started) {
+      return;
     }
-    return true;
+    try {
+      const events = await fetchGalleryEvents(galleryId);
+      const eventIds = events
+        .filter(event => event.page_id && pageIds.includes(event.page_id))
+        .map(event => event.id);
+      if (eventIds.length) {
+        await runWorkflow("embed", () => embedEvents(eventIds));
+      }
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : String(issue));
+    }
   }
 
   async function runProcessEvents(pageIds: string[]): Promise<void> {
-    if (!pageIds.length) return;
-    if (!galleryId) return;
-    await runWorkflow("process", () => processEvents(pageIds));
-    const current = await fetchPipeline(galleryId);
-    setPipeline(current);
-    const eventIds = current.events
-      .filter(event => event.page_id && pageIds.includes(event.page_id))
-      .map(event => event.id);
-    if (eventIds.length) {
-      await runWorkflow("embed", () => embedEvents(eventIds));
-    }
+    await runPromoteEventPages(pageIds);
   }
 
   async function runExtractGallery(): Promise<void> {
     if (!galleryId) return;
-    await runWorkflow("extractGallery", () => extractGalleryInfo(galleryId));
+    const extracted = await runWorkflow("extractGallery", () => extractGalleryInfo(galleryId));
+    if (!extracted) {
+      return;
+    }
     await runWorkflow("embedGallery", () => embedGallery(galleryId));
   }
 
@@ -166,7 +193,7 @@ export function GalleryDetailLayout() {
     try {
       const updated = await updatePageKinds(updates);
       setStatus(`Updated ${updated} pages`);
-      await refreshPipeline();
+      bumpDataVersion();
       return updated;
     } catch (issue) {
       setError(issue instanceof Error ? issue.message : String(issue));
@@ -182,14 +209,14 @@ export function GalleryDetailLayout() {
     return (
       <DashboardShell
         title="Gallery dashboard"
-        subtitle="Choose a gallery from the list to inspect its pipeline."
+        subtitle="Choose a gallery from the list to inspect its details."
         maxWidth="5xl"
       >
         <Card>
           <CardBody>
             <CardTitle>Select a gallery</CardTitle>
             <p className="text-sm text-slate-600">
-              Choose a gallery from the list or seed a new one to manage its pipeline.
+              Choose a gallery from the list or seed a new one to manage it.
             </p>
           </CardBody>
         </Card>
@@ -199,14 +226,14 @@ export function GalleryDetailLayout() {
 
   const fallbackGallery = galleries.find(gallery => gallery.id === galleryId);
   const activeGalleryName =
-    pipeline?.gallery.gallery_info?.name ??
+    gallery?.gallery_info?.name ??
     fallbackGallery?.gallery_info?.name ??
-    pipeline?.gallery.normalized_main_url ??
+    gallery?.normalized_main_url ??
     fallbackGallery?.normalized_main_url ??
     "Gallery dashboard";
 
   const activeGalleryUrl =
-    pipeline?.gallery.main_url ?? fallbackGallery?.main_url ?? null;
+    gallery?.main_url ?? fallbackGallery?.main_url ?? null;
 
   const headerContent = (
     <div className="flex flex-col gap-4">
@@ -272,7 +299,7 @@ export function GalleryDetailLayout() {
             <a href={activeGalleryUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
               {activeGalleryUrl}
             </a>
-          ) : "Select a gallery to manage its pipeline."
+          ) : "Select a gallery to manage it."
         }
         titleAside={
           status ? (
@@ -288,22 +315,25 @@ export function GalleryDetailLayout() {
         <Outlet
           context={{
             galleryId,
-            pipeline,
-            loadingPipeline,
-            pendingAction,
-            status,
-            error,
-            runDiscover,
-            runScrapePages,
+            gallery,
+            loadingGallery,
+          pendingAction,
+          status,
+          error,
+          dataVersion,
+          refreshData,
+          runDiscover,
+          runScrapePages,
           runExtractPages,
+          runPromoteEventPages,
           runProcessEvents,
           runExtractGallery,
           updatePageKinds: handleUpdatePageKinds,
           showPreviewDialog,
           setStatus,
-          setError,
-        }}
-      />
+            setError,
+          }}
+        />
       </DashboardShell>
       {previewDialog ? (
         <PreviewDialog

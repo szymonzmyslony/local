@@ -7,13 +7,7 @@ import type {
   GalleryInsert,
   PageInsert
 } from "../types/common";
-import type {
-  GalleryListItem,
-  GalleryPipeline,
-  GalleryWithRelations,
-  PipelineEvent,
-  PipelinePage
-} from "../types/domain";
+import type { GalleryListItem, GalleryWithRelations } from "../types/domain";
 
 function toError(operation: string, error: PostgrestError): Error {
   return new Error(`[${operation}] ${error.message}`);
@@ -99,61 +93,6 @@ export async function getGalleryWithInfo(
   } satisfies GalleryWithRelations;
 }
 
-export async function getGalleryPipeline(
-  client: SupabaseServiceClient,
-  galleryId: string
-): Promise<GalleryPipeline | null> {
-  const gallery = await getGalleryWithInfo(client, galleryId);
-  if (!gallery) {
-    return null;
-  }
-
-  const [{ data: pageRows, error: pagesError }, { data: eventRows, error: eventsError }] = await Promise.all([
-    client
-      .from("pages")
-      .select(
-        "id, gallery_id, url, normalized_url, kind, fetch_status, fetched_at, http_status, created_at, updated_at, " +
-          "page_content(markdown, parsed_at), page_structured(parse_status, parsed_at, extraction_error)"
-      )
-      .eq("gallery_id", galleryId)
-      .order("created_at", { ascending: false })
-      .limit(200),
-    client
-      .from("events")
-      .select("*, event_info(*), event_occurrences(*)")
-      .eq("gallery_id", galleryId)
-      .order("start_at", { ascending: true })
-      .limit(200)
-  ]);
-
-  if (pagesError) {
-    throw toError("getGalleryPipeline.pages", pagesError);
-  }
-  if (eventsError) {
-    throw toError("getGalleryPipeline.events", eventsError);
-  }
-
-  const pageRecords = (pageRows ?? []) as unknown as PipelinePage[];
-  const pages: PipelinePage[] = pageRecords.map(page => ({
-    ...page,
-    page_content: page.page_content ?? null,
-    page_structured: page.page_structured ?? null
-  }));
-
-  const eventRecords = (eventRows ?? []) as unknown as PipelineEvent[];
-  const events: PipelineEvent[] = eventRecords.map(event => ({
-    ...event,
-    event_info: event.event_info ?? null,
-    event_occurrences: event.event_occurrences ?? []
-  }));
-
-  return {
-    gallery,
-    pages,
-    events
-  } satisfies GalleryPipeline;
-}
-
 export async function upsertGalleryInfo(
   client: SupabaseServiceClient,
   payload: GalleryInfoInsert
@@ -182,4 +121,76 @@ export async function upsertGalleryHours(
   if (error) {
     throw toError("upsertGalleryHours", error);
   }
+}
+
+export async function selectGalleryName(
+  client: SupabaseServiceClient,
+  galleryId: string
+): Promise<string | null> {
+  const { data, error } = await client
+    .from("gallery_info")
+    .select("name")
+    .eq("gallery_id", galleryId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw toError("selectGalleryName", error);
+  }
+
+  return data?.name ?? null;
+}
+
+export async function selectGalleryMainUrl(
+  client: SupabaseServiceClient,
+  galleryId: string
+): Promise<string | null> {
+  const { data, error } = await client
+    .from("galleries")
+    .select("main_url")
+    .eq("id", galleryId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw toError("selectGalleryMainUrl", error);
+  }
+
+  return data?.main_url ?? null;
+}
+
+export async function selectGalleryAbout(
+  client: SupabaseServiceClient,
+  galleryId: string
+): Promise<string | null> {
+  const { data, error } = await client
+    .from("gallery_info")
+    .select("about")
+    .eq("gallery_id", galleryId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw toError("selectGalleryAbout", error);
+  }
+
+  return data?.about ?? null;
+}
+
+export async function selectGalleryTags(
+  client: SupabaseServiceClient,
+  galleryId: string
+): Promise<string[] | null> {
+  const { data, error } = await client
+    .from("gallery_info")
+    .select("tags")
+    .eq("gallery_id", galleryId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw toError("selectGalleryTags", error);
+  }
+
+  return data?.tags ?? null;
 }

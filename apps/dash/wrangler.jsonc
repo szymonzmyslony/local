@@ -25,11 +25,11 @@
 		{ "name": "seed-gallery",   "binding": "SEED_GALLERY",   "class_name": "SeedGallery"   },
 		{ "name": "discover-links", "binding": "DISCOVER_LINKS", "class_name": "DiscoverLinks" },
 		{ "name": "scrape-pages",   "binding": "SCRAPE_PAGES",   "class_name": "ScrapePages"   },
-		{ "name": "classify-pages", "binding": "CLASSIFY_PAGES", "class_name": "ClassifyPages" },
 		{ "name": "extract-event-pages",  "binding": "EXTRACT_EVENT_PAGES",  "class_name": "ExtractEventPages"  },
-		{ "name": "process-extracted-events",  "binding": "PROCESS_EXTRACTED_EVENTS",  "class_name": "ProcessExtractedEvents"  },
+		{ "name": "scrape-and-extract",  "binding": "SCRAPE_AND_EXTRACT",  "class_name": "ScrapeAndExtract"  },
 		{ "name": "extract-gallery",  "binding": "EXTRACT_GALLERY",  "class_name": "ExtractGallery"  },
-		{ "name": "embed",          "binding": "EMBEDDING",      "class_name": "Embed"         }
+		{ "name": "embed",          "binding": "EMBEDDING",      "class_name": "Embed"         },
+		{ "name": "seed-and-startup-gallery",  "binding": "SEED_AND_STARTUP_GALLERY",  "class_name": "SeedAndStartupGallery"  }
 	  ],
 	
 }

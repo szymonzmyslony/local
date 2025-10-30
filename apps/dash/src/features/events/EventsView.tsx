@@ -4,11 +4,11 @@ import { Button, Input } from "@shared/ui";
 import { DataTable, DataTableColumnHeader } from "../../components/data-table";
 import type { PreviewDialogItem } from "../../components/preview/PreviewDialog";
 import { EVENT_STATUSES } from "../../api";
-import type { DashboardAction, PipelineEvent, PipelinePage } from "../../api";
+import type { DashboardAction, GalleryEvent, GalleryPage } from "../../api";
 
 type EventsViewProps = {
-  events: PipelineEvent[];
-  pages: PipelinePage[];
+  events: GalleryEvent[];
+  pages: GalleryPage[];
   pendingAction: DashboardAction | null;
   onProcessEventPages: (pageIds: string[]) => void;
   onPreview: (payload: { title: string; description?: string; items: PreviewDialogItem[] }) => void;
@@ -24,11 +24,11 @@ export function EventsView({
   onPreview
 }: EventsViewProps) {
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<PipelineEvent["status"] | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<GalleryEvent["status"] | "all">("all");
   const [sortOrder, setSortOrder] = useState<EventSort>("nearest");
 
   const pageById = useMemo(() => {
-    const map = new Map<string, PipelinePage>();
+    const map = new Map<string, GalleryPage>();
     for (const page of pages) {
       map.set(page.id, page);
     }
@@ -47,7 +47,7 @@ export function EventsView({
       .sort((a, b) => compareEvents(a, b, sortOrder));
   }, [events, search, statusFilter, sortOrder]);
 
-  const columns = useMemo<ColumnDef<PipelineEvent>[]>(
+  const columns = useMemo<ColumnDef<GalleryEvent>[]>(
     () => [
       {
         accessorKey: "title",
@@ -190,7 +190,7 @@ export function EventsView({
                 <FilterField label="Status">
                   <select
                     value={statusFilter}
-                    onChange={event => setStatusFilter(event.target.value as PipelineEvent["status"] | "all")}
+                    onChange={event => setStatusFilter(event.target.value as GalleryEvent["status"] | "all")}
                     className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                   >
                     <option value="all">All statuses</option>
@@ -263,7 +263,7 @@ function StatusPill({ tone, children }: { tone: "success" | "danger" | "warning"
   );
 }
 
-function EventStatusBadge({ status }: { status: string }) {
+function EventStatusBadge({ status }: { status: GalleryEvent["status"] }) {
   const normalized = status.toLowerCase();
   const tone =
     normalized === "cancelled"
@@ -282,7 +282,7 @@ function EventStatusBadge({ status }: { status: string }) {
   );
 }
 
-function compareEvents(left: PipelineEvent, right: PipelineEvent, order: EventSort): number {
+function compareEvents(left: GalleryEvent, right: GalleryEvent, order: EventSort): number {
   if (order === "title") {
     return left.title.localeCompare(right.title);
   }
@@ -301,7 +301,7 @@ function compareEvents(left: PipelineEvent, right: PipelineEvent, order: EventSo
   return leftDate.localeCompare(rightDate);
 }
 
-function formatEventDate(event: PipelineEvent): string {
+function formatEventDate(event: GalleryEvent): string {
   if (event.start_at) {
     try {
       return new Date(event.start_at).toLocaleString();
@@ -312,7 +312,7 @@ function formatEventDate(event: PipelineEvent): string {
   return event.created_at ? new Date(event.created_at).toLocaleString() : "No start date";
 }
 
-function formatStructured(event: PipelineEvent): string {
+function formatStructured(event: GalleryEvent): string {
   if (event.event_info?.md) return event.event_info.md;
   if (event.event_info?.data) {
     return JSON.stringify(event.event_info.data, null, 2);

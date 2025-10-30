@@ -6,7 +6,7 @@ import type {
   EventInsert,
   EventOccurrenceInsert
 } from "../types/common";
-import type { EventListItem, PipelineEvent } from "../types/domain";
+import type { EventListItem, EventWithRelations } from "../types/domain";
 
 function toError(operation: string, error: PostgrestError): Error {
   return new Error(`[${operation}] ${error.message}`);
@@ -15,7 +15,7 @@ function toError(operation: string, error: PostgrestError): Error {
 export async function selectEventsByGallery(
   client: SupabaseServiceClient,
   galleryId: string
-): Promise<PipelineEvent[]> {
+): Promise<EventWithRelations[]> {
   const { data, error } = await client
     .from("events")
     .select("*, event_info(*), event_occurrences(*)")
@@ -31,7 +31,7 @@ export async function selectEventsByGallery(
     ...event,
     event_info: event.event_info ?? null,
     event_occurrences: event.event_occurrences ?? []
-  })) as PipelineEvent[];
+  })) as EventWithRelations[];
 }
 
 export async function findEventIdByPage(
@@ -200,34 +200,4 @@ export async function selectEventTitle(client: SupabaseServiceClient, eventId: s
   }
 
   return data?.title ?? null;
-}
-
-export async function selectGalleryName(client: SupabaseServiceClient, galleryId: string): Promise<string | null> {
-  const { data, error } = await client
-    .from("gallery_info")
-    .select("name")
-    .eq("gallery_id", galleryId)
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    throw toError("selectGalleryName", error);
-  }
-
-  return data?.name ?? null;
-}
-
-export async function selectGalleryMainUrl(client: SupabaseServiceClient, galleryId: string): Promise<string | null> {
-  const { data, error } = await client
-    .from("galleries")
-    .select("main_url")
-    .eq("id", galleryId)
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    throw toError("selectGalleryMainUrl", error);
-  }
-
-  return data?.main_url ?? null;
 }

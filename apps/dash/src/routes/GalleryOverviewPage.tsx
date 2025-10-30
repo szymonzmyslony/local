@@ -1,43 +1,78 @@
+import { useEffect, useState } from "react";
 import { Card, CardBody, CardSubtitle, CardTitle } from "@shared/ui";
 import { GalleryOverviewCard } from "../features/gallery/GalleryOverviewCard";
 import { useGalleryRoute } from "./GalleryDetailLayout";
-import { getPageContent } from "../api";
+import { fetchGalleryPages, getPageContent, type GalleryPage } from "../api";
 
 export function GalleryOverviewPage() {
   const {
-    pipeline,
-    loadingPipeline,
+    gallery,
+    galleryId,
+    loadingGallery,
     pendingAction,
+    dataVersion,
     runExtractGallery,
     runScrapePages,
-    showPreviewDialog
+    showPreviewDialog,
+    setError
   } = useGalleryRoute();
 
-  if (loadingPipeline) {
+  const [pages, setPages] = useState<GalleryPage[]>([]);
+  const [loadingPages, setLoadingPages] = useState(false);
+
+  useEffect(() => {
+    if (!galleryId) {
+      setPages([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingPages(true);
+    fetchGalleryPages(galleryId)
+      .then(data => {
+        if (cancelled) return;
+        setPages(data);
+      })
+      .catch(issue => {
+        if (cancelled) return;
+        const message = issue instanceof Error ? issue.message : String(issue);
+        setError(message);
+        setPages([]);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingPages(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [galleryId, dataVersion, setError]);
+
+  if (loadingGallery || loadingPages) {
     return (
       <Card>
         <CardBody>
           <CardTitle>Loading</CardTitle>
-          <CardSubtitle>Please wait while we load the gallery pipeline.</CardSubtitle>
+          <CardSubtitle>Please wait while we load this gallery.</CardSubtitle>
         </CardBody>
       </Card>
     );
   }
 
-  if (!pipeline) {
+  if (!galleryId || !gallery) {
     return (
       <Card>
         <CardBody>
-          <CardTitle>No pipeline data</CardTitle>
-          <CardSubtitle>Select a gallery from the list to view its pipeline overview.</CardSubtitle>
+          <CardTitle>No data yet</CardTitle>
+          <CardSubtitle>Select a gallery from the list to view its overview.</CardSubtitle>
         </CardBody>
       </Card>
     );
   }
 
-  const pages = pipeline.pages;
   const mainPage = pages.find(page => page.kind === "gallery_main") ?? null;
   const aboutPage = pages.find(page => page.kind === "gallery_about") ?? null;
+  const eventsPage = pages.find(page => page.kind === "event_list") ?? null;
 
   const canExtract = Boolean(
     mainPage &&
@@ -47,14 +82,15 @@ export function GalleryOverviewPage() {
 
   return (
     <GalleryOverviewCard
-      gallery={pipeline.gallery}
+      gallery={gallery}
       mainPage={mainPage}
       aboutPage={aboutPage}
-        extractDisabled={pendingAction === "extractGallery"}
+      eventsPage={eventsPage}
+      extractDisabled={pendingAction === "extractGallery"}
       scrapeDisabled={pendingAction === "scrape"}
       canExtract={canExtract}
       onExtractGallery={() => {
-        console.log("[GalleryOverviewPage] extract requested", { galleryId: pipeline.gallery.id });
+        console.log("[GalleryOverviewPage] extract requested", { galleryId });
         void runExtractGallery();
       }}
       onPreviewMarkdown={async (pageId, label) => {

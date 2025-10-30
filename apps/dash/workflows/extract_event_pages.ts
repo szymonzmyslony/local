@@ -7,9 +7,28 @@ import {
   getServiceClient,
   selectPagesByIds,
   upsertPageStructured,
-  updatePageById
+  updatePageById,
+  selectEventExtractions,
+  findEventIdByPage,
+  upsertEvent,
+  upsertEventInfo,
+  replaceEventOccurrences,
+  pageExtractionSchema
 } from "@shared";
-import type { PageStructuredInsert, PageUpdate } from "@shared";
+import type {
+  PageStructuredInsert,
+  PageUpdate,
+  EventInsert,
+  EventInfoInsert,
+  EventOccurrenceInsert,
+  PageSummary
+} from "@shared";
+import type { EventExtraction } from "@shared";
+
+type EventExtractionRow = {
+    pageId: string;
+    payload: EventExtraction;
+};
 
 type Params = { pageIds: string[] };
 
@@ -111,14 +130,93 @@ export class ExtractEventPages extends WorkflowEntrypoint<Env, Params> {
         }
 
         console.log(`[ExtractEventPages] Complete - ${successCount} successes, ${errorCount} errors`);
-        if (processedPageIds.length > 0) {
-            await step.do("process-events", async () => {
-                console.log(`[ExtractEventPages] Triggering ProcessExtractedEvents for ${processedPageIds.length} pages`);
-                const run = await this.env.PROCESS_EXTRACTED_EVENTS.create({ params: { pageIds: processedPageIds } });
-                console.log(`[ExtractEventPages] ProcessExtractedEvents workflow started ${run.id ?? run}`);
-                return run.id ?? run;
-            });
+
+        if (processedPageIds.length === 0) {
+            return { ok: true, processed: successCount, events: 0 };
         }
-        return { ok: true };
+
+        const eventExtractions = await step.do("load-event-extractions", async () => {
+            const rows = await selectEventExtractions(supabase, processedPageIds);
+            const parsed: EventExtractionRow[] = [];
+            for (const row of rows) {
+                try {
+                    const data = pageExtractionSchema.parse(row.data);
+                    const payload =
+                        data.type === "event" || data.type === "event_detail" ? data.payload : null;
+                    if (!payload) continue;
+                    parsed.push({ pageId: row.page_id, payload });
+                } catch (error) {
+                    console.error(`[ExtractEventPages] Failed parsing structured data for ${row.page_id}`, error);
+                }
+            }
+            console.log(`[ExtractEventPages] Prepared ${parsed.length} event payloads`);
+            return parsed;
+        });
+
+        const pageMap = new Map(pages.map(page => [page.id, page]));
+        const processedEventIds: string[] = [];
+
+        for (const extraction of eventExtractions) {
+            const page = pageMap.get(extraction.pageId);
+            if (!page || !page.gallery_id) {
+                console.log(`[ExtractEventPages] Skipping event processing for page ${extraction.pageId} - missing gallery`);
+                continue;
+            }
+
+            const eventId = await step.do(`upsert-event:${page.id}`, async () => {
+                const existingId = await findEventIdByPage(supabase, page.id);
+                const payload = extraction.payload;
+
+                const eventRecord: EventInsert = {
+                    gallery_id: page.gallery_id!,
+                    page_id: page.id,
+                    title: payload.title,
+                    start_at: payload.start_at ?? null,
+                    end_at: payload.end_at ?? null,
+                    status: payload.status ?? "unknown",
+                    ticket_url: payload.ticket_url ?? null
+                };
+
+                const updatedEventId = await upsertEvent(supabase, eventRecord, existingId);
+
+                const eventInfo: EventInfoInsert = {
+                    event_id: updatedEventId,
+                    source_page_id: page.id,
+                    data: payload,
+                    description: payload.description ?? null,
+                    artists: payload.artists ?? null,
+                    tags: payload.tags ?? null,
+                    prices: payload.prices ?? null,
+                    images: payload.images ?? null
+                };
+
+                await upsertEventInfo(supabase, eventInfo);
+
+                const occurrences: EventOccurrenceInsert[] = (payload.occurrences ?? []).map(occ => ({
+                    event_id: updatedEventId,
+                    start_at: occ.start_at,
+                    end_at: occ.end_at ?? null,
+                    timezone: occ.timezone ?? null
+                }));
+
+                await replaceEventOccurrences(supabase, occurrences, updatedEventId);
+
+                console.log(
+                    `[ExtractEventPages] Processed event "${payload.title}" for page ${page.id} (event ${updatedEventId})`
+                );
+
+                return updatedEventId;
+            });
+
+            if (eventId) {
+                processedEventIds.push(eventId);
+            }
+        }
+
+        console.log(
+            `[ExtractEventPages] Event processing complete - ${processedEventIds.length} events linked`
+        );
+
+        return { ok: true, processed: successCount, events: processedEventIds.length };
     }
 }

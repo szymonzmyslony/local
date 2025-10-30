@@ -115,7 +115,7 @@ export function GalleryListPage() {
     [navigate]
   );
 
-  async function handleSeed(payload: { mainUrl: string; aboutUrl: string | null }): Promise<void> {
+  async function handleSeed(payload: { mainUrl: string; aboutUrl: string | null; eventsUrl: string | null }): Promise<void> {
     setStatus(null);
     setError(null);
     try {

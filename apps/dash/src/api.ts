@@ -39,7 +39,7 @@ const galleryHoursSchema = z.array(z.object({
   close_time: z.string()
 }));
 
-const pipelineGallerySchema = z.object({
+const galleryDetailSchema = z.object({
   id: z.string().uuid(),
   main_url: z.string().url(),
   about_url: z.string().url().nullable(),
@@ -80,7 +80,7 @@ const updatePageKindResponseSchema = z.object({
   updated: z.number()
 });
 
-const pipelinePageSchema = z.object({
+const galleryPageSchema = z.object({
   id: z.string().uuid(),
   gallery_id: z.string().uuid().nullable(),
   url: z.string().nullable(),
@@ -130,7 +130,7 @@ const eventOccurrenceSchema = z.object({
   timezone: z.string().nullable()
 });
 
-const pipelineEventSchema = z.object({
+const galleryEventSchema = z.object({
   id: z.string().uuid(),
   gallery_id: z.string().uuid(),
   page_id: z.string().uuid().nullable(),
@@ -143,12 +143,6 @@ const pipelineEventSchema = z.object({
   ticket_url: z.string().nullable(),
   event_info: eventInfoSummarySchema,
   event_occurrences: z.array(eventOccurrenceSchema)
-});
-
-const pipelineSchema = z.object({
-  gallery: pipelineGallerySchema,
-  pages: z.array(pipelinePageSchema),
-  events: z.array(pipelineEventSchema)
 });
 
 const seedResponseSchema = z.object({
@@ -173,9 +167,9 @@ export const FETCH_STATUSES = Constants.public.Enums.fetch_status;
 export const EVENT_STATUSES = Constants.public.Enums.event_status;
 
 export type GalleryListItem = z.infer<typeof galleryListItemSchema>;
-export type PipelineData = z.infer<typeof pipelineSchema>;
-export type PipelinePage = z.infer<typeof pipelinePageSchema>;
-export type PipelineEvent = z.infer<typeof pipelineEventSchema>;
+export type GalleryDetail = z.infer<typeof galleryDetailSchema>;
+export type GalleryPage = z.infer<typeof galleryPageSchema>;
+export type GalleryEvent = z.infer<typeof galleryEventSchema>;
 export type PageContentResponse = z.infer<typeof pageContentDetailSchema>;
 export type PageKindUpdate = z.infer<typeof updatePageKindPayloadSchema>["updates"][number];
 export type PageKind = z.infer<typeof pageKindEnum>;
@@ -187,7 +181,7 @@ export async function listGalleries(): Promise<GalleryListItem[]> {
   return parseResponse(response, z.array(galleryListItemSchema));
 }
 
-export async function seedGallery(payload: { mainUrl: string; aboutUrl: string | null }): Promise<string> {
+export async function seedGallery(payload: { mainUrl: string; aboutUrl: string | null; eventsUrl: string | null }): Promise<string> {
   const response = await fetch("/api/galleries/seed", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -197,9 +191,19 @@ export async function seedGallery(payload: { mainUrl: string; aboutUrl: string |
   return id;
 }
 
-export async function fetchPipeline(galleryId: string): Promise<PipelineData> {
-  const response = await fetch(`/api/galleries/${galleryId}/pipeline`);
-  return parseResponse(response, pipelineSchema);
+export async function fetchGalleryDetail(galleryId: string): Promise<GalleryDetail> {
+  const response = await fetch(`/api/galleries/${galleryId}`);
+  return parseResponse(response, galleryDetailSchema);
+}
+
+export async function fetchGalleryPages(galleryId: string): Promise<GalleryPage[]> {
+  const response = await fetch(`/api/galleries/${galleryId}/pages`);
+  return parseResponse(response, z.array(galleryPageSchema));
+}
+
+export async function fetchGalleryEvents(galleryId: string): Promise<GalleryEvent[]> {
+  const response = await fetch(`/api/galleries/${galleryId}/events`);
+  return parseResponse(response, z.array(galleryEventSchema));
 }
 
 export type DashboardAction =
@@ -211,7 +215,8 @@ export type DashboardAction =
   | "process"
   | "embed"
   | "embedGallery"
-  | "extractGallery";
+  | "extractGallery"
+  | "scrapeAndExtract";
 
 export async function discoverLinks(payload: { galleryId: string; listUrls: string[]; limit?: number }): Promise<string> {
   const response = await fetch("/api/links/discover", {
@@ -244,7 +249,11 @@ export async function extractPages(pageIds: string[]): Promise<string> {
 }
 
 export async function processEvents(pageIds: string[]): Promise<string> {
-  const response = await fetch("/api/pages/process-events", {
+  return promotePagesToEvent(pageIds);
+}
+
+export async function promotePagesToEvent(pageIds: string[]): Promise<string> {
+  const response = await fetch("/api/pages/promote-event", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ pageIds })

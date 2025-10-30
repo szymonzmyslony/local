@@ -110,7 +110,11 @@ export class ExtractGallery extends WorkflowEntrypoint<Env, Params> {
             console.log(`[ExtractGallery] Successfully saved gallery_info for gallery ${galleryId}`);
         });
 
-
+        // Trigger embedding workflow to create embeddings from extracted data
+        await step.do("trigger-embedding", async () => {
+            console.log(`[ExtractGallery] Triggering embedding for gallery ${galleryId}`);
+            await this.env.EMBEDDING.create({ params: { galleryIds: [galleryId] } });
+        });
 
         console.log(`[ExtractGallery] Complete - gallery ${galleryId} extracted and saved`);
         return { ok: true as const };

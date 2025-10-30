@@ -1,41 +1,72 @@
-import { useMemo } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardBody, CardSubtitle, CardTitle } from "@shared/ui";
 import { DiscoverLinksCard } from "../features/pages/DiscoverLinksCard";
 import { PageLinksView } from "../features/pages/PageLinksView";
 import { useGalleryRoute } from "./GalleryDetailLayout";
-import { getPageContent } from "../api";
+import { fetchGalleryPages, getPageContent, type GalleryPage } from "../api";
 
 export function GalleryPagesPage() {
   const {
-    pipeline,
-    loadingPipeline,
+    galleryId,
+    loadingGallery,
     pendingAction,
+    dataVersion,
     runDiscover,
     runScrapePages,
-    runExtractPages,
+    runPromoteEventPages,
     updatePageKinds,
-    showPreviewDialog
+    showPreviewDialog,
+    setError
   } = useGalleryRoute();
 
-  const pages = useMemo(() => pipeline?.pages ?? [], [pipeline?.pages]);
+  const [pages, setPages] = useState<GalleryPage[]>([]);
+  const [loadingPages, setLoadingPages] = useState(false);
 
-  if (loadingPipeline) {
+  useEffect(() => {
+    if (!galleryId) {
+      setPages([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingPages(true);
+    fetchGalleryPages(galleryId)
+      .then(data => {
+        if (cancelled) return;
+        setPages(data);
+      })
+      .catch(issue => {
+        if (cancelled) return;
+        const message = issue instanceof Error ? issue.message : String(issue);
+        setError(message);
+        setPages([]);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingPages(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [galleryId, dataVersion, setError]);
+
+  if (loadingGallery || loadingPages) {
     return (
       <Card>
         <CardBody>
           <CardTitle>Loading pages</CardTitle>
-          <CardSubtitle>Fetching the latest page pipeline data…</CardSubtitle>
+          <CardSubtitle>Fetching the latest pages for this gallery…</CardSubtitle>
         </CardBody>
       </Card>
     );
   }
 
-  if (!pipeline) {
+  if (!galleryId) {
     return (
       <Card>
         <CardBody>
           <CardTitle>No pages loaded</CardTitle>
-          <CardSubtitle>Seed or select a gallery to manage its page pipeline.</CardSubtitle>
+          <CardSubtitle>Seed or select a gallery to manage its pages.</CardSubtitle>
         </CardBody>
       </Card>
     );
@@ -53,15 +84,22 @@ export function GalleryPagesPage() {
         pages={pages}
         pendingAction={pendingAction}
         onScrapePages={ids => {
-          if (!ids.length) return;
-          void runScrapePages(ids);
-        }}
-        onExtractPages={ids => {
-          if (!ids.length) return;
-          void runExtractPages(ids);
+          if (!ids.length) {
+            return Promise.resolve();
+          }
+          return runScrapePages(ids);
         }}
         onUpdatePageKind={updates => {
-          void updatePageKinds(updates);
+          if (!updates.length) {
+            return Promise.resolve(0);
+          }
+          return updatePageKinds(updates);
+        }}
+        onMarkPagesAsEvent={ids => {
+          if (!ids.length) {
+            return Promise.resolve();
+          }
+          return runPromoteEventPages(ids);
         }}
         onPreviewPages={async selections => {
           if (!selections.length) return;

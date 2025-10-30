@@ -5,6 +5,7 @@ import { Button, Input, Label } from "@shared/ui";
 type SeedGalleryPayload = {
   mainUrl: string;
   aboutUrl: string | null;
+  eventsUrl: string | null;
 };
 
 type SeedGalleryFormProps = {
@@ -16,15 +17,22 @@ type SeedGalleryFormProps = {
 export function SeedGalleryForm({ onSubmit, onCancel, submitting }: SeedGalleryFormProps) {
   const [mainUrl, setMainUrl] = useState("");
   const [aboutUrl, setAboutUrl] = useState("");
+  const [eventsUrl, setEventsUrl] = useState("");
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     const trimmedMain = mainUrl.trim();
     if (!trimmedMain) return;
     const trimmedAbout = aboutUrl.trim();
-    await onSubmit({ mainUrl: trimmedMain, aboutUrl: trimmedAbout ? trimmedAbout : null });
+    const trimmedEvents = eventsUrl.trim();
+    await onSubmit({
+      mainUrl: trimmedMain,
+      aboutUrl: trimmedAbout ? trimmedAbout : null,
+      eventsUrl: trimmedEvents ? trimmedEvents : null
+    });
     setMainUrl("");
     setAboutUrl("");
+    setEventsUrl("");
   }
 
   return (
@@ -48,6 +56,15 @@ export function SeedGalleryForm({ onSubmit, onCancel, submitting }: SeedGalleryF
           placeholder="https://example.com/about"
           value={aboutUrl}
           onChange={event => setAboutUrl(event.target.value)}
+        />
+      </div>
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="seed-events-url">Events URL</Label>
+        <Input
+          id="seed-events-url"
+          placeholder="https://example.com/events"
+          value={eventsUrl}
+          onChange={event => setEventsUrl(event.target.value)}
         />
       </div>
       <div className="flex justify-end gap-2">

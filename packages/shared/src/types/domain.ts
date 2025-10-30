@@ -28,18 +28,12 @@ export type PageDetail = Page & {
   page_structured: Pick<PageStructured, "parse_status" | "parsed_at" | "extraction_error"> | null;
 };
 
-export type PipelinePage = Page & {
+export type PageWithRelations = Page & {
   page_content: Pick<PageContent, "markdown" | "parsed_at"> | null;
   page_structured: Pick<PageStructured, "parse_status" | "parsed_at" | "extraction_error"> | null;
 };
 
-export type PipelineEvent = Event & {
+export type EventWithRelations = Event & {
   event_info: EventInfo | null;
   event_occurrences: EventOccurrence[];
 };
-
-export interface GalleryPipeline {
-  gallery: GalleryWithRelations;
-  pages: PipelinePage[];
-  events: PipelineEvent[];
-}

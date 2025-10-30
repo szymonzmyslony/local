@@ -1,6 +1,44 @@
 # Gallery Import Scripts
 
-## seed-galleries-workflow.ts (Recommended)
+## seed-and-startup-galleries.ts (Recommended - Full Pipeline)
+
+A TypeScript script that runs the complete gallery startup pipeline from start to finish. This is the most comprehensive approach as it:
+- Seeds the gallery (creates records, pages)
+- Scrapes all pages
+- Extracts gallery information with AI
+- Creates embeddings for search
+- All automated in a single workflow!
+
+### Usage
+
+```bash
+bun run scripts/seed-and-startup-galleries.ts <path-to-csv> <worker-api-url>
+```
+
+Example:
+```bash
+bun run scripts/seed-and-startup-galleries.ts scripts/my.csv http://localhost:8787
+```
+
+### What it does
+
+1. Reads the CSV file
+2. For each gallery with a homepage URL:
+   - Triggers the `SeedAndStartupGallery` workflow which:
+     - Seeds the gallery (creates `galleries`, `gallery_info`, and `pages` records)
+     - Triggers scraping for all pages
+     - Waits ~45 seconds for scraping to complete
+     - Extracts gallery information using AI
+     - Creates embeddings for search
+3. Returns workflow IDs for tracking
+
+**Timeline**: Each gallery takes approximately 45-60 seconds to complete the full pipeline.
+
+**Note**: This is the recommended approach for new galleries as it handles the entire process automatically.
+
+---
+
+## seed-galleries-workflow.ts
 
 A TypeScript script that reads a CSV file and triggers Cloudflare Worker workflows to seed galleries. This is the recommended approach as it:
 - Automatically creates gallery records and gallery_info
@@ -30,6 +68,40 @@ bun run scripts/seed-galleries-workflow.ts scripts/my.csv https://your-worker.wo
      - `pages` records for main, about (if provided), and events (if provided)
      - Automatically triggers scraping for all pages
 3. Returns workflow IDs for tracking
+
+---
+
+## extract-galleries.ts
+
+Triggers the extraction workflow for galleries that have already been seeded and scraped. This workflow:
+- Extracts structured data (about, email, phone, tags) from scraped markdown pages
+- Automatically triggers the embedding workflow after extraction
+
+### Usage
+
+```bash
+# Set environment variables
+export SUPABASE_URL="https://your-project.supabase.co"
+export SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
+
+# Run the extract script
+bun run scripts/extract-galleries.ts scripts/my.csv http://localhost:8787
+```
+
+### What it does
+
+1. Reads the CSV file
+2. For each gallery with a homepage URL:
+   - Looks up the gallery ID in the database by matching the normalized URL
+   - Calls `/api/galleries/extract` endpoint with the gallery ID
+   - The workflow:
+     - Reads markdown from `gallery_main` and `gallery_about` pages
+     - Uses AI to extract structured data
+     - Updates `gallery_info` with extracted data
+     - **Automatically triggers embedding workflow**
+3. Prints progress and results
+
+**Note**: This script requires galleries to be already seeded and scraped. Run `seed-galleries-workflow.ts` first.
 
 ---
 
