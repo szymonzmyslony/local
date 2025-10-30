@@ -6,6 +6,7 @@ import { LinkRowComponent } from "../../components/common/LinkRowComponent";
 import { PreviewModal } from "../../components/common/PreviewModal";
 import {
   Button,
+  Badge,
   Card,
   CardBody,
   CardHeader,
@@ -308,8 +309,8 @@ function StatusBadge({ tone, children }: { tone: StatusTone; children: ReactNode
   }[tone];
 
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${toneClass}`}>
+    <Badge variant="secondary" className={toneClass}>
       {children}
-    </span>
+    </Badge>
   );
 }
