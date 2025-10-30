@@ -11,9 +11,7 @@ export function GalleryOverviewPage() {
     runExtractGallery,
     runScrapePages,
     runEmbedGallery,
-    openPagePreview,
-    openEmbeddingPreview,
-    setStatus
+    openPagePreview
   } = useGalleryRoute();
 
   if (loadingPipeline) {
@@ -38,33 +36,48 @@ export function GalleryOverviewPage() {
     );
   }
 
+  const pages = pipeline.pages;
+  const mainPage = pages.find(page => page.kind === "gallery_main") ?? null;
+  const aboutPage = pages.find(page => page.kind === "gallery_about") ?? null;
+
+  const canEmbed = Boolean(
+    mainPage &&
+      mainPage.fetch_status === "ok" &&
+      (!aboutPage || aboutPage.fetch_status === "ok")
+  );
+
+  const canExtract = canEmbed;
+
   return (
     <GalleryOverviewCard
       gallery={pipeline.gallery}
-      pages={pipeline.pages}
+      mainPage={mainPage}
+      aboutPage={aboutPage}
       refreshDisabled={pendingAction === "refresh" || loadingPipeline}
       extractDisabled={pendingAction === "extractGallery"}
+      scrapeDisabled={pendingAction === "scrape"}
+      embeddingDisabled={pendingAction === "embedGallery"}
+      canExtract={canExtract}
+      canEmbed={canEmbed}
       onRefresh={() => {
+        console.log("[GalleryOverviewPage] refresh requested", { galleryId: pipeline.gallery.id });
         void refreshPipeline();
       }}
       onExtractGallery={() => {
+        console.log("[GalleryOverviewPage] extract requested", { galleryId: pipeline.gallery.id });
         void runExtractGallery();
       }}
-      onPreviewMarkdown={openPagePreview}
+      onPreviewMarkdown={(pageId, label) => {
+        console.log("[GalleryOverviewPage] preview requested", { pageId, label });
+        void openPagePreview(pageId, label);
+      }}
       onScrapePage={pageId => {
+        console.log("[GalleryOverviewPage] scrape requested", { pageId });
         void runScrapePages([pageId]);
       }}
-      onEmbedGallery={() => {
+      onRunEmbedding={() => {
+        console.log("[GalleryOverviewPage] embedding requested", { galleryId: pipeline.gallery.id });
         void runEmbedGallery();
-      }}
-      embedPending={pendingAction === "embedGallery"}
-      onViewEmbedding={() => {
-        const info = pipeline.gallery.gallery_info;
-        if (!info?.embedding) {
-          setStatus("No embedding available for this gallery.");
-          return;
-        }
-        openEmbeddingPreview(info.name ?? pipeline.gallery.normalized_main_url, info.embedding);
       }}
     />
   );

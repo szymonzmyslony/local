@@ -6,12 +6,6 @@ import {
   Card,
   CardBody,
   CardTitle,
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  Label,
   Select,
   SelectContent,
   SelectItem,
@@ -19,6 +13,9 @@ import {
   SelectValue
 } from "@shared/ui";
 import { cn } from "@shared";
+import { DashboardShell } from "../components/layout";
+import { Modal } from "../components/modal";
+import { StatusMessages } from "../components/status";
 import {
   discoverLinks,
   embedEvents,
@@ -37,8 +34,6 @@ import {
 import { useDashboard } from "../providers/dashboard-context";
 
 type PagePreviewState = { title: string; markdown: string | null };
-type GalleryEmbeddingPreview = { title: string; embedding: string };
-
 export type GalleryRouteContext = {
   galleryId: string;
   pipeline: PipelineData | null;
@@ -56,9 +51,7 @@ export type GalleryRouteContext = {
   runExtractGallery: () => Promise<void>;
   updatePageKinds: (updates: PageKindUpdate[]) => Promise<number>;
   openPagePreview: (pageId: string, label: string) => Promise<void>;
-  openEmbeddingPreview: (title: string, embedding: string) => void;
   pagePreview: PagePreviewState | null;
-  embeddingPreview: GalleryEmbeddingPreview | null;
   setStatus: (value: string | null) => void;
   setError: (value: string | null) => void;
 };
@@ -78,7 +71,6 @@ export function GalleryDetailLayout() {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pagePreview, setPagePreview] = useState<PagePreviewState | null>(null);
-  const [embeddingPreview, setEmbeddingPreview] = useState<GalleryEmbeddingPreview | null>(null);
 
   useEffect(() => {
     if (!galleryId) return;
@@ -179,6 +171,7 @@ export function GalleryDetailLayout() {
 
   async function openPagePreview(pageId: string, label: string): Promise<void> {
     try {
+      console.log("[GalleryDetailLayout] fetch page preview", { pageId, label });
       const content = await getPageContent(pageId);
       setPagePreview({
         title: label,
@@ -189,13 +182,13 @@ export function GalleryDetailLayout() {
     }
   }
 
-  function openEmbeddingPreview(title: string, embedding: string): void {
-    setEmbeddingPreview({ title, embedding });
-  }
-
   if (!galleryId) {
     return (
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-6 py-10">
+      <DashboardShell
+        title="Gallery dashboard"
+        subtitle="Choose a gallery from the list to inspect its pipeline."
+        maxWidth="5xl"
+      >
         <Card>
           <CardBody>
             <CardTitle>Select a gallery</CardTitle>
@@ -204,134 +197,142 @@ export function GalleryDetailLayout() {
             </p>
           </CardBody>
         </Card>
-      </div>
+      </DashboardShell>
     );
   }
 
-  return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-10">
-      <header className="flex flex-col gap-6 border-b border-slate-200 pb-6 md:flex-row md:items-center md:justify-between">
-        <div className="flex flex-col gap-3">
-          <h1 className="text-2xl font-semibold text-slate-900">Gallery dashboard</h1>
-          <nav className="flex flex-wrap gap-2">
-            {[
-              { label: "Gallery", to: "overview" },
-              { label: "Pages", to: "pages" },
-              { label: "Events", to: "events" }
-            ].map(item => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === "overview"}
-                className={({ isActive }) =>
-                  cn(
-                    "rounded-md border px-3 py-2 text-sm font-medium transition hover:bg-slate-100",
-                    isActive
-                      ? "border-slate-200 bg-white text-slate-900 shadow-sm"
-                      : "border-transparent text-slate-600"
-                  )
-                }
-              >
-                {item.label}
-              </NavLink>
-            ))}
-          </nav>
-        </div>
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="gallery-select">Active gallery</Label>
-            <Select
-              value={galleryId ?? undefined}
-              onValueChange={value => navigate(`/galleries/${value}/overview`)}
-            >
-              <SelectTrigger className="min-w-[220px]" id="gallery-select">
-                <SelectValue placeholder="Choose a gallery..." />
-              </SelectTrigger>
-              <SelectContent>
-                {galleries.map(gallery => (
-                  <SelectItem key={gallery.id} value={gallery.id}>
-                    {gallery.gallery_info?.name ?? gallery.main_url}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Button
-            type="button"
-            variant="muted"
-            onClick={() => navigate("/gallery-list")}
+  const fallbackGallery = galleries.find(gallery => gallery.id === galleryId);
+  const activeGalleryName =
+    pipeline?.gallery.gallery_info?.name ??
+    fallbackGallery?.gallery_info?.name ??
+    pipeline?.gallery.normalized_main_url ??
+    fallbackGallery?.normalized_main_url ??
+    "Gallery dashboard";
+
+  const activeGalleryUrl =
+    pipeline?.gallery.main_url ?? fallbackGallery?.main_url ?? null;
+
+  const headerContent = (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Active gallery</span>
+          <Select
+            value={galleryId}
+            onValueChange={value => navigate(`/galleries/${value}/overview`)}
           >
-            Manage galleries
-          </Button>
+            <SelectTrigger className="min-w-[220px]">
+              <SelectValue placeholder="Choose a gallery…" />
+            </SelectTrigger>
+            <SelectContent>
+              {galleries.map(gallery => (
+                <SelectItem key={gallery.id} value={gallery.id}>
+                  {gallery.gallery_info?.name ?? gallery.normalized_main_url}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-      </header>
+        <Button
+          type="button"
+          variant="muted"
+          onClick={() => navigate("/gallery-list")}
+        >
+          Manage galleries
+        </Button>
+      </div>
+      <nav className="flex flex-wrap gap-2">
+        {[
+          { label: "Overview", to: "overview" },
+          { label: "Pages", to: "pages" },
+          { label: "Events", to: "events" }
+        ].map(item => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.to === "overview"}
+            className={({ isActive }) =>
+              cn(
+                "rounded-md border px-3 py-2 text-sm font-medium transition",
+                isActive
+                  ? "border-slate-300 bg-white text-slate-900 shadow-sm"
+                  : "border-transparent text-slate-600 hover:bg-slate-100"
+              )
+            }
+          >
+            {item.label}
+          </NavLink>
+        ))}
+      </nav>
+    </div>
+  );
 
-      {status ? <Badge variant="secondary" className="w-fit">{status}</Badge> : null}
-      {error ? <Badge variant="destructive" className="w-fit">{error}</Badge> : null}
+  function handleClosePreview(): void {
+    setPagePreview(null);
+  }
 
-      <Outlet
-        context={{
-          galleryId,
-          pipeline,
-          loadingPipeline,
-          pendingAction,
-          status,
-          error,
-          refreshPipeline,
-          runDiscover,
-          runScrapePages,
-          runExtractPages,
-          runProcessEvents,
-          runEmbedEvents,
+  return (
+    <>
+      <DashboardShell
+        title={activeGalleryName}
+        subtitle={
+          activeGalleryUrl ? (
+            <a href={activeGalleryUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
+              {activeGalleryUrl}
+            </a>
+          ) : "Select a gallery to manage its pipeline."
+        }
+        titleAside={
+          status ? (
+            <Badge variant="secondary" className="whitespace-nowrap">
+              {status}
+            </Badge>
+          ) : null
+        }
+        headerContent={headerContent}
+        maxWidth="6xl"
+      >
+        <StatusMessages error={error} />
+        <Outlet
+          context={{
+            galleryId,
+            pipeline,
+            loadingPipeline,
+            pendingAction,
+            status,
+            error,
+            refreshPipeline,
+            runDiscover,
+            runScrapePages,
+            runExtractPages,
+            runProcessEvents,
+            runEmbedEvents,
           runEmbedGallery,
           runExtractGallery,
           updatePageKinds: handleUpdatePageKinds,
           openPagePreview,
-          openEmbeddingPreview,
           pagePreview,
-          embeddingPreview,
           setStatus,
           setError,
         }}
       />
-
+      </DashboardShell>
       {pagePreview ? (
-        <Dialog open onOpenChange={open => !open && setPagePreview(null)}>
-          <DialogContent className="max-w-3xl" aria-describedby={undefined}>
-            <DialogHeader>
-              <DialogTitle>{pagePreview.title}</DialogTitle>
-              <DialogDescription>Markdown captured from the latest scrape.</DialogDescription>
-            </DialogHeader>
-            <pre className="max-h-[60vh] overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-4 text-xs text-slate-700">
-              {pagePreview.markdown ?? "No content available."}
-            </pre>
-            <div className="mt-4 flex justify-end">
-              <Button type="button" variant="muted" onClick={() => setPagePreview(null)}>
-                Close
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <Modal
+          open={Boolean(pagePreview)}
+          onOpenChange={open => {
+            if (!open) handleClosePreview();
+          }}
+          onClose={handleClosePreview}
+          title={pagePreview.title}
+          description="Markdown captured from the latest scrape."
+          size="lg"
+        >
+          <pre className="max-h-[60vh] overflow-y-auto rounded-xl bg-slate-50 p-4 text-xs text-slate-700">
+            {pagePreview.markdown ?? "No content available."}
+          </pre>
+        </Modal>
       ) : null}
-
-      {embeddingPreview ? (
-        <Dialog open onOpenChange={open => !open && setEmbeddingPreview(null)}>
-          <DialogContent className="max-w-2xl" aria-describedby={undefined}>
-            <DialogHeader>
-              <DialogTitle>{embeddingPreview.title}</DialogTitle>
-              <DialogDescription>Embedding vector payload for inspection.</DialogDescription>
-            </DialogHeader>
-            <pre className="max-h-[60vh] overflow-y-auto rounded-md bg-slate-900/90 p-4 text-xs text-slate-100">
-              {embeddingPreview.embedding ?? "No embedding stored."}
-            </pre>
-            <div className="mt-4 flex justify-end">
-              <Button type="button" variant="muted" onClick={() => setEmbeddingPreview(null)}>
-                Close
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-      ) : null}
-    </div>
+    </>
   );
 }

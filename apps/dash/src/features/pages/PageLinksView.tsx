@@ -1,27 +1,9 @@
-import { useMemo, useState } from "react";
-import type { ChangeEvent, ReactNode } from "react";
-import { LinkRowComponent } from "../../components/common/LinkRowComponent";
-import {
-  Button,
-  Card,
-  CardBody,
-  CardHeader,
-  CardSubtitle,
-  CardTitle,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeaderCell,
-  TableRow
-} from "@shared/ui";
+import { useMemo, useState, type ReactNode } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Button, Input } from "@shared/ui";
+import { DataTable, DataTableColumnHeader } from "../../components/data-table";
 import { FETCH_STATUSES, PAGE_KINDS } from "../../api";
-import type { DashboardAction, PageKind, PipelinePage, PageKindUpdate } from "../../api";
-
-type ParseStatusValue =
-  | NonNullable<PipelinePage["page_structured"]>["parse_status"]
-  | "never"
-  | "processing";
+import type { DashboardAction, PageKind, PageKindUpdate, PipelinePage } from "../../api";
 
 type PageLinksViewProps = {
   pages: PipelinePage[];
@@ -44,264 +26,303 @@ export function PageLinksView({
 }: PageLinksViewProps) {
   const [search, setSearch] = useState("");
   const [selectedKind, setSelectedKind] = useState<PageKind | "all">("all");
-  const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
   const [selectedStatus, setSelectedStatus] = useState<PipelinePage["fetch_status"] | "all">("all");
-  const kindOptions: readonly PageKind[] = PAGE_KINDS;
-  const statusOptions: readonly PipelinePage["fetch_status"][] = FETCH_STATUSES;
+  const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
 
   const filteredPages = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return pages
-      .filter(page => {
-        if (selectedKind !== "all" && page.kind !== selectedKind) return false;
-        if (selectedStatus !== "all" && page.fetch_status !== selectedStatus) return false;
-        if (!term) return true;
-        return page.normalized_url.toLowerCase().includes(term);
-      })
-      .sort((a, b) => {
-        switch (sortOrder) {
-          case "alphabetical":
-            return a.normalized_url.localeCompare(b.normalized_url);
-          case "oldest":
-            return (a.created_at ?? "").localeCompare(b.created_at ?? "");
-          case "newest":
-          default:
-            return (b.created_at ?? "").localeCompare(a.created_at ?? "");
-        }
-      });
+    const byKind = selectedKind;
+    const byStatus = selectedStatus;
+    const sorted = [...pages].filter(page => {
+      if (byKind !== "all" && page.kind !== byKind) return false;
+      if (byStatus !== "all" && page.fetch_status !== byStatus) return false;
+      if (!term) return true;
+      return page.normalized_url.toLowerCase().includes(term);
+    });
+
+    sorted.sort((a, b) => {
+      switch (sortOrder) {
+        case "alphabetical":
+          return a.normalized_url.localeCompare(b.normalized_url);
+        case "oldest":
+          return (a.created_at ?? "").localeCompare(b.created_at ?? "");
+        case "newest":
+        default:
+          return (b.created_at ?? "").localeCompare(a.created_at ?? "");
+      }
+    });
+
+    return sorted;
   }, [pages, search, selectedKind, selectedStatus, sortOrder]);
 
-  function handleKindChange(event: ChangeEvent<HTMLSelectElement>, page: PipelinePage): void {
-    const { value } = event.target;
-    const match = kindOptions.find(option => option === value);
-    if (!match || match === page.kind) return;
-    onUpdatePageKind([{ pageId: page.id, kind: match }]);
-  }
-
-  function handleKindFilterChange(event: ChangeEvent<HTMLSelectElement>): void {
-    const { value } = event.target;
-    if (value === "all") {
-      setSelectedKind("all");
-      return;
-    }
-    const match = kindOptions.find(option => option === value);
-    if (match) {
-      setSelectedKind(match);
-    }
-  }
-
-  function handleStatusFilterChange(event: ChangeEvent<HTMLSelectElement>): void {
-    const { value } = event.target;
-    if (value === "all") {
-      setSelectedStatus("all");
-      return;
-    }
-    const match = statusOptions.find(option => option === value);
-    if (match) {
-      setSelectedStatus(match);
-    }
-  }
-
-  function handleSortChange(event: ChangeEvent<HTMLSelectElement>): void {
-    const { value } = event.target;
-    if (value === "newest" || value === "oldest" || value === "alphabetical") {
-      setSortOrder(value);
-    }
-  }
-
-  const renderStructuredCell = (page: PipelinePage) => {
-    if (page.kind !== "event_detail") {
-      return <span className="text-xs font-medium text-slate-400">N/A</span>;
-    }
-
-    const extracting = pendingAction === "extract";
-    const parseStatus = page.page_structured?.parse_status ?? "never";
-
-    if (page.fetch_status !== "ok") {
-      return <StatusBadge tone="warning">Scrape first</StatusBadge>;
-    }
-
-    if (parseStatus === "ok") {
-      return (
-        <div className="flex items-center gap-2">
-          <StatusBadge tone="success">Extracted</StatusBadge>
-          <Button
-            type="button"
-            variant="muted"
-            onClick={() => onExtractPage(page.id)}
-            disabled={extracting}
-          >
-            {extracting ? "Extracting..." : "Re-extract"}
-          </Button>
-        </div>
-      );
-    }
-
-    const statusLabel = formatStructuredStatus(parseStatus);
-    return (
-      <div className="flex items-center gap-2">
-        <StatusBadge tone="info">{statusLabel}</StatusBadge>
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={() => onExtractPage(page.id)}
-          disabled={extracting}
-        >
-          {extracting ? "Extracting..." : "Extract to JSON"}
-        </Button>
-      </div>
-    );
-  };
-
-  return (
-    <Card>
-      <CardHeader>
-        <div>
-          <CardTitle>Pages</CardTitle>
-          <CardSubtitle>Filter, inspect and reclassify discovered pages.</CardSubtitle>
-        </div>
-      </CardHeader>
-
-      <CardBody className="space-y-6">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <FormField label="Search" htmlFor="page-search">
-            <input
-              id="page-search"
-              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-              placeholder="Filter by normalized URL"
-              value={search}
-              onChange={event => setSearch(event.target.value)}
-            />
-          </FormField>
-          <FormField label="Page kind" htmlFor="page-kind-filter">
+  const columns = useMemo<ColumnDef<PipelinePage>[]>(
+    () => [
+      {
+        accessorKey: "normalized_url",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Page" />,
+        cell: ({ row }) => {
+          const page = row.original;
+          return (
+            <div className="flex flex-col gap-1">
+              <a
+                href={page.url ?? page.normalized_url}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-blue-600 hover:underline"
+              >
+                {page.normalized_url}
+              </a>
+              <span className="text-xs uppercase tracking-wide text-slate-400">{page.kind}</span>
+            </div>
+          );
+        },
+        meta: { headerClassName: "min-w-[240px]" }
+      },
+      {
+        id: "kind",
+        header: () => <span className="font-semibold text-slate-700">Kind</span>,
+        cell: ({ row }) => {
+          const page = row.original;
+          return (
             <select
-              id="page-kind-filter"
-              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-              value={selectedKind}
-              onChange={handleKindFilterChange}
+              value={page.kind}
+              onChange={event => handleKindChange(event.target.value, page, onUpdatePageKind)}
+              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
             >
-              <option value="all">All</option>
-              {kindOptions.map(kind => (
+              {PAGE_KINDS.map(kind => (
                 <option key={kind} value={kind}>
                   {kind}
                 </option>
               ))}
             </select>
-          </FormField>
-          <FormField label="Fetch status" htmlFor="page-status-filter">
-            <select
-              id="page-status-filter"
-              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-              value={selectedStatus}
-              onChange={handleStatusFilterChange}
-            >
-              <option value="all">All</option>
-              {statusOptions.map(status => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
-          </FormField>
-          <FormField label="Sort" htmlFor="page-sort">
-            <select
-              id="page-sort"
-              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-              value={sortOrder}
-              onChange={handleSortChange}
-            >
-              <option value="newest">Newest first</option>
-              <option value="oldest">Oldest first</option>
-              <option value="alphabetical">Alphabetical</option>
-            </select>
-          </FormField>
-        </div>
+          );
+        },
+        meta: { cellClassName: "w-[160px]" }
+      },
+      {
+        id: "fetch_status",
+        header: () => <span className="font-semibold text-slate-700">Fetch status</span>,
+        cell: ({ row }) => (
+          <StatusBadge status={row.original.fetch_status}>{formatFetchStatus(row.original.fetch_status)}</StatusBadge>
+        ),
+        meta: { cellClassName: "w-[140px]" }
+      },
+      {
+        id: "structured",
+        header: () => <span className="font-semibold text-slate-700">Structured output</span>,
+        cell: ({ row }) => renderStructuredCell(row.original, pendingAction === "extract", onExtractPage),
+        meta: { cellClassName: "min-w-[220px]" }
+      },
+      {
+        id: "actions",
+        header: () => <span className="sr-only">Actions</span>,
+        enableSorting: false,
+        cell: ({ row }) => {
+          const page = row.original;
+          const scraping = pendingAction === "scrape";
+          return (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="muted"
+                size="sm"
+                onClick={() => {
+                  console.log("[PageLinksView] preview requested", { pageId: page.id });
+                  onPreviewMarkdown(page.id, page.normalized_url);
+                }}
+                disabled={page.fetch_status !== "ok"}
+              >
+                Preview
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  console.log("[PageLinksView] scrape requested", { pageId: page.id });
+                  onScrapePage(page.id);
+                }}
+                disabled={scraping || page.fetch_status === "fetching"}
+              >
+                {scraping ? "Working…" : page.fetch_status === "fetching" ? "Queued" : "Scrape"}
+              </Button>
+            </div>
+          );
+        },
+        meta: { cellClassName: "w-[180px]" }
+      }
+    ],
+    [onPreviewMarkdown, onScrapePage, onExtractPage, onUpdatePageKind, pendingAction]
+  );
 
-        <Table className="rounded-lg border border-slate-200">
-          <TableHead>
-            <TableRow className="bg-slate-50">
-              <TableHeaderCell>Page</TableHeaderCell>
-              <TableHeaderCell>Kind</TableHeaderCell>
-              <TableHeaderCell>Fetch status</TableHeaderCell>
-              <TableHeaderCell>Structured status</TableHeaderCell>
-              <TableHeaderCell>Actions</TableHeaderCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {filteredPages.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-slate-500">
-                  No pages match the current filters.
-                </TableCell>
-              </TableRow>
-            ) : (
-              filteredPages.map(page => (
-                <TableRow key={page.id}>
-                  <TableCell>
-                    <LinkRowComponent
-                      href={page.url ?? page.normalized_url}
-                      label={page.normalized_url}
-                      description={page.url ?? undefined}
-                    />
-                  </TableCell>
-                  <TableCell className="w-[160px]">
-                    <select
-                      value={page.kind}
-                      onChange={event => handleKindChange(event, page)}
-                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                    >
-                      {kindOptions.map(kind => (
-                        <option key={kind} value={kind}>
-                          {kind}
-                        </option>
-                      ))}
-                    </select>
-                  </TableCell>
-                  <TableCell>
-                    <StatusPill status={page.fetch_status}>{formatFetchStatus(page.fetch_status)}</StatusPill>
-                  </TableCell>
-                  <TableCell>{renderStructuredCell(page)}</TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        variant="muted"
-                        onClick={() => onPreviewMarkdown(page.id, page.normalized_url)}
-                        disabled={page.fetch_status !== "ok"}
-                      >
-                        Preview
-                      </Button>
-                        <Button type="button" variant="secondary" onClick={() => onScrapePage(page.id)}>
-                          {page.fetch_status === "fetching" ? "Queued..." : "Scrape"}
-                        </Button>
-                      <Button type="button" variant="secondary" onClick={() => onExtractPage(page.id)}>
-                        Extract
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </CardBody>
-    </Card>
+  return (
+    <section className="space-y-6">
+      <div className="flex flex-col gap-1">
+        <p className="text-sm font-semibold text-slate-900">Pages</p>
+        <p className="text-xs text-slate-500">Filter, inspect and reclassify discovered pages.</p>
+      </div>
+      <DataTable
+        columns={columns}
+        data={filteredPages}
+        getRowId={row => row.id}
+        emptyMessage="No pages match the current filters."
+        renderToolbar={() => (
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center">
+              <FilterField label="Search">
+                <Input
+                  placeholder="Filter by normalized URL…"
+                  value={search}
+                  onChange={event => setSearch(event.target.value)}
+                />
+              </FilterField>
+              <FilterField label="Page kind">
+                <select
+                  value={selectedKind}
+                  onChange={event => setSelectedKind(event.target.value as PageKind | "all")}
+                  className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                >
+                  <option value="all">All kinds</option>
+                  {PAGE_KINDS.map(kind => (
+                    <option key={kind} value={kind}>
+                      {kind}
+                    </option>
+                  ))}
+                </select>
+              </FilterField>
+              <FilterField label="Fetch status">
+                <select
+                  value={selectedStatus}
+                  onChange={event => setSelectedStatus(event.target.value as PipelinePage["fetch_status"] | "all")}
+                  className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                >
+                  <option value="all">All statuses</option>
+                  {FETCH_STATUSES.map(status => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </FilterField>
+            </div>
+            <FilterField label="Sort">
+              <select
+                value={sortOrder}
+                onChange={event => setSortOrder(event.target.value as SortOrder)}
+                className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+              >
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+                <option value="alphabetical">Alphabetical</option>
+              </select>
+            </FilterField>
+          </div>
+        )}
+      />
+    </section>
   );
 }
 
-function formatStructuredStatus(status: ParseStatusValue): string {
-  switch (status) {
-    case "error":
-      return "Extraction error";
-    case "processing":
-      return "Processing";
-    case "queued":
-      return "Queued";
-    case "never":
-      return "Never extracted";
-    default:
-      return status;
+function handleKindChange(value: string, page: PipelinePage, onUpdate: PageLinksViewProps["onUpdatePageKind"]): void {
+  if (value === page.kind) return;
+  const match = PAGE_KINDS.find(kind => kind === value);
+  if (!match) return;
+  onUpdate([{ pageId: page.id, kind: match }]);
+}
+
+function renderStructuredCell(
+  page: PipelinePage,
+  extracting: boolean,
+  onExtractPage: PageLinksViewProps["onExtractPage"]
+): ReactNode {
+  const parseStatus = page.page_structured?.parse_status ?? "never";
+  if (page.kind !== "event_detail") {
+    return <StatusBadge status="skipped">N/A</StatusBadge>;
   }
+
+  if (page.fetch_status !== "ok") {
+    return <StatusBadge status="queued">Scrape first</StatusBadge>;
+  }
+
+  if (parseStatus === "ok") {
+    return (
+      <div className="flex items-center gap-2">
+        <StatusBadge status="ok">Extracted</StatusBadge>
+        <Button
+          type="button"
+          variant="muted"
+          size="sm"
+          onClick={() => {
+            console.log("[PageLinksView] re-extract requested", { pageId: page.id });
+            onExtractPage(page.id);
+          }}
+          disabled={extracting}
+        >
+          {extracting ? "Processing…" : "Re-extract"}
+        </Button>
+      </div>
+    );
+  }
+
+  if (parseStatus === "error") {
+    return (
+      <div className="flex items-center gap-2">
+        <StatusBadge status="error">Extraction error</StatusBadge>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => onExtractPage(page.id)}
+          disabled={extracting}
+        >
+          {extracting ? "Processing…" : "Retry extract"}
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <Button
+      type="button"
+      variant="secondary"
+      size="sm"
+      onClick={() => {
+        console.log("[PageLinksView] extract requested", { pageId: page.id });
+        onExtractPage(page.id);
+      }}
+      disabled={extracting}
+    >
+      {extracting ? "Processing…" : "Extract to JSON"}
+    </Button>
+  );
+}
+
+function FilterField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="flex w-full flex-col gap-1 text-sm font-medium text-slate-700">
+      {label}
+      {children}
+    </label>
+  );
+}
+
+function StatusBadge({ status, children }: { status: PipelinePage["fetch_status"]; children: ReactNode }) {
+  const tone =
+    status === "ok"
+      ? "bg-emerald-100 text-emerald-700"
+      : status === "error"
+        ? "bg-rose-100 text-rose-700"
+        : status === "fetching" || status === "queued"
+          ? "bg-blue-100 text-blue-700"
+          : status === "skipped"
+            ? "bg-amber-100 text-amber-700"
+            : "bg-slate-100 text-slate-600";
+
+  return (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${tone}`}>
+      {children}
+    </span>
+  );
 }
 
 function formatFetchStatus(status: PipelinePage["fetch_status"]): string {
@@ -319,42 +340,4 @@ function formatFetchStatus(status: PipelinePage["fetch_status"]): string {
     default:
       return "Never";
   }
-}
-
-function FormField({ label, htmlFor, children }: { label: string; htmlFor: string; children: ReactNode }) {
-  return (
-    <label className="flex flex-col gap-2 text-sm font-medium text-slate-700" htmlFor={htmlFor}>
-      {label}
-      {children}
-    </label>
-  );
-}
-
-function StatusPill({ status, children }: { status: PipelinePage["fetch_status"]; children: ReactNode }) {
-  const tone =
-    status === "ok"
-      ? "success"
-      : status === "error"
-        ? "danger"
-        : status === "fetching" || status === "queued"
-          ? "info"
-          : "muted";
-
-  return <StatusBadge tone={tone}>{children}</StatusBadge>;
-}
-
-function StatusBadge({ tone, children }: { tone: "success" | "danger" | "warning" | "info" | "muted"; children: ReactNode }) {
-  const toneClass = {
-    success: "bg-emerald-100 text-emerald-700",
-    danger: "bg-rose-100 text-rose-700",
-    warning: "bg-amber-100 text-amber-700",
-    info: "bg-blue-100 text-blue-700",
-    muted: "bg-slate-100 text-slate-600"
-  }[tone];
-
-  return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${toneClass}`}>
-      {children}
-    </span>
-  );
 }
