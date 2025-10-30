@@ -31,7 +31,8 @@
     "typescript": "^5.9.3",
     "vite": "^7.1.9",
     "vitest": "3.2.4",
-    "wrangler": "^4.45.0"
+    "wrangler": "^4.45.0",
+    "tailwindcss": "^4.1.16"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.53",

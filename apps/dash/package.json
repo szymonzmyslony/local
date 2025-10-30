@@ -15,24 +15,18 @@
   "dependencies": {
     "@gallery-agents/shared": "workspace:*",
     "@mendable/firecrawl-js": "^4.4.1",
-    "@radix-ui/react-slot": "^1.2.3",
-    "@radix-ui/react-tabs": "^1.1.13",
-    "@tailwindcss/vite": "^4.1.16",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "lucide-react": "^0.548.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.1.1",
-    "tailwindcss": "^4.1.16",
-    "tailwind-merge": "^3.3.1",
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.1.16",
     "@cloudflare/vite-plugin": "^1.13.16",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.1",
     "@vitejs/plugin-react": "^5.0.4",
+    "tailwindcss": "^4.1.16",
     "typescript": "^5.9.3",
     "vite": "^7.1.9",
     "wrangler": "^4.45.1"
