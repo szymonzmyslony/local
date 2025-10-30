@@ -402,12 +402,13 @@ export type Database = {
         | "unknown"
       fetch_status: "never" | "queued" | "fetching" | "ok" | "error" | "skipped"
       page_kind:
+        | "init"
         | "gallery_main"
         | "gallery_about"
         | "event_list"
         | "event_detail"
-        | "other"
         | "event_candidate"
+        | "other"
       parse_status: "never" | "queued" | "ok" | "error"
     }
     CompositeTypes: {
@@ -545,12 +546,13 @@ export const Constants = {
       ],
       fetch_status: ["never", "queued", "fetching", "ok", "error", "skipped"],
       page_kind: [
+        "init",
         "gallery_main",
         "gallery_about",
         "event_list",
         "event_detail",
-        "other",
         "event_candidate",
+        "other",
       ],
       parse_status: ["never", "queued", "ok", "error"],
     },

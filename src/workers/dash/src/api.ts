@@ -63,6 +63,21 @@ const pageStructuredSummarySchema = z
   })
   .nullable();
 
+const updatePageKindPayloadSchema = z.object({
+  updates: z
+    .array(
+      z.object({
+        pageId: z.string().uuid(),
+        kind: pageKindEnum
+      })
+    )
+    .min(1)
+});
+
+const updatePageKindResponseSchema = z.object({
+  updated: z.number()
+});
+
 const pipelinePageSchema = z.object({
   id: z.string().uuid(),
   gallery_id: z.string().uuid().nullable(),
@@ -78,13 +93,31 @@ const pipelinePageSchema = z.object({
   page_structured: pageStructuredSummarySchema
 });
 
+const pageContentDetailSchema = z.object({
+  id: z.string().uuid(),
+  url: z.string().nullable(),
+  normalized_url: z.string(),
+  kind: pageKindEnum,
+  fetch_status: fetchStatusEnum,
+  fetched_at: z.string().nullable(),
+  page_content: z
+    .object({
+      markdown: z.string().nullable(),
+      parsed_at: z.string().nullable()
+    })
+    .nullable()
+});
+
 const eventInfoSummarySchema = z
   .object({
     event_id: z.string(),
     description: z.string().nullable(),
     tags: z.array(z.string()).nullable(),
-    artists: z.array(z.string()).nullable()
+    artists: z.array(z.string()).nullable(),
+    md: z.string().nullable(),
+    embedding: z.string().nullable()
   })
+  .passthrough()
   .nullable();
 
 const eventOccurrenceSchema = z.object({
@@ -133,10 +166,19 @@ async function parseResponse<TSchema extends z.ZodTypeAny>(response: Response, s
   return schema.parse(body);
 }
 
+export const PAGE_KINDS = Constants.public.Enums.page_kind;
+export const FETCH_STATUSES = Constants.public.Enums.fetch_status;
+export const EVENT_STATUSES = Constants.public.Enums.event_status;
+
 export type GalleryListItem = z.infer<typeof galleryListItemSchema>;
 export type PipelineData = z.infer<typeof pipelineSchema>;
 export type PipelinePage = z.infer<typeof pipelinePageSchema>;
 export type PipelineEvent = z.infer<typeof pipelineEventSchema>;
+export type PageContentResponse = z.infer<typeof pageContentDetailSchema>;
+export type PageKindUpdate = z.infer<typeof updatePageKindPayloadSchema>["updates"][number];
+export type PageKind = z.infer<typeof pageKindEnum>;
+export type FetchStatus = z.infer<typeof fetchStatusEnum>;
+export type EventStatus = z.infer<typeof eventStatusEnum>;
 
 export async function listGalleries(): Promise<GalleryListItem[]> {
   const response = await fetch("/api/galleries");
@@ -158,6 +200,16 @@ export async function fetchPipeline(galleryId: string): Promise<PipelineData> {
   return parseResponse(response, pipelineSchema);
 }
 
+export type DashboardAction =
+  | "refresh"
+  | "discover"
+  | "scrape"
+  | "updateKinds"
+  | "extract"
+  | "process"
+  | "embed"
+  | "extractGallery";
+
 export async function discoverLinks(payload: { galleryId: string; listUrls: string[]; limit?: number }): Promise<string> {
   const response = await fetch("/api/links/discover", {
     method: "POST",
@@ -170,16 +222,6 @@ export async function discoverLinks(payload: { galleryId: string; listUrls: stri
 
 export async function scrapePages(pageIds: string[]): Promise<string> {
   const response = await fetch("/api/pages/scrape", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ pageIds })
-  });
-  const { id } = await parseResponse(response, runResponseSchema);
-  return id;
-}
-
-export async function classifyPages(pageIds: string[]): Promise<string> {
-  const response = await fetch("/api/pages/classify", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ pageIds })
@@ -226,4 +268,20 @@ export async function extractGalleryInfo(galleryId: string): Promise<string> {
   });
   const { id } = await parseResponse(response, runResponseSchema);
   return id;
+}
+
+export async function getPageContent(pageId: string): Promise<PageContentResponse> {
+  const response = await fetch(`/api/page-content?pageId=${encodeURIComponent(pageId)}`);
+  return parseResponse(response, pageContentDetailSchema);
+}
+
+export async function updatePageKinds(updates: PageKindUpdate[]): Promise<number> {
+  updatePageKindPayloadSchema.parse({ updates });
+  const response = await fetch("/api/pages/update-kind", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ updates })
+  });
+  const { updated } = await parseResponse(response, updatePageKindResponseSchema);
+  return updated;
 }

@@ -1,6 +1,6 @@
 import { WorkflowEntrypoint } from "cloudflare:workers";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
-import { normalizeUrl } from "../src/utils/normalizeUrl";
+import { normalizeUrl } from "./utils/normalizeUrl";
 import type { GalleryInsert, PageInsert } from "../../../types/common";
 import { getServiceClient } from "../../../shared/supabase";
 

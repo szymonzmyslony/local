@@ -1,33 +1,47 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import "./App.css";
 import {
   discoverLinks,
   embedEvents,
   extractGalleryInfo,
   extractPages,
-  classifyPages,
   fetchPipeline,
+  getPageContent,
   listGalleries,
   processEvents,
   scrapePages,
   seedGallery,
-  type GalleryListItem,
-  type PipelineData
+  updatePageKinds
 } from "./api";
-import { GalleryPanel } from "./components/GalleryPanel";
-import { PipelineView, type PipelineAction } from "./components/PipelineView";
-import { normalizeUrl } from "./utils/normalizeUrl";
+import type { DashboardAction, GalleryListItem, PageKindUpdate, PipelineData, PipelinePage } from "./api";
+import { Tabs, TabsList, TabsTrigger } from "./components/ui/Tabs";
+import { Button } from "./components/ui/button";
+import { PreviewModal } from "./components/common/PreviewModal";
+import { GalleryOverviewCard } from "./features/gallery/GalleryOverviewCard";
+import { SeedGalleryForm } from "./features/gallery/SeedGalleryForm";
+import { PageLinksView } from "./features/pages/PageLinksView";
+import { DiscoverLinksCard } from "./features/pages/DiscoverLinksCard";
+import { EventsView } from "./features/events/EventsView";
+import { normalizeUrl } from "../workflows/utils/normalizeUrl";
+
+type DashboardView = "overview" | "pages" | "events";
+
+type PagePreviewState = {
+  title: string;
+  markdown: string | null;
+};
 
 export function App() {
   const [galleries, setGalleries] = useState<GalleryListItem[]>([]);
   const [selectedGalleryId, setSelectedGalleryId] = useState<string | null>(null);
   const [pipeline, setPipeline] = useState<PipelineData | null>(null);
+  const [view, setView] = useState<DashboardView>("overview");
+  const [pendingAction, setPendingAction] = useState<DashboardAction | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [pendingAction, setPendingAction] = useState<PipelineAction | null>(null);
   const [seeding, setSeeding] = useState(false);
-  const [selectedPageIds, setSelectedPageIds] = useState<Set<string>>(new Set());
-  const [selectedEventIds, setSelectedEventIds] = useState<Set<string>>(new Set());
+  const [seedOpen, setSeedOpen] = useState(false);
+  const [pagePreview, setPagePreview] = useState<PagePreviewState | null>(null);
 
   useEffect(() => {
     void loadGalleries();
@@ -36,11 +50,9 @@ export function App() {
   useEffect(() => {
     if (!selectedGalleryId) {
       setPipeline(null);
-      setSelectedPageIds(new Set());
-      setSelectedEventIds(new Set());
       return;
     }
-    void refreshPipeline("refresh", { quiet: true });
+    void refreshPipeline("refresh", { silent: true });
   }, [selectedGalleryId]);
 
   useEffect(() => {
@@ -49,46 +61,58 @@ export function App() {
     setSelectedGalleryId(galleries[0].id);
   }, [galleries, selectedGalleryId]);
 
-  const selectedGallery = useMemo(
-    () => galleries.find(gallery => gallery.id === selectedGalleryId) ?? null,
-    [galleries, selectedGalleryId]
-  );
-
   async function loadGalleries(): Promise<GalleryListItem[]> {
     try {
       const list = await listGalleries();
       setGalleries(list);
       return list;
-    } catch (error) {
-      setError(error instanceof Error ? error.message : String(error));
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : String(issue));
       return [];
     }
   }
 
-  async function refreshPipeline(action: PipelineAction = "refresh", options?: { quiet?: boolean }): Promise<void> {
+  async function refreshPipeline(action: DashboardAction = "refresh", options?: { silent?: boolean }): Promise<void> {
     if (!selectedGalleryId) return;
-    setPendingAction(action);
+    if (!options?.silent) {
+      setPendingAction(action);
+      setStatus(null);
+    }
     setError(null);
-    if (!options?.quiet) setStatus(null);
     try {
       const data = await fetchPipeline(selectedGalleryId);
       setPipeline(data);
-      setSelectedPageIds(new Set());
-      setSelectedEventIds(new Set());
-      if (!options?.quiet) {
+      if (!options?.silent && action === "refresh") {
         setStatus("Pipeline refreshed");
       }
-    } catch (error) {
-      setError(error instanceof Error ? error.message : String(error));
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : String(issue));
     } finally {
-      setPendingAction(previous => (previous === action ? null : previous));
+      if (!options?.silent) {
+        setPendingAction(null);
+      }
     }
+  }
+
+  async function runWorkflow(action: DashboardAction, task: () => Promise<string>): Promise<void> {
+    setPendingAction(action);
+    setStatus(null);
+    setError(null);
+    try {
+      const workflowId = await task();
+      setStatus(`Workflow started (${workflowId})`);
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : String(issue));
+    } finally {
+      setPendingAction(null);
+    }
+    await refreshPipeline("refresh", { silent: true });
   }
 
   async function handleSeed(payload: { mainUrl: string; aboutUrl: string | null }): Promise<void> {
     setSeeding(true);
-    setError(null);
     setStatus(null);
+    setError(null);
     try {
       const workflowId = await seedGallery(payload);
       setStatus(`Seed workflow started (${workflowId})`);
@@ -98,26 +122,12 @@ export function App() {
       if (match) {
         setSelectedGalleryId(match.id);
       }
-    } catch (error) {
-      setError(error instanceof Error ? error.message : String(error));
+      setSeedOpen(false);
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : String(issue));
     } finally {
       setSeeding(false);
     }
-  }
-
-  async function runWorkflow(action: PipelineAction, task: () => Promise<string>): Promise<void> {
-    setPendingAction(action);
-    setError(null);
-    setStatus(null);
-    try {
-      const workflowId = await task();
-      setStatus(`Workflow started (${workflowId})`);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setPendingAction(previous => (previous === action ? null : previous));
-    }
-    await refreshPipeline("refresh", { quiet: true });
   }
 
   async function handleDiscover(payload: { listUrls: string[]; limit?: number }): Promise<void> {
@@ -125,27 +135,46 @@ export function App() {
     await runWorkflow("discover", () => discoverLinks({ galleryId: selectedGalleryId, ...payload }));
   }
 
-  async function handleScrape(pageIds: string[]): Promise<void> {
+  async function handleScrapePages(pageIds: string[]): Promise<void> {
     if (pageIds.length === 0) return;
+    markPagesStatus(pageIds, "fetching");
     await runWorkflow("scrape", () => scrapePages(pageIds));
   }
 
-  async function handleClassify(pageIds: string[]): Promise<void> {
-    if (pageIds.length === 0) return;
-    await runWorkflow("classify", () => classifyPages(pageIds));
+  async function handleExtractPages(pageIds: string[]): Promise<boolean> {
+    if (pageIds.length === 0) return false;
+    const ready = getScrapedPageIds(pageIds);
+    if (ready.length === 0) {
+      setStatus("Scrape pages before extracting");
+      return false;
+    }
+    if (ready.length < pageIds.length) {
+      setStatus(`Skipping ${pageIds.length - ready.length} pages that are not scraped yet`);
+    }
+    await runWorkflow("extract", () => extractPages(ready));
+    return true;
   }
 
-  async function handleExtract(pageIds: string[]): Promise<void> {
+  async function handleProcessEventPages(pageIds: string[]): Promise<void> {
     if (pageIds.length === 0) return;
-    await runWorkflow("extract", () => extractPages(pageIds));
+    const ready = getScrapedPageIds(pageIds);
+    if (ready.length === 0) {
+      setStatus("Scrape pages before processing events");
+      return;
+    }
+    if (ready.length < pageIds.length) {
+      setStatus(`Skipping ${pageIds.length - ready.length} pages that are not scraped yet`);
+    }
+    const extracted = await handleExtractPages(ready);
+    if (!extracted) return;
+    await runWorkflow("process", () => processEvents(ready));
   }
 
-  async function handleProcess(pageIds: string[]): Promise<void> {
-    if (pageIds.length === 0) return;
-    await runWorkflow("process", () => processEvents(pageIds));
+  async function handleExtractPage(pageId: string): Promise<void> {
+    await handleExtractPages([pageId]);
   }
 
-  async function handleEmbed(eventIds: string[]): Promise<void> {
+  async function handleEmbedEvents(eventIds: string[]): Promise<void> {
     if (eventIds.length === 0) return;
     await runWorkflow("embed", () => embedEvents(eventIds));
   }
@@ -155,82 +184,198 @@ export function App() {
     await runWorkflow("extractGallery", () => extractGalleryInfo(selectedGalleryId));
   }
 
-  function togglePageSelection(pageId: string): void {
-    setSelectedPageIds(previous => {
-      const next = new Set(previous);
-      if (next.has(pageId)) {
-        next.delete(pageId);
-      } else {
-        next.add(pageId);
-      }
-      return next;
+  async function handleUpdatePageKinds(updates: PageKindUpdate[]): Promise<void> {
+    if (updates.length === 0) return;
+    setPendingAction("updateKinds");
+    setStatus(null);
+    setError(null);
+    try {
+      const updated = await updatePageKinds(updates);
+      applyPageKindUpdates(updates);
+      setStatus(updated === 1 ? "Updated 1 page kind" : `Updated ${updated} page kinds`);
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : String(issue));
+    } finally {
+      setPendingAction(null);
+    }
+    await refreshPipeline("refresh", { silent: true });
+  }
+
+  async function handlePreviewPage(pageId: string, label: string): Promise<void> {
+    try {
+      const page = await getPageContent(pageId);
+      setPagePreview({ title: label, markdown: page.page_content?.markdown ?? null });
+    } catch (issue) {
+      const message = issue instanceof Error ? issue.message : String(issue);
+      setPagePreview({ title: label, markdown: message });
+    }
+  }
+
+  function handleSelectGallery(galleryId: string): void {
+    setSelectedGalleryId(galleryId.length === 0 ? null : galleryId);
+    setView("overview");
+    setPagePreview(null);
+  }
+
+  function markPagesStatus(pageIds: string[], statusValue: PipelinePage["fetch_status"]): void {
+    setPipeline(previous => {
+      if (!previous) return previous;
+      const nextPages = previous.pages.map(page =>
+        pageIds.includes(page.id) ? { ...page, fetch_status: statusValue } : page
+      );
+      return { ...previous, pages: nextPages };
     });
   }
 
-  function toggleEventSelection(eventId: string): void {
-    setSelectedEventIds(previous => {
-      const next = new Set(previous);
-      if (next.has(eventId)) {
-        next.delete(eventId);
-      } else {
-        next.add(eventId);
-      }
-      return next;
+  function applyPageKindUpdates(updates: PageKindUpdate[]): void {
+    if (updates.length === 0) return;
+    const updatesById = new Map(updates.map(update => [update.pageId, update.kind]));
+    setPipeline(previous => {
+      if (!previous) return previous;
+      const nextPages = previous.pages.map(page => {
+        const nextKind = updatesById.get(page.id);
+        return nextKind ? { ...page, kind: nextKind } : page;
+      });
+      return { ...previous, pages: nextPages };
     });
   }
 
-  function setPageSelection(ids: string[]): void {
-    setSelectedPageIds(new Set(ids));
+  function getScrapedPageIds(pageIds: string[]): string[] {
+    if (!pipeline) return [];
+    const scraped = new Set(
+      pipeline.pages.filter(page => page.fetch_status === "ok").map(page => page.id)
+    );
+    return pageIds.filter(id => scraped.has(id));
   }
 
-  function setEventSelection(ids: string[]): void {
-    setSelectedEventIds(new Set(ids));
+  const showPlaceholder = !pipeline || !selectedGalleryId;
+
+  let content = (
+    <section className="card">
+      <h2 className="card-title">Pipeline</h2>
+      <p className="card-subtitle">Select a gallery to get started.</p>
+    </section>
+  );
+
+  if (!showPlaceholder && pipeline) {
+    if (view === "overview") {
+      content = (
+        <GalleryOverviewCard
+          gallery={pipeline.gallery}
+          pages={pipeline.pages}
+          refreshDisabled={pendingAction === "refresh"}
+          extractDisabled={pendingAction === "extractGallery"}
+          onRefresh={() => {
+            void refreshPipeline();
+          }}
+          onExtractGallery={() => {
+            void handleExtractGallery();
+          }}
+          onPreviewMarkdown={handlePreviewPage}
+          onScrapePage={pageId => {
+            void handleScrapePages([pageId]);
+          }}
+        />
+      );
+    } else if (view === "pages") {
+      content = (
+        <div className="pages-stack">
+          <DiscoverLinksCard
+            pendingAction={pendingAction}
+            onDiscover={payload => {
+              void handleDiscover(payload);
+            }}
+          />
+          <PageLinksView
+            pages={pipeline.pages}
+            pendingAction={pendingAction}
+            onPreviewMarkdown={handlePreviewPage}
+            onScrapePage={pageId => {
+              void handleScrapePages([pageId]);
+            }}
+            onExtractPage={pageId => {
+              void handleExtractPage(pageId);
+            }}
+            onUpdatePageKind={handleUpdatePageKinds}
+          />
+        </div>
+      );
+    } else {
+      content = (
+        <EventsView
+          events={pipeline.events}
+          pages={pipeline.pages}
+          pendingAction={pendingAction}
+          onProcessEventPages={pageIds => {
+            void handleProcessEventPages(pageIds);
+          }}
+          onEmbedEvents={eventIds => {
+            void handleEmbedEvents(eventIds);
+          }}
+        />
+      );
+    }
   }
 
   return (
     <div className="app-shell">
-      <header className="app-header">
-        <h1 className="app-title">Gallery Operations Dashboard</h1>
+      <header className="dashboard-header">
+        <div className="dashboard-header__left">
+          <h1 className="app-title">Gallery dashboard</h1>
+          <Tabs
+            value={view}
+            onValueChange={value => setView(value as DashboardView)}
+            className="dashboard-tabs"
+          >
+            <TabsList>
+              <TabsTrigger value="overview">Gallery</TabsTrigger>
+              <TabsTrigger value="pages">Pages</TabsTrigger>
+              <TabsTrigger value="events">Events</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+        <div className="dashboard-header__right">
+          <div className="field">
+            <label htmlFor="gallery-select">Active gallery</label>
+            <select
+              id="gallery-select"
+              value={selectedGalleryId ?? ""}
+              onChange={event => handleSelectGallery(event.target.value)}
+            >
+              <option value="">Choose a gallery…</option>
+              {galleries.map(gallery => (
+                <option key={gallery.id} value={gallery.id}>
+                  {gallery.gallery_info?.name ?? gallery.normalized_main_url}
+                </option>
+              ))}
+            </select>
+          </div>
+          <Button type="button" variant="secondary" onClick={() => setSeedOpen(true)}>
+            Seed gallery
+          </Button>
+        </div>
       </header>
 
-      {status && <div className="status-banner">{status}</div>}
-      {error && <div className="status-banner error">{error}</div>}
+      {status ? <div className="status-banner">{status}</div> : null}
+      {error ? <div className="status-banner error">{error}</div> : null}
 
-      <GalleryPanel
-        galleries={galleries}
-        selectedGalleryId={selectedGalleryId}
-        onSelect={galleryId => setSelectedGalleryId(galleryId || null)}
-        onSeed={handleSeed}
-        seeding={seeding}
-      />
-
-      {selectedGallery && pipeline ? (
-        <PipelineView
-          pipeline={pipeline}
-          pendingAction={pendingAction}
-          onRefresh={() => void refreshPipeline()}
-          onExtractGallery={() => void handleExtractGallery()}
-          onDiscover={payload => void handleDiscover(payload)}
-          onScrape={ids => void handleScrape(ids)}
-          onClassifyPages={ids => void handleClassify(ids)}
-          onExtractPages={ids => void handleExtract(ids)}
-          onProcessEvents={ids => void handleProcess(ids)}
-          onEmbedEvents={ids => void handleEmbed(ids)}
-          selectedPageIds={selectedPageIds}
-          onTogglePage={togglePageSelection}
-          onSetPageSelection={setPageSelection}
-          selectedEventIds={selectedEventIds}
-          onToggleEvent={toggleEventSelection}
-          onSetEventSelection={setEventSelection}
+      {seedOpen ? (
+        <SeedGalleryForm
+          onSubmit={handleSeed}
+          onClose={() => setSeedOpen(false)}
+          submitting={seeding}
         />
-      ) : (
-        <section className="card">
-          <h2 className="card-title">Pipeline</h2>
-          <p className="card-subtitle">
-            Select a gallery to load its ingestion pipeline, then work through pages, structured data and events.
-          </p>
-        </section>
-      )}
+      ) : null}
+
+      {content}
+
+      {pagePreview ? (
+        <PreviewModal
+          title={pagePreview.title}
+          markdown={pagePreview.markdown}
+          onClose={() => setPagePreview(null)}
+        />
+      ) : null}
     </div>
   );
 }

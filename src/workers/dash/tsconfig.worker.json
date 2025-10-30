@@ -8,7 +8,7 @@
     "worker/**/*",
     "workflows/**/*",
     "worker-configuration.d.ts",
-    "src/utils/**/*.ts",
+    "workflows/utils/**/*.ts",
     "../../shared/**/*.ts",
     "../../types/**/*.ts"
   ],

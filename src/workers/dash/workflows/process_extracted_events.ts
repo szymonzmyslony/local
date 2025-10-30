@@ -82,12 +82,16 @@ export class ProcessExtractedEvents extends WorkflowEntrypoint<Env, Params> {
             console.log(`[ProcessExtractedEvents] Processing event: "${payload.title}"`);
 
             await step.do(`create-event:${page.id}`, async () => {
-                const { data: existing } = await supabase
+                const { data: existing, error: existingError } = await supabase
                     .from("events")
                     .select("id")
                     .eq("page_id", page.id)
                     .limit(1)
-                    .single();
+                    .maybeSingle();
+                if (existingError) {
+                    console.error(`[ProcessExtractedEvents] Failed checking existing event for page ${page.id}`, existingError);
+                    throw existingError;
+                }
 
                 const eventRecord = {
                     gallery_id: page.gallery_id!,

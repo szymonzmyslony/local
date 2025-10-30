@@ -14,7 +14,7 @@ import {
 const MAX_MD_LENGTH = 50_000;
 
 const pageKindSchema = z.object({
-    kind: z.enum(["gallery_main", "gallery_about", "event_list", "event_detail", "other", "event_candidate"]).describe("Predicted page_kind classification")
+    kind: z.enum(["init", "gallery_main", "gallery_about", "event_list", "event_detail", "other", "event_candidate"]).describe("Predicted page_kind classification")
 });
 
 export async function classifyPageKindFromMarkdown(openai: OpenAIProvider, md: string, url: string): Promise<z.infer<typeof pageKindSchema>["kind"]> {
@@ -23,6 +23,7 @@ export async function classifyPageKindFromMarkdown(openai: OpenAIProvider, md: s
         schema: pageKindSchema,
         prompt: [
             "Classify the Markdown content below into one of the following page kinds:",
+            "- init (needs human triage before we know what it is)",
             "- gallery_main (home/landing page for the gallery)",
             "- gallery_about (about/biography page for the gallery)",
             "- event_list (lists multiple events or programs)",

@@ -2,7 +2,7 @@ import { WorkflowEntrypoint } from "cloudflare:workers";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 import { getServiceClient } from "../../../shared/supabase";
 import { createOpenAI } from "@ai-sdk/openai";
-import type { PageStructuredInsert } from "../../../types/common";
+import type { PageStructuredInsert, PageUpdate } from "../../../types/common";
 import { extractPageContentFromMarkdown } from "../../../shared/ai";
 
 type Params = { pageIds: string[] };
@@ -31,10 +31,11 @@ export class ExtractEventPages extends WorkflowEntrypoint<Env, Params> {
 
         let successCount = 0;
         let errorCount = 0;
+        const processedPageIds: string[] = [];
 
         for (const p of pages) {
             try {
-                if (p.kind !== "event_detail") {
+                if (p.kind !== "event_detail" && p.kind !== "event_candidate") {
                     console.log(`[ExtractEventPages] Skipping ${p.id} - kind=${p.kind}`);
                     continue;
                 }
@@ -93,7 +94,20 @@ export class ExtractEventPages extends WorkflowEntrypoint<Env, Params> {
                     if (error) throw error;
                     console.log(`[ExtractEventPages] Saved structured data for ${p.id}`);
                 });
+
+                if (p.kind === "event_candidate") {
+                    await step.do(`promote-kind:${p.id}`, async () => {
+                        const pageUpdate: PageUpdate = {
+                            kind: "event_detail",
+                            updated_at: new Date().toISOString()
+                        };
+                        const { error } = await supabase.from("pages").update(pageUpdate).eq("id", p.id);
+                        if (error) throw error;
+                        console.log(`[ExtractEventPages] Updated page ${p.id} kind=event_detail`);
+                    });
+                }
                 successCount++;
+                processedPageIds.push(p.id);
                 console.log(`[ExtractEventPages] Success ${successCount}/${pages.length} - ${p.url ?? p.normalized_url}`);
             } catch (error) {
                 errorCount++;
@@ -115,6 +129,14 @@ export class ExtractEventPages extends WorkflowEntrypoint<Env, Params> {
         }
 
         console.log(`[ExtractEventPages] Complete - ${successCount} successes, ${errorCount} errors`);
+        if (processedPageIds.length > 0) {
+            await step.do("process-events", async () => {
+                console.log(`[ExtractEventPages] Triggering ProcessExtractedEvents for ${processedPageIds.length} pages`);
+                const run = await this.env.PROCESS_EXTRACTED_EVENTS.create({ params: { pageIds: processedPageIds } });
+                console.log(`[ExtractEventPages] ProcessExtractedEvents workflow started ${run.id ?? run}`);
+                return run.id ?? run;
+            });
+        }
         return { ok: true };
     }
 }

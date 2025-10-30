@@ -28,6 +28,19 @@ const PageIdsBodySchema = z.object({
   pageIds: z.array(z.string().uuid()).min(1)
 });
 
+const pageKindEnum = z.enum(Constants.public.Enums.page_kind);
+
+const UpdatePageKindsBodySchema = z.object({
+  updates: z
+    .array(
+      z.object({
+        pageId: z.string().uuid(),
+        kind: pageKindEnum
+      })
+    )
+    .min(1)
+});
+
 const EventIdsBodySchema = z.object({
   eventIds: z.array(z.string().uuid()).min(1)
 });
@@ -208,6 +221,26 @@ export default {
         return new Response(error.message, { status: 500 });
       }
       return Response.json(data ?? []);
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/pages/update-kind") {
+      const body = UpdatePageKindsBodySchema.parse(await request.json());
+      const timestamp = new Date().toISOString();
+      let updated = 0;
+
+      for (const { pageId, kind } of body.updates) {
+        const { error } = await supabase
+          .from("pages")
+          .update({ kind, updated_at: timestamp })
+          .eq("id", pageId);
+        if (error) {
+          console.error(`[dash-worker] Failed updating page kind pageId=${pageId} kind=${kind}`, error);
+          return new Response(error.message, { status: 500 });
+        }
+        updated += 1;
+      }
+
+      return Response.json({ updated });
     }
 
     if (request.method === "GET" && url.pathname === "/api/page-content") {

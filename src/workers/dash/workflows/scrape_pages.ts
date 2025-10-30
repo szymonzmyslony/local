@@ -3,7 +3,7 @@ import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 import { z } from "zod";
 import { getServiceClient } from "../../../shared/supabase";
 import type { PageContentInsert, PageUpdate } from "../../../types/common";
-import { getFirecrawl } from "../src/utils/firecrawl";
+import { getFirecrawl } from "./utils/firecrawl";
 
 type Params = { pageIds: string[] };
 

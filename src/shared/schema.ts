@@ -15,7 +15,7 @@ export const pricesSchema = z.object({
 // Aligns with gallery_info table columns
 export const galleryExtractionSchema = z.object({
     name: z.string().describe("Gallery name exactly as written on the site").optional(),
-    about: z.string().describe("About/mission paragraph in plain text").optional(),
+    about: z.string().describe("About/mission paragraph in plain text"),
     address: z.string().describe("Postal address or street location").optional(),
     email: z.string().describe("Primary contact email").optional(),
     phone: z.string().describe("Primary phone number").optional(),
