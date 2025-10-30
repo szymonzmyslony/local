@@ -1,0 +1,48 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "declarationMap": true,
+    "composite": true,
+    "outDir": "dist",
+    "noEmit": false,
+    "jsx": "react-jsx",
+    "moduleResolution": "node",
+    "paths": {
+      "@gallery-agents/shared": [
+        "./src/index.ts"
+      ],
+      "@gallery-agents/shared/*": [
+        "./src/*"
+      ],
+      "@gallery-agents/shared/ui": [
+        "./src/ui/index.ts"
+      ],
+      "@gallery-agents/shared/ui/*": [
+        "./src/ui/*"
+      ],
+      "@shared": [
+        "./src/index.ts"
+      ],
+      "@shared/*": [
+        "./src/*"
+      ],
+      "@shared/ui": [
+        "./src/ui/index.ts"
+      ],
+      "@shared/ui/*": [
+        "./src/ui/*"
+      ]
+    },
+    "lib": [
+      "ES2022",
+      "DOM"
+    ]
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ]
+}

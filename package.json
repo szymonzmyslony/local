@@ -1,17 +1,22 @@
 {
-  "name": "cloudflare-agent-starter",
-  "version": "1.0.0",
-  "description": "",
+  "name": "gallery-agents",
+  "version": "0.1.0",
+  "description": "Monorepo for gallery agent workers and shared libraries",
   "type": "module",
   "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "build": "vite build",
-    "start": "vite dev",
-    "deploy": "vite build && wrangler deploy",
-    "test": "vitest",
-    "types": "wrangler types env.d.ts --include-runtime false",
+    "build": "npm run build --workspace @gallery-agents/shared && npm run build --workspace @gallery-agents/dash && npm run build --workspace @gallery-agents/app",
+    "check": "npm run lint --workspace @gallery-agents/dash && npm run lint --workspace @gallery-agents/app && npm run typecheck",
     "format": "prettier --write .",
-    "check": "prettier . --check && biome lint && tsc --noEmit -p src/workers/app/tsconfig.json && tsc --noEmit -p src/workers/dash/tsconfig.worker.json"
+    "lint": "biome lint .",
+    "start": "npm run dev --workspace @gallery-agents/dash",
+    "dev": "npm run dev --workspace @gallery-agents/dash",
+    "test": "npm run test --workspace @gallery-agents/app",
+    "typecheck": "tsc -b packages/shared/tsconfig.json apps/dash/tsconfig.json apps/app/tsconfig.json"
   },
   "keywords": [
     "cloudflare",
@@ -22,44 +27,18 @@
   "license": "MIT",
   "devDependencies": {
     "@biomejs/biome": "^2.2.5",
-    "@cloudflare/vite-plugin": "1.13.12",
+    "@cloudflare/vite-plugin": "^1.13.12",
     "@cloudflare/vitest-pool-workers": "^0.9.12",
-    "@tailwindcss/vite": "^4.1.14",
+    "@tailwindcss/vite": "^4.1.16",
     "@types/node": "^24.9.1",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.1",
     "@vitejs/plugin-react": "^5.0.4",
     "prettier": "^3.6.2",
-    "tailwindcss": "^4.1.14",
+    "tailwindcss": "^4.1.16",
     "typescript": "^5.9.3",
     "vite": "^7.1.9",
     "vitest": "3.2.4",
-    "wrangler": "^4.44.0"
-  },
-  "dependencies": {
-    "@ai-sdk/openai": "^2.0.53",
-    "@ai-sdk/react": "^2.0.68",
-    "@ai-sdk/ui-utils": "^1.2.11",
-    "@cloudflare/puppeteer": "^1.0.4",
-    "@mendable/firecrawl-js": "^4.4.1",
-    "@phosphor-icons/react": "^2.1.10",
-    "@radix-ui/react-avatar": "^1.1.10",
-    "@radix-ui/react-dropdown-menu": "^2.1.16",
-    "@radix-ui/react-slot": "^1.2.3",
-    "@radix-ui/react-switch": "^1.2.6",
-    "@supabase/supabase-js": "^2.76.1",
-    "agents": "^0.2.14",
-    "ai": "^5.0.76",
-    "class-variance-authority": "^0.7.1",
-    "cloudflare": "^5.2.0",
-    "clsx": "^2.1.1",
-    "marked": "^16.4.0",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1",
-    "tailwind-merge": "^3.3.1",
-    "workers-ai-provider": "^2.0.0",
-    "zod": "^4.1.12"
+    "wrangler": "^4.45.0"
   }
 }

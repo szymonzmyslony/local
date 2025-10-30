@@ -1,10 +1,21 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "types": ["node"]
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@gallery-agents/shared": ["packages/shared/src/index.ts"],
+      "@gallery-agents/shared/*": ["packages/shared/src/*"],
+      "@gallery-agents/shared/ui": ["packages/shared/src/ui/index.ts"],
+      "@gallery-agents/shared/ui/*": ["packages/shared/src/ui/*"],
+      "@shared": ["packages/shared/src/index.ts"],
+      "@shared/*": ["packages/shared/src/*"],
+      "@shared/ui": ["packages/shared/src/ui/index.ts"],
+      "@shared/ui/*": ["packages/shared/src/ui/*"]
+    }
   },
   "include": [
-    "src/shared/**/*.ts",
-    "src/types/**/*.ts"
+    "packages/shared/src/**/*.ts",
+    "packages/shared/src/**/*.tsx"
   ]
 }

@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@gallery-agents/shared": ["../../packages/shared/src/index.ts"],
+      "@gallery-agents/shared/*": ["../../packages/shared/src/*"],
+      "@gallery-agents/shared/ui": ["../../packages/shared/src/ui/index.ts"],
+      "@gallery-agents/shared/ui/*": ["../../packages/shared/src/ui/*"],
+      "@shared": ["../../packages/shared/src/index.ts"],
+      "@shared/*": ["../../packages/shared/src/*"],
+      "@shared/ui": ["../../packages/shared/src/ui/index.ts"],
+      "@shared/ui/*": ["../../packages/shared/src/ui/*"]
+    },
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["src", "workflows/utils"]
+}
