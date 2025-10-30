@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Button, Input } from "@shared/ui";
 import { DataTable, DataTableColumnHeader } from "../../components/data-table";
-import { Modal } from "../../components/modal";
+import type { PreviewDialogItem } from "../../components/preview/PreviewDialog";
 import { EVENT_STATUSES } from "../../api";
 import type { DashboardAction, PipelineEvent, PipelinePage } from "../../api";
 
@@ -11,7 +11,7 @@ type EventsViewProps = {
   pages: PipelinePage[];
   pendingAction: DashboardAction | null;
   onProcessEventPages: (pageIds: string[]) => void;
-  onEmbedEvents: (eventIds: string[]) => void;
+  onPreview: (payload: { title: string; description?: string; items: PreviewDialogItem[] }) => void;
 };
 
 type EventSort = "nearest" | "latest" | "title";
@@ -21,13 +21,11 @@ export function EventsView({
   pages,
   pendingAction,
   onProcessEventPages,
-  onEmbedEvents
+  onPreview
 }: EventsViewProps) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<PipelineEvent["status"] | "all">("all");
   const [sortOrder, setSortOrder] = useState<EventSort>("nearest");
-  const [structuredEvent, setStructuredEvent] = useState<PipelineEvent | null>(null);
-  const [embeddingEvent, setEmbeddingEvent] = useState<PipelineEvent | null>(null);
 
   const pageById = useMemo(() => {
     const map = new Map<string, PipelinePage>();
@@ -116,7 +114,16 @@ export function EventsView({
                   size="sm"
                   onClick={() => {
                     console.log("[EventsView] view structured", { eventId: event.id });
-                    setStructuredEvent(event);
+                    onPreview({
+                      title: event.title,
+                      description: "Structured event payload generated from markdown.",
+                      items: [
+                        {
+                          title: event.title,
+                          content: formatStructured(event)
+                        }
+                      ]
+                    });
                   }}
                 >
                   View structured
@@ -150,68 +157,28 @@ export function EventsView({
         },
         meta: { cellClassName: "min-w-[220px]" }
       },
-      {
-        id: "embedding",
-        header: () => <span className="font-semibold text-slate-700">Embedding</span>,
-        cell: ({ row }) => {
-          const event = row.original;
-          const embedding = event.event_info?.embedding ?? null;
-          const embeddingPending = pendingAction === "embed";
-          if (embedding) {
-            return (
-              <div className="flex flex-wrap items-center gap-2">
-                <StatusPill tone="info">Embedded</StatusPill>
-                <Button
-                  type="button"
-                  variant="muted"
-                  size="sm"
-                  onClick={() => {
-                    console.log("[EventsView] view embedding", { eventId: event.id });
-                    setEmbeddingEvent(event);
-                  }}
-                >
-                  View embedding
-                </Button>
-              </div>
-            );
-          }
-          return (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                console.log("[EventsView] embed requested", { eventId: event.id });
-                onEmbedEvents([event.id]);
-              }}
-              disabled={embeddingPending}
-            >
-              {embeddingPending ? "Embedding…" : "Request embedding"}
-            </Button>
-          );
-        },
-        meta: { cellClassName: "w-[200px]" }
-      }
     ],
-    [onProcessEventPages, onEmbedEvents, pageById, pendingAction]
+    [onProcessEventPages, pageById, pendingAction, onPreview]
   );
 
   return (
-    <>
-      <section className="space-y-6">
-        <div className="flex flex-col gap-1">
-          <p className="text-sm font-semibold text-slate-900">Events</p>
-          <p className="text-xs text-slate-500">
-            Track structured outputs and embeddings for each event.
-          </p>
-        </div>
-        <DataTable
-          columns={columns}
-          data={filteredEvents}
-          getRowId={row => row.id}
-          emptyMessage="No events match the current filters."
-          renderToolbar={() => (
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <section className="space-y-6">
+      <DataTable
+        columns={columns}
+        data={filteredEvents}
+        getRowId={row => row.id}
+        emptyMessage="No events match the current filters."
+        enableRowSelection
+        renderToolbar={table => {
+          const selectedRows = table.getSelectedRowModel().rows;
+          const selectedEvents = selectedRows.map(row => row.original);
+          const selectedWithPages = selectedEvents.filter(event => event.page_id);
+          const selectedPageIds = selectedWithPages
+            .map(event => event.page_id)
+            .filter((value): value is string => Boolean(value));
+
+          return (
+            <div className="flex flex-col gap-4">
               <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center">
                 <FilterField label="Search">
                   <Input
@@ -235,56 +202,38 @@ export function EventsView({
                   </select>
                 </FilterField>
               </div>
-              <FilterField label="Sort">
-                <select
-                  value={sortOrder}
-                  onChange={event => setSortOrder(event.target.value as EventSort)}
-                  className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                >
-                  <option value="nearest">Nearest start</option>
-                  <option value="latest">Latest start</option>
-                  <option value="title">Title</option>
-                </select>
-              </FilterField>
+              <div className="flex flex-wrap items-center gap-2">
+                <FilterField label="Sort">
+                  <select
+                    value={sortOrder}
+                    onChange={event => setSortOrder(event.target.value as EventSort)}
+                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                  >
+                    <option value="nearest">Nearest start</option>
+                    <option value="latest">Latest start</option>
+                    <option value="title">Title</option>
+                  </select>
+                </FilterField>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={selectedPageIds.length === 0}
+                    onClick={() => {
+                      if (selectedPageIds.length === 0) return;
+                      onProcessEventPages(selectedPageIds);
+                    }}
+                  >
+                    Process selected
+                  </Button>
+                </div>
+              </div>
             </div>
-          )}
-        />
-      </section>
-
-      {structuredEvent ? (
-        <Modal
-          open
-          onOpenChange={open => {
-            if (!open) setStructuredEvent(null);
-          }}
-          onClose={() => setStructuredEvent(null)}
-          title={`Structured output — ${structuredEvent.title}`}
-          description="Structured event payload generated from markdown."
-          size="lg"
-        >
-          <pre className="max-h-[60vh] overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-4 text-xs text-slate-700">
-            {formatStructured(structuredEvent)}
-          </pre>
-        </Modal>
-      ) : null}
-
-      {embeddingEvent ? (
-        <Modal
-          open
-          onOpenChange={open => {
-            if (!open) setEmbeddingEvent(null);
-          }}
-          onClose={() => setEmbeddingEvent(null)}
-          title={`Embedding — ${embeddingEvent.title}`}
-          description="Embedding vector stored for this event."
-          size="md"
-        >
-          <pre className="max-h-[60vh] overflow-y-auto rounded-md bg-slate-900/90 p-4 text-xs text-slate-100">
-            {embeddingEvent.event_info?.embedding ?? "No embedding stored."}
-          </pre>
-        </Modal>
-      ) : null}
-    </>
+          );
+        }}
+      />
+    </section>
   );
 }
 

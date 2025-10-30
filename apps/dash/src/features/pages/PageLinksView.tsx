@@ -8,10 +8,10 @@ import type { DashboardAction, PageKind, PageKindUpdate, PipelinePage } from "..
 type PageLinksViewProps = {
   pages: PipelinePage[];
   pendingAction: DashboardAction | null;
-  onPreviewMarkdown: (pageId: string, label: string) => void;
-  onScrapePage: (pageId: string) => void;
-  onExtractPage: (pageId: string) => void;
+  onScrapePages: (pageIds: string[]) => void;
+  onExtractPages: (pageIds: string[]) => void;
   onUpdatePageKind: (updates: PageKindUpdate[]) => void;
+  onPreviewPages: (rows: { id: string; label: string }[]) => Promise<void> | void;
 };
 
 type SortOrder = "newest" | "oldest" | "alphabetical";
@@ -19,9 +19,9 @@ type SortOrder = "newest" | "oldest" | "alphabetical";
 export function PageLinksView({
   pages,
   pendingAction,
-  onPreviewMarkdown,
-  onScrapePage,
-  onExtractPage,
+  onScrapePages,
+  onExtractPages,
+  onPreviewPages,
   onUpdatePageKind
 }: PageLinksViewProps) {
   const [search, setSearch] = useState("");
@@ -57,6 +57,35 @@ export function PageLinksView({
 
   const columns = useMemo<ColumnDef<PipelinePage>[]>(
     () => [
+      {
+        id: "select",
+        header: ({ table }) => (
+          <input
+            type="checkbox"
+            aria-label="Select all"
+            className="size-4 rounded border border-slate-300 text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+            checked={table.getIsAllPageRowsSelected()}
+            ref={input => {
+              if (input) {
+                input.indeterminate = table.getIsSomePageRowsSelected();
+              }
+            }}
+            onChange={event => table.toggleAllPageRowsSelected(event.target.checked)}
+          />
+        ),
+        cell: ({ row }) => (
+          <input
+            type="checkbox"
+            aria-label="Select row"
+            className="size-4 rounded border border-slate-300 text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+            checked={row.getIsSelected()}
+            onChange={event => row.toggleSelected(event.target.checked)}
+            onClick={event => event.stopPropagation()}
+          />
+        ),
+        enableSorting: false,
+        meta: { cellClassName: "w-10" }
+      },
       {
         accessorKey: "normalized_url",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Page" />,
@@ -110,7 +139,7 @@ export function PageLinksView({
       {
         id: "structured",
         header: () => <span className="font-semibold text-slate-700">Structured output</span>,
-        cell: ({ row }) => renderStructuredCell(row.original, pendingAction === "extract", onExtractPage),
+        cell: ({ row }) => renderStructuredCell(row.original, pendingAction === "extract", onExtractPages),
         meta: { cellClassName: "min-w-[220px]" }
       },
       {
@@ -128,7 +157,7 @@ export function PageLinksView({
                 size="sm"
                 onClick={() => {
                   console.log("[PageLinksView] preview requested", { pageId: page.id });
-                  onPreviewMarkdown(page.id, page.normalized_url);
+                  void onPreviewPages([{ id: page.id, label: page.normalized_url }]);
                 }}
                 disabled={page.fetch_status !== "ok"}
               >
@@ -140,7 +169,7 @@ export function PageLinksView({
                 size="sm"
                 onClick={() => {
                   console.log("[PageLinksView] scrape requested", { pageId: page.id });
-                  onScrapePage(page.id);
+                  onScrapePages([page.id]);
                 }}
                 disabled={scraping || page.fetch_status === "fetching"}
               >
@@ -152,72 +181,104 @@ export function PageLinksView({
         meta: { cellClassName: "w-[180px]" }
       }
     ],
-    [onPreviewMarkdown, onScrapePage, onExtractPage, onUpdatePageKind, pendingAction]
+    [onPreviewPages, onScrapePages, onExtractPages, onUpdatePageKind, pendingAction]
   );
 
   return (
     <section className="space-y-6">
-      <div className="flex flex-col gap-1">
-        <p className="text-sm font-semibold text-slate-900">Pages</p>
-        <p className="text-xs text-slate-500">Filter, inspect and reclassify discovered pages.</p>
-      </div>
       <DataTable
         columns={columns}
         data={filteredPages}
         getRowId={row => row.id}
         emptyMessage="No pages match the current filters."
-        renderToolbar={() => (
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center">
-              <FilterField label="Search">
-                <Input
-                  placeholder="Filter by normalized URL…"
-                  value={search}
-                  onChange={event => setSearch(event.target.value)}
-                />
-              </FilterField>
-              <FilterField label="Page kind">
-                <select
-                  value={selectedKind}
-                  onChange={event => setSelectedKind(event.target.value as PageKind | "all")}
-                  className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                >
-                  <option value="all">All kinds</option>
-                  {PAGE_KINDS.map(kind => (
-                    <option key={kind} value={kind}>
-                      {kind}
-                    </option>
-                  ))}
-                </select>
-              </FilterField>
-              <FilterField label="Fetch status">
-                <select
-                  value={selectedStatus}
-                  onChange={event => setSelectedStatus(event.target.value as PipelinePage["fetch_status"] | "all")}
-                  className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                >
-                  <option value="all">All statuses</option>
-                  {FETCH_STATUSES.map(status => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </select>
-              </FilterField>
+        enableRowSelection
+        renderToolbar={table => {
+          const selectedRows = table.getSelectedRowModel().rows;
+          const selectedPages = selectedRows.map(row => row.original);
+          const selectedIds = selectedPages.map(page => page.id);
+          const selectionDisabled = selectedIds.length === 0;
+
+          return (
+            <div className="flex flex-col gap-4">
+              <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center">
+                <FilterField label="Search">
+                  <Input
+                    placeholder="Filter by normalized URL…"
+                    value={search}
+                    onChange={event => setSearch(event.target.value)}
+                  />
+                </FilterField>
+                <FilterField label="Page kind">
+                  <select
+                    value={selectedKind}
+                    onChange={event => setSelectedKind(event.target.value as PageKind | "all")}
+                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                  >
+                    <option value="all">All kinds</option>
+                    {PAGE_KINDS.map(kind => (
+                      <option key={kind} value={kind}>
+                        {kind}
+                      </option>
+                    ))}
+                  </select>
+                </FilterField>
+                <FilterField label="Fetch status">
+                  <select
+                    value={selectedStatus}
+                    onChange={event => setSelectedStatus(event.target.value as PipelinePage["fetch_status"] | "all")}
+                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                  >
+                    <option value="all">All statuses</option>
+                    {FETCH_STATUSES.map(status => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                  </select>
+                </FilterField>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <FilterField label="Sort">
+                  <select
+                    value={sortOrder}
+                    onChange={event => setSortOrder(event.target.value as SortOrder)}
+                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                  >
+                    <option value="newest">Newest first</option>
+                    <option value="oldest">Oldest first</option>
+                    <option value="alphabetical">Alphabetical</option>
+                  </select>
+                </FilterField>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={selectionDisabled}
+                    onClick={() => {
+                      if (selectionDisabled) return;
+                      onScrapePages(selectedIds);
+                    }}
+                  >
+                    Scrape selected
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={selectionDisabled}
+                    onClick={() => {
+                      if (selectionDisabled) return;
+                      onExtractPages(selectedIds);
+                    }}
+                  >
+                    Extract selected
+                  </Button>
+                </div>
+              </div>
             </div>
-            <FilterField label="Sort">
-              <select
-                value={sortOrder}
-                onChange={event => setSortOrder(event.target.value as SortOrder)}
-                className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-              >
-                <option value="newest">Newest first</option>
-                <option value="oldest">Oldest first</option>
-                <option value="alphabetical">Alphabetical</option>
-              </select>
-            </FilterField>
-          </div>
-        )}
+          );
+        }}
       />
     </section>
   );
@@ -233,7 +294,7 @@ function handleKindChange(value: string, page: PipelinePage, onUpdate: PageLinks
 function renderStructuredCell(
   page: PipelinePage,
   extracting: boolean,
-  onExtractPage: PageLinksViewProps["onExtractPage"]
+  onExtractPages: PageLinksViewProps["onExtractPages"]
 ): ReactNode {
   const parseStatus = page.page_structured?.parse_status ?? "never";
   if (page.kind !== "event_detail") {
@@ -254,7 +315,7 @@ function renderStructuredCell(
           size="sm"
           onClick={() => {
             console.log("[PageLinksView] re-extract requested", { pageId: page.id });
-            onExtractPage(page.id);
+            onExtractPages([page.id]);
           }}
           disabled={extracting}
         >
@@ -272,7 +333,7 @@ function renderStructuredCell(
           type="button"
           variant="secondary"
           size="sm"
-          onClick={() => onExtractPage(page.id)}
+          onClick={() => onExtractPages([page.id])}
           disabled={extracting}
         >
           {extracting ? "Processing…" : "Retry extract"}
@@ -288,7 +349,7 @@ function renderStructuredCell(
       size="sm"
       onClick={() => {
         console.log("[PageLinksView] extract requested", { pageId: page.id });
-        onExtractPage(page.id);
+        onExtractPages([page.id]);
       }}
       disabled={extracting}
     >

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { PipelineData, PipelinePage } from "../../api";
-import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from "@shared/ui";
+import { Button } from "@shared/ui";
 
 type PrimaryPage = {
   id: string;
@@ -12,34 +12,24 @@ type GalleryOverviewCardProps = {
   gallery: PipelineData["gallery"];
   mainPage: PipelinePage | null;
   aboutPage: PipelinePage | null;
-  refreshDisabled: boolean;
   extractDisabled: boolean;
   scrapeDisabled: boolean;
-  embeddingDisabled: boolean;
   canExtract: boolean;
-  canEmbed: boolean;
-  onRefresh: () => void;
   onExtractGallery: () => void;
   onPreviewMarkdown: (pageId: string, label: string) => void;
   onScrapePage: (pageId: string) => void;
-  onRunEmbedding: () => void;
 };
 
 export function GalleryOverviewCard({
   gallery,
   mainPage,
   aboutPage,
-  refreshDisabled,
   extractDisabled,
   scrapeDisabled,
-  embeddingDisabled,
   canExtract,
-  canEmbed,
-  onRefresh,
   onExtractGallery,
   onPreviewMarkdown,
-  onScrapePage,
-  onRunEmbedding
+  onScrapePage
 }: GalleryOverviewCardProps) {
   const primaryPages: PrimaryPage[] = [
     { id: "gallery_main", label: "Main page", page: mainPage },
@@ -47,8 +37,6 @@ export function GalleryOverviewCard({
   ];
 
   const info = gallery.gallery_info;
-  const embedding = info?.embedding ?? null;
-
   return (
     <section className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -61,17 +49,6 @@ export function GalleryOverviewCard({
         <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
-            variant="muted"
-            onClick={() => {
-              console.log("[GalleryOverviewCard] refresh clicked", { galleryId: gallery.id });
-              onRefresh();
-            }}
-            disabled={refreshDisabled}
-          >
-            {refreshDisabled ? "Refreshing…" : "Refresh"}
-          </Button>
-          <Button
-            type="button"
             variant="secondary"
             onClick={() => {
               console.log("[GalleryOverviewCard] extract gallery clicked", { galleryId: gallery.id });
@@ -80,17 +57,6 @@ export function GalleryOverviewCard({
             disabled={extractDisabled || !canExtract}
           >
             {extractDisabled ? "Extracting…" : canExtract ? "Extract gallery info" : "Scrape pages first"}
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => {
-              console.log("[GalleryOverviewCard] embedding clicked", { galleryId: gallery.id });
-              onRunEmbedding();
-            }}
-            disabled={embeddingDisabled || !canEmbed}
-          >
-            {embeddingDisabled ? "Working…" : embedding ? "Re-run embedding" : "Create embedding"}
           </Button>
         </div>
       </div>
@@ -125,33 +91,6 @@ export function GalleryOverviewCard({
               {info?.tags && info.tags.length > 0 ? info.tags.join(", ") : "—"}
             </InfoTile>
           </div>
-        </section>
-
-        <section className="space-y-3">
-          <Collapsible>
-            <div className="flex items-center justify-between gap-4 rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
-              <div>
-                <p className="text-sm font-semibold text-slate-800">Embedding details</p>
-                <p className="text-xs text-slate-500">
-                  {embedding ? "Last embedding stored for this gallery." : "No embedding stored yet."}
-                </p>
-              </div>
-              <CollapsibleTrigger asChild>
-                <Button type="button" variant="muted" size="sm">
-                  Toggle details
-                </Button>
-              </CollapsibleTrigger>
-            </div>
-            <CollapsibleContent className="mt-3 space-y-3 rounded-md border border-slate-200 bg-white p-4">
-              <div className="grid gap-2 sm:grid-cols-2">
-                <InfoTile label="Model">{info?.embedding_model ?? "—"}</InfoTile>
-                <InfoTile label="Updated">{info?.embedding_created_at ?? "—"}</InfoTile>
-              </div>
-              <pre className="max-h-[40vh] overflow-y-auto rounded-md bg-slate-900/90 p-4 text-xs text-slate-100">
-                {embedding ?? "No embedding stored."}
-              </pre>
-            </CollapsibleContent>
-          </Collapsible>
         </section>
 
         <section className="space-y-3">

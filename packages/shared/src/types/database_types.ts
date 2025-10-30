@@ -164,6 +164,7 @@ export type Database = {
         Row: {
           about_url: string | null
           created_at: string
+          events_page: string | null
           id: string
           main_url: string
           normalized_main_url: string
@@ -172,6 +173,7 @@ export type Database = {
         Insert: {
           about_url?: string | null
           created_at?: string
+          events_page?: string | null
           id?: string
           main_url: string
           normalized_main_url: string
@@ -180,6 +182,7 @@ export type Database = {
         Update: {
           about_url?: string | null
           created_at?: string
+          events_page?: string | null
           id?: string
           main_url?: string
           normalized_main_url?: string

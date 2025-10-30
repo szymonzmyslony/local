@@ -46,6 +46,7 @@ type DataTableProps<TData> = {
    * Optional callback for providing stable row IDs.
    */
   getRowId?: (originalRow: TData, index: number) => string;
+  enableRowSelection?: boolean;
 };
 
 export function DataTable<TData>({
@@ -55,7 +56,8 @@ export function DataTable<TData>({
   renderFooter,
   emptyMessage = "No results found.",
   className,
-  getRowId
+  getRowId,
+  enableRowSelection = false
 }: DataTableProps<TData>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -79,7 +81,8 @@ export function DataTable<TData>({
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel()
+    getPaginationRowModel: getPaginationRowModel(),
+    enableRowSelection
   });
 
   const toolbar = useMemo(() => (renderToolbar ? renderToolbar(table) : null), [renderToolbar, table]);

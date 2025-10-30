@@ -2,12 +2,12 @@ import { WorkflowEntrypoint } from "cloudflare:workers";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 import { createOpenAI } from "@ai-sdk/openai";
 import {
-  extractGalleryInfoFromMarkdown,
-  getPageMarkdownBulk,
-  getServiceClient,
-  selectPagesByGallery,
-  upsertGalleryHours,
-  upsertGalleryInfo
+    extractGalleryInfoFromMarkdown,
+    getPageMarkdownBulk,
+    getServiceClient,
+    selectPagesByGallery,
+    upsertGalleryHours,
+    upsertGalleryInfo
 } from "@shared";
 import type { GalleryInfoInsert, GalleryHoursInsert, Page } from "@shared";
 
@@ -91,53 +91,26 @@ export class ExtractGallery extends WorkflowEntrypoint<Env, Params> {
             extractGalleryInfoFromMarkdown(openai, combinedMd, primaryUrl)
         );
 
-        console.log(`[ExtractGallery] Extracted gallery: ${result.name ?? 'unnamed'}`);
+        console.log(`[ExtractGallery] Extracted gallery ${primaryUrl}: ${result.about ?? 'unnamed'}`);
 
-        const normalizeInstagramHandle = (value: string | undefined): string | null => {
-            if (!value) return null;
-            const trimmed = value.trim();
-            if (!trimmed) return null;
-            const withoutScheme = trimmed.replace(/^https?:\/\/(www\.)?instagram\.com\//i, "").replace(/\/+$/, "");
-            const handle = withoutScheme.startsWith("@") ? withoutScheme.slice(1) : withoutScheme;
-            return handle || null;
-        };
 
         // 4) Save to gallery_info with real columns populated
         await step.do("save-gallery-info", async () => {
             const galleryInfoData: GalleryInfoInsert = {
                 gallery_id: galleryId,
-                name: result.name ?? null,
                 about: result.about ?? null,
-                address: result.address ?? null,
                 email: result.email ?? null,
                 phone: result.phone ?? null,
-                instagram: normalizeInstagramHandle(result.instagram ?? undefined),
                 tags: result.tags ?? null,
                 data: result,
                 updated_at: new Date().toISOString(),
             };
-            console.log(`[ExtractGallery] Saving gallery_info: name="${galleryInfoData.name}", email="${galleryInfoData.email}", instagram="${galleryInfoData.instagram}"`);
+            console.log(`[ExtractGallery] Saving gallery_info payload (email="${galleryInfoData.email}")`);
             await upsertGalleryInfo(supabase, galleryInfoData);
             console.log(`[ExtractGallery] Successfully saved gallery_info for gallery ${galleryId}`);
         });
 
-        // 5) Save gallery hours
-        await step.do("save-gallery-hours", async () => {
-            if (result.hours && result.hours.length > 0) {
-                console.log(`[ExtractGallery] Saving ${result.hours.length} gallery hours`);
-                const hours: GalleryHoursInsert[] = result.hours.map(h => ({
-                    gallery_id: galleryId,
-                    dow: h.dow,
-                    open_time: h.open_time,
-                    close_time: h.close_time,
-                }));
 
-                await upsertGalleryHours(supabase, hours);
-                console.log(`[ExtractGallery] Saved gallery hours`);
-            } else {
-                console.log(`[ExtractGallery] No hours to save`);
-            }
-        });
 
         console.log(`[ExtractGallery] Complete - gallery ${galleryId} extracted and saved`);
         return { ok: true as const };

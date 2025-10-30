@@ -14,7 +14,7 @@ import {
 } from "@shared/ui";
 import { cn } from "@shared";
 import { DashboardShell } from "../components/layout";
-import { Modal } from "../components/modal";
+import { PreviewDialog, type PreviewDialogItem } from "../components/preview/PreviewDialog";
 import { StatusMessages } from "../components/status";
 import {
   discoverLinks,
@@ -23,7 +23,6 @@ import {
   extractGalleryInfo,
   extractPages,
   fetchPipeline,
-  getPageContent,
   processEvents,
   scrapePages,
   updatePageKinds,
@@ -33,7 +32,6 @@ import {
 } from "../api";
 import { useDashboard } from "../providers/dashboard-context";
 
-type PagePreviewState = { title: string; markdown: string | null };
 export type GalleryRouteContext = {
   galleryId: string;
   pipeline: PipelineData | null;
@@ -46,12 +44,9 @@ export type GalleryRouteContext = {
   runScrapePages: (pageIds: string[]) => Promise<void>;
   runExtractPages: (pageIds: string[]) => Promise<boolean>;
   runProcessEvents: (pageIds: string[]) => Promise<void>;
-  runEmbedEvents: (eventIds: string[]) => Promise<void>;
-  runEmbedGallery: () => Promise<void>;
   runExtractGallery: () => Promise<void>;
   updatePageKinds: (updates: PageKindUpdate[]) => Promise<number>;
-  openPagePreview: (pageId: string, label: string) => Promise<void>;
-  pagePreview: PagePreviewState | null;
+  showPreviewDialog: (payload: { title: string; description?: string; items: PreviewDialogItem[] }) => void;
   setStatus: (value: string | null) => void;
   setError: (value: string | null) => void;
 };
@@ -70,7 +65,11 @@ export function GalleryDetailLayout() {
   const [pendingAction, setPendingAction] = useState<DashboardAction | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [pagePreview, setPagePreview] = useState<PagePreviewState | null>(null);
+  const [previewDialog, setPreviewDialog] = useState<{
+    title: string;
+    description?: string;
+    items: PreviewDialogItem[];
+  } | null>(null);
 
   useEffect(() => {
     if (!galleryId) return;
@@ -133,27 +132,33 @@ export function GalleryDetailLayout() {
   async function runExtractPages(pageIds: string[]): Promise<boolean> {
     if (!pageIds.length) return false;
     await runWorkflow("extract", () => extractPages(pageIds));
+    const eventPageIds = (pipeline?.pages ?? [])
+      .filter(page => page.kind === "event_detail" && pageIds.includes(page.id))
+      .map(page => page.id);
+    if (eventPageIds.length) {
+      await runProcessEvents(eventPageIds);
+    }
     return true;
   }
 
   async function runProcessEvents(pageIds: string[]): Promise<void> {
     if (!pageIds.length) return;
-    await runWorkflow("process", () => processEvents(pageIds));
-  }
-
-  async function runEmbedEvents(eventIds: string[]): Promise<void> {
-    if (!eventIds.length) return;
-    await runWorkflow("embed", () => embedEvents(eventIds));
-  }
-
-  async function runEmbedGallery(): Promise<void> {
     if (!galleryId) return;
-    await runWorkflow("embedGallery", () => embedGallery(galleryId));
+    await runWorkflow("process", () => processEvents(pageIds));
+    const current = await fetchPipeline(galleryId);
+    setPipeline(current);
+    const eventIds = current.events
+      .filter(event => event.page_id && pageIds.includes(event.page_id))
+      .map(event => event.id);
+    if (eventIds.length) {
+      await runWorkflow("embed", () => embedEvents(eventIds));
+    }
   }
 
   async function runExtractGallery(): Promise<void> {
     if (!galleryId) return;
     await runWorkflow("extractGallery", () => extractGalleryInfo(galleryId));
+    await runWorkflow("embedGallery", () => embedGallery(galleryId));
   }
 
   async function handleUpdatePageKinds(updates: PageKindUpdate[]): Promise<number> {
@@ -169,17 +174,8 @@ export function GalleryDetailLayout() {
     }
   }
 
-  async function openPagePreview(pageId: string, label: string): Promise<void> {
-    try {
-      console.log("[GalleryDetailLayout] fetch page preview", { pageId, label });
-      const content = await getPageContent(pageId);
-      setPagePreview({
-        title: label,
-        markdown: content.page_content?.markdown ?? null,
-      });
-    } catch (issue) {
-      setError(issue instanceof Error ? issue.message : String(issue));
-    }
+  function showPreviewDialog(payload: { title: string; description?: string; items: PreviewDialogItem[] }): void {
+    setPreviewDialog(payload);
   }
 
   if (!galleryId) {
@@ -267,10 +263,6 @@ export function GalleryDetailLayout() {
     </div>
   );
 
-  function handleClosePreview(): void {
-    setPagePreview(null);
-  }
-
   return (
     <>
       <DashboardShell
@@ -301,37 +293,26 @@ export function GalleryDetailLayout() {
             pendingAction,
             status,
             error,
-            refreshPipeline,
             runDiscover,
             runScrapePages,
-            runExtractPages,
-            runProcessEvents,
-            runEmbedEvents,
-          runEmbedGallery,
+          runExtractPages,
+          runProcessEvents,
           runExtractGallery,
           updatePageKinds: handleUpdatePageKinds,
-          openPagePreview,
-          pagePreview,
+          showPreviewDialog,
           setStatus,
           setError,
         }}
       />
       </DashboardShell>
-      {pagePreview ? (
-        <Modal
-          open={Boolean(pagePreview)}
-          onOpenChange={open => {
-            if (!open) handleClosePreview();
-          }}
-          onClose={handleClosePreview}
-          title={pagePreview.title}
-          description="Markdown captured from the latest scrape."
-          size="lg"
-        >
-          <pre className="max-h-[60vh] overflow-y-auto rounded-xl bg-slate-50 p-4 text-xs text-slate-700">
-            {pagePreview.markdown ?? "No content available."}
-          </pre>
-        </Modal>
+      {previewDialog ? (
+        <PreviewDialog
+          open
+          onClose={() => setPreviewDialog(null)}
+          title={previewDialog.title}
+          description={previewDialog.description}
+          items={previewDialog.items}
+        />
       ) : null}
     </>
   );

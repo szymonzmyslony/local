@@ -8,7 +8,7 @@ export function GalleryEventsPage() {
     loadingPipeline,
     pendingAction,
     runProcessEvents,
-    runEmbedEvents
+    showPreviewDialog
   } = useGalleryRoute();
 
   if (loadingPipeline) {
@@ -16,7 +16,7 @@ export function GalleryEventsPage() {
       <Card>
         <CardBody>
           <CardTitle>Loading events</CardTitle>
-          <CardSubtitle>Fetching structured events and embeddings…</CardSubtitle>
+          <CardSubtitle>Fetching structured events…</CardSubtitle>
         </CardBody>
       </Card>
     );
@@ -43,8 +43,8 @@ export function GalleryEventsPage() {
       onProcessEventPages={pageIds => {
         void runProcessEvents(pageIds);
       }}
-      onEmbedEvents={eventIds => {
-        void runEmbedEvents(eventIds);
+      onPreview={payload => {
+        showPreviewDialog(payload);
       }}
     />
   );

@@ -3,6 +3,7 @@ import { Card, CardBody, CardSubtitle, CardTitle } from "@shared/ui";
 import { DiscoverLinksCard } from "../features/pages/DiscoverLinksCard";
 import { PageLinksView } from "../features/pages/PageLinksView";
 import { useGalleryRoute } from "./GalleryDetailLayout";
+import { getPageContent } from "../api";
 
 export function GalleryPagesPage() {
   const {
@@ -13,7 +14,7 @@ export function GalleryPagesPage() {
     runScrapePages,
     runExtractPages,
     updatePageKinds,
-    openPagePreview
+    showPreviewDialog
   } = useGalleryRoute();
 
   const pages = useMemo(() => pipeline?.pages ?? [], [pipeline?.pages]);
@@ -51,15 +52,37 @@ export function GalleryPagesPage() {
       <PageLinksView
         pages={pages}
         pendingAction={pendingAction}
-        onPreviewMarkdown={openPagePreview}
-        onScrapePage={pageId => {
-          void runScrapePages([pageId]);
+        onScrapePages={ids => {
+          if (!ids.length) return;
+          void runScrapePages(ids);
         }}
-        onExtractPage={pageId => {
-          void runExtractPages([pageId]);
+        onExtractPages={ids => {
+          if (!ids.length) return;
+          void runExtractPages(ids);
         }}
         onUpdatePageKind={updates => {
           void updatePageKinds(updates);
+        }}
+        onPreviewPages={async selections => {
+          if (!selections.length) return;
+          try {
+            const items = await Promise.all(
+              selections.map(async ({ id, label }) => {
+                const content = await getPageContent(id);
+                return {
+                  title: label,
+                  content: content.page_content?.markdown ?? null
+                };
+              })
+            );
+            showPreviewDialog({
+              title: selections.length === 1 ? selections[0].label : `${selections.length} pages selected`,
+              description: "Markdown captured from the latest scrape.",
+              items
+            });
+          } catch (issue) {
+            console.error("[GalleryPagesPage] preview fetch failed", issue);
+          }
         }}
       />
     </div>

@@ -1,17 +1,16 @@
 import { Card, CardBody, CardSubtitle, CardTitle } from "@shared/ui";
 import { GalleryOverviewCard } from "../features/gallery/GalleryOverviewCard";
 import { useGalleryRoute } from "./GalleryDetailLayout";
+import { getPageContent } from "../api";
 
 export function GalleryOverviewPage() {
   const {
     pipeline,
     loadingPipeline,
     pendingAction,
-    refreshPipeline,
     runExtractGallery,
     runScrapePages,
-    runEmbedGallery,
-    openPagePreview
+    showPreviewDialog
   } = useGalleryRoute();
 
   if (loadingPipeline) {
@@ -40,44 +39,45 @@ export function GalleryOverviewPage() {
   const mainPage = pages.find(page => page.kind === "gallery_main") ?? null;
   const aboutPage = pages.find(page => page.kind === "gallery_about") ?? null;
 
-  const canEmbed = Boolean(
+  const canExtract = Boolean(
     mainPage &&
       mainPage.fetch_status === "ok" &&
       (!aboutPage || aboutPage.fetch_status === "ok")
   );
-
-  const canExtract = canEmbed;
 
   return (
     <GalleryOverviewCard
       gallery={pipeline.gallery}
       mainPage={mainPage}
       aboutPage={aboutPage}
-      refreshDisabled={pendingAction === "refresh" || loadingPipeline}
-      extractDisabled={pendingAction === "extractGallery"}
+        extractDisabled={pendingAction === "extractGallery"}
       scrapeDisabled={pendingAction === "scrape"}
-      embeddingDisabled={pendingAction === "embedGallery"}
       canExtract={canExtract}
-      canEmbed={canEmbed}
-      onRefresh={() => {
-        console.log("[GalleryOverviewPage] refresh requested", { galleryId: pipeline.gallery.id });
-        void refreshPipeline();
-      }}
       onExtractGallery={() => {
         console.log("[GalleryOverviewPage] extract requested", { galleryId: pipeline.gallery.id });
         void runExtractGallery();
       }}
-      onPreviewMarkdown={(pageId, label) => {
+      onPreviewMarkdown={async (pageId, label) => {
         console.log("[GalleryOverviewPage] preview requested", { pageId, label });
-        void openPagePreview(pageId, label);
+        try {
+          const content = await getPageContent(pageId);
+          showPreviewDialog({
+            title: label,
+            description: "Markdown captured from the latest scrape.",
+            items: [
+              {
+                title: label,
+                content: content.page_content?.markdown ?? null
+              }
+            ]
+          });
+        } catch (issue) {
+          console.error("[GalleryOverviewPage] failed to load preview", issue);
+        }
       }}
       onScrapePage={pageId => {
         console.log("[GalleryOverviewPage] scrape requested", { pageId });
         void runScrapePages([pageId]);
-      }}
-      onRunEmbedding={() => {
-        console.log("[GalleryOverviewPage] embedding requested", { galleryId: pipeline.gallery.id });
-        void runEmbedGallery();
       }}
     />
   );

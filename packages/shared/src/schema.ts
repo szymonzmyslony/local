@@ -14,18 +14,10 @@ export const pricesSchema = z.object({
 /** ---- Gallery extraction schema ---- */
 // Aligns with gallery_info table columns
 export const galleryExtractionSchema = z.object({
-    name: z.string().describe("Gallery name exactly as written on the site").optional(),
     about: z.string().describe("About/mission paragraph in plain text"),
-    address: z.string().describe("Postal address or street location").optional(),
     email: z.string().describe("Primary contact email").optional(),
     phone: z.string().describe("Primary phone number").optional(),
-    instagram: z.string().describe("Instagram handle (with or without leading @, no URL required)").optional(),
     tags: z.array(z.string()).describe("List of tags or categories").optional(),
-    hours: z.array(z.object({
-        dow: z.number().int().min(0).max(6).describe("Day of week number 0=Sunday"),
-        open_time: z.string().describe("Opening time as seen on the page"),
-        close_time: z.string().describe("Closing time as seen on the page")
-    })).describe("Weekly opening hours if present").optional()
 }).describe("Structured gallery information to persist in gallery_info and gallery_hours tables");
 
 /** ---- Event extraction schema ---- */
