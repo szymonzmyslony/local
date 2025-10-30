@@ -4,22 +4,30 @@ import { normalizeUrl } from "./utils/normalizeUrl";
 import {
     getServiceClient,
     upsertGallery,
+    upsertGalleryInfo,
     upsertGalleryPage
 } from "@shared";
-import type { GalleryInsert, PageInsert } from "@shared";
+import type { GalleryInsert, GalleryInfoInsert, PageInsert } from "@shared";
 
-type Params = { mainUrl: string; aboutUrl?: string | null; eventsUrl?: string | null };
+type Params = {
+    mainUrl: string;
+    aboutUrl?: string | null;
+    eventsUrl?: string | null;
+    name?: string | null;
+    address?: string | null;
+    instagram?: string | null;
+};
 
 export class SeedGallery extends WorkflowEntrypoint<Env, Params> {
     async run(event: WorkflowEvent<Params>, step: WorkflowStep) {
-        const { mainUrl, aboutUrl, eventsUrl } = event.payload;
+        const { mainUrl, aboutUrl, eventsUrl, name, address, instagram } = event.payload;
         const normalized_main_url = normalizeUrl(mainUrl);
         const normalized_about_url = aboutUrl ? normalizeUrl(aboutUrl) : null;
         const normalized_events_url = eventsUrl ? normalizeUrl(eventsUrl) : null;
         const supabase = getServiceClient(this.env);
         const pagesToScrape: string[] = [];
 
-        console.log(`[SeedGallery] Starting - main: ${mainUrl}, about: ${aboutUrl ?? 'none'}, events: ${eventsUrl ?? 'none'}`);
+        console.log(`[SeedGallery] Starting - name: ${name ?? 'none'}, main: ${mainUrl}, about: ${aboutUrl ?? 'none'}, events: ${eventsUrl ?? 'none'}`);
         console.log(`[SeedGallery] Normalized main=${normalized_main_url}${normalized_about_url ? ` about=${normalized_about_url}` : ""}${normalized_events_url ? ` events=${normalized_events_url}` : ""}`);
 
         const g = await step.do("upsert_gallery", async () => {
@@ -32,6 +40,18 @@ export class SeedGallery extends WorkflowEntrypoint<Env, Params> {
             const gallery = await upsertGallery(supabase, galleryRecord);
             console.log(`[SeedGallery] Gallery created/updated: ${gallery.id} (about_url=${gallery.about_url ?? "null"}, events_page=${gallery.events_page ?? "null"})`);
             return gallery;
+        });
+
+        await step.do("upsert_gallery_info", async () => {
+            const galleryInfoRecord: GalleryInfoInsert = {
+                gallery_id: g.id,
+                name: name ?? null,
+                address: address ?? null,
+                instagram: instagram ?? null,
+                data: {},
+            };
+            await upsertGalleryInfo(supabase, galleryInfoRecord);
+            console.log(`[SeedGallery] Gallery info created/updated: name=${name ?? "null"}, address=${address ?? "null"}, instagram=${instagram ?? "null"}`);
         });
 
         console.log(`[SeedGallery] Creating/updating pages for gallery ${g.id}`);

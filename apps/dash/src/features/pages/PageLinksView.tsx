@@ -297,7 +297,7 @@ function renderStructuredCell(
   onExtractPages: PageLinksViewProps["onExtractPages"]
 ): ReactNode {
   const parseStatus = page.page_structured?.parse_status ?? "never";
-  if (page.kind !== "event_detail") {
+  if (page.kind !== "event" && page.kind !== "galery_event_page") {
     return <StatusBadge status="skipped">N/A</StatusBadge>;
   }
 

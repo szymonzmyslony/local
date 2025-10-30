@@ -52,7 +52,8 @@ export const pageExtractionSchema = z.discriminatedUnion("type", [
     z.object({ type: z.literal("gallery_about") }).describe("Gallery about/biography page"),
     z.object({ type: z.literal("event_list") }).describe("Events listing page"),
     z.object({ type: z.literal("other") }).describe("Non-event, non-gallery supporting page"),
-    z.object({ type: z.literal("event_detail"), payload: eventExtractionSchema }).describe("Event detail page with structured payload")
+    z.object({ type: z.literal("event"), payload: eventExtractionSchema }).describe("Event detail page with structured payload"),
+    z.object({ type: z.literal("event_detail"), payload: eventExtractionSchema }).describe("Legacy event detail payload")
 ]).describe("Structured classification of page content");
 
 /** Convenience types */

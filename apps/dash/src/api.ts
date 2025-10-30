@@ -61,7 +61,6 @@ const pageStructuredSummarySchema = z
   .object({
     parse_status: parseStatusEnum,
     parsed_at: z.string().nullable(),
-    extracted_page_kind: pageKindEnum.nullable(),
     extraction_error: z.string().nullable()
   })
   .nullable();

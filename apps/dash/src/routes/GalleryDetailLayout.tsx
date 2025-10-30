@@ -133,7 +133,7 @@ export function GalleryDetailLayout() {
     if (!pageIds.length) return false;
     await runWorkflow("extract", () => extractPages(pageIds));
     const eventPageIds = (pipeline?.pages ?? [])
-      .filter(page => page.kind === "event_detail" && pageIds.includes(page.id))
+      .filter(page => page.kind === "event" && pageIds.includes(page.id))
       .map(page => page.id);
     if (eventPageIds.length) {
       await runProcessEvents(eventPageIds);

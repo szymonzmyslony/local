@@ -37,7 +37,7 @@ export class ExtractEventPages extends WorkflowEntrypoint<Env, Params> {
 
         for (const p of pages) {
             try {
-                if (p.kind !== "event_detail" && p.kind !== "event_candidate") {
+                if (p.kind !== "event" && p.kind !== "galery_event_page") {
                     console.log(`[ExtractEventPages] Skipping ${p.id} - kind=${p.kind}`);
                     continue;
                 }
@@ -63,13 +63,11 @@ export class ExtractEventPages extends WorkflowEntrypoint<Env, Params> {
                     return extractPageContentFromMarkdown(openai, md, p.url ?? p.normalized_url);
                 });
 
-                if (extraction.type === "event_detail" && !extraction.payload) {
-                    throw new Error("Event detail extraction returned without payload");
+                if ((extraction.type === "event" || extraction.type === "event_detail") && !extraction.payload) {
+                    throw new Error("Event extraction returned without payload");
                 }
 
                 console.log(`[ExtractEventPages] Classified ${p.url ?? p.normalized_url} as ${extraction.type}`);
-
-                const extractedKind = extraction.type === "event_detail" || extraction.type === "event_list" ? extraction.type : "other";
 
                 await step.do(`save-structured:${p.id}`, async () => {
                     const row: PageStructuredInsert = {
@@ -78,21 +76,20 @@ export class ExtractEventPages extends WorkflowEntrypoint<Env, Params> {
                         schema_version: null,
                         data: extraction,
                         parsed_at: new Date().toISOString(),
-                        extracted_page_kind: extractedKind,
                         extraction_error: null,
                     };
                     await upsertPageStructured(supabase, row);
                     console.log(`[ExtractEventPages] Saved structured data for ${p.id}`);
                 });
 
-                if (p.kind === "event_candidate") {
+                if (p.kind === "galery_event_page") {
                     await step.do(`promote-kind:${p.id}`, async () => {
                         const pageUpdate: PageUpdate = {
-                            kind: "event_detail",
+                            kind: "event",
                             updated_at: new Date().toISOString()
                         };
                         await updatePageById(supabase, p.id, pageUpdate);
-                        console.log(`[ExtractEventPages] Updated page ${p.id} kind=event_detail`);
+                        console.log(`[ExtractEventPages] Updated page ${p.id} kind=event`);
                     });
                 }
                 successCount++;
@@ -106,7 +103,6 @@ export class ExtractEventPages extends WorkflowEntrypoint<Env, Params> {
                         page_id: p.id,
                         parse_status: "error",
                         extraction_error: error instanceof Error ? error.message : String(error),
-                        extracted_page_kind: null,
                     };
                     await upsertPageStructured(supabase, row);
                     console.log(`[ExtractEventPages] Saved extraction error for ${p.id}`);

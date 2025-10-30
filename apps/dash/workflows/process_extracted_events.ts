@@ -14,12 +14,9 @@ import { pageExtractionSchema, type EventExtraction } from "@shared";
 
 type Params = { pageIds: string[] };
 
-type EventDetailExtraction = { type: "event_detail"; payload: EventExtraction };
-
 type ExtractionRow = {
     page_id: string;
-    data: EventDetailExtraction;
-    extracted_page_kind: "event_detail";
+    payload: EventExtraction;
 };
 
 export class ProcessExtractedEvents extends WorkflowEntrypoint<Env, Params> {
@@ -29,18 +26,18 @@ export class ProcessExtractedEvents extends WorkflowEntrypoint<Env, Params> {
 
         console.log(`[ProcessExtractedEvents] Starting - processing ${pageIds.length} pages`);
 
-        // Load page_structured records where extracted_kind = 'event'
+        // Load page_structured records where parse_status = 'ok'
         const extractions: ExtractionRow[] = await step.do("load-extractions", async () => {
             const records = await selectEventExtractions(supabase, pageIds);
             const rows: ExtractionRow[] = [];
             for (const row of records) {
-                if (row.extracted_page_kind !== "event_detail") continue;
                 const parsed = pageExtractionSchema.parse(row.data);
-                if (parsed.type !== "event_detail" || !parsed.payload) continue;
+                const isEventExtraction =
+                    (parsed.type === "event" || parsed.type === "event_detail") && parsed.payload;
+                if (!isEventExtraction) continue;
                 rows.push({
                     page_id: row.page_id,
-                    data: { type: "event_detail", payload: parsed.payload },
-                    extracted_page_kind: "event_detail"
+                    payload: parsed.payload
                 });
             }
             console.log(`[ProcessExtractedEvents] Found ${rows.length} event extractions`);
@@ -50,7 +47,7 @@ export class ProcessExtractedEvents extends WorkflowEntrypoint<Env, Params> {
         // Load page info to get gallery_id
         const pages: PageSummary[] = await step.do("load-pages", async () => {
             const rows = await selectPagesByIds(supabase, pageIds);
-            const withGallery = rows.filter(page => Boolean(page.gallery_id));
+            const withGallery = rows.filter(page => Boolean(page.gallery_id) && page.kind === "event");
             console.log(`[ProcessExtractedEvents] Loaded ${withGallery.length} pages with gallery IDs`);
             return withGallery;
         });
@@ -65,7 +62,7 @@ export class ProcessExtractedEvents extends WorkflowEntrypoint<Env, Params> {
                 continue;
             }
 
-            const payload = extraction.data.payload;
+            const payload = extraction.payload;
             console.log(`[ProcessExtractedEvents] Processing event: "${payload.title}"`);
 
             await step.do(`create-event:${page.id}`, async () => {

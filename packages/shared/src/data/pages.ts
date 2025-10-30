@@ -98,7 +98,7 @@ export async function getPageDetail(
     .from("pages")
     .select(
       "id, url, normalized_url, kind, fetch_status, fetched_at, " +
-        "page_content(markdown, parsed_at), page_structured(parse_status, parsed_at, extracted_page_kind, extraction_error)"
+        "page_content(markdown, parsed_at), page_structured(parse_status, parsed_at, extraction_error)"
     )
     .eq("id", pageId)
     .maybeSingle();
@@ -164,23 +164,22 @@ export async function upsertPageStructured(
 export async function selectEventExtractions(
   client: SupabaseServiceClient,
   pageIds: readonly string[]
-): Promise<Array<{ page_id: string; data: unknown; extracted_page_kind: "event_detail" }>> {
+): Promise<Array<{ page_id: string; data: unknown }>> {
   if (pageIds.length === 0) {
     return [];
   }
 
   const { data, error } = await client
     .from("page_structured")
-    .select("page_id, data, extracted_page_kind")
+    .select("page_id, data")
     .in("page_id", [...pageIds])
-    .eq("extracted_page_kind", "event_detail")
     .eq("parse_status", "ok");
 
   if (error) {
     throw toError("selectEventExtractions", error);
   }
 
-  return (data ?? []) as Array<{ page_id: string; data: unknown; extracted_page_kind: "event_detail" }>;
+  return (data ?? []) as Array<{ page_id: string; data: unknown }>;
 }
 
 export async function findExistingNormalizedUrls(

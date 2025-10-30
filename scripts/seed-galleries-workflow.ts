@@ -17,6 +17,9 @@ interface SeedGalleryPayload {
   mainUrl: string;
   aboutUrl?: string | null;
   eventsUrl?: string | null;
+  name?: string | null;
+  address?: string | null;
+  instagram?: string | null;
 }
 
 async function seedGallery(apiUrl: string, payload: SeedGalleryPayload): Promise<string> {
@@ -68,13 +71,19 @@ async function seedGalleriesFromCSV(csvPath: string, apiUrl: string) {
         mainUrl: row.gallery_homepage,
         aboutUrl: row.gallery_about && row.gallery_about.trim() !== "" ? row.gallery_about : null,
         eventsUrl: row.gallery_event && row.gallery_event.trim() !== "" ? row.gallery_event : null,
+        name: row.gallery_name && row.gallery_name.trim() !== "" ? row.gallery_name : null,
+        address: row.address && row.address.trim() !== "" ? row.address : null,
+        instagram: row.instagram && row.instagram.trim() !== "" ? row.instagram : null,
       };
 
       const workflowId = await seedGallery(apiUrl, payload);
       console.log(`  ✓ Workflow triggered: ${workflowId}`);
+      console.log(`    Name: ${payload.name ?? "none"}`);
       console.log(`    Main: ${payload.mainUrl}`);
       if (payload.aboutUrl) console.log(`    About: ${payload.aboutUrl}`);
       if (payload.eventsUrl) console.log(`    Events: ${payload.eventsUrl}`);
+      if (payload.address) console.log(`    Address: ${payload.address}`);
+      if (payload.instagram) console.log(`    Instagram: ${payload.instagram}`);
 
       successCount++;
     } catch (error) {

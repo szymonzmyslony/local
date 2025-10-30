@@ -21,7 +21,10 @@ import type {
 const SeedGalleryBodySchema = z.object({
   mainUrl: z.string().trim().url(),
   aboutUrl: z.string().trim().url().nullable().optional(),
-  eventsUrl: z.string().trim().url().nullable().optional()
+  eventsUrl: z.string().trim().url().nullable().optional(),
+  name: z.string().trim().min(1).nullable().optional(),
+  address: z.string().trim().min(1).nullable().optional(),
+  instagram: z.string().trim().min(1).nullable().optional()
 });
 
 const DiscoverLinksBodySchema = z.object({
@@ -76,8 +79,11 @@ export default {
       const mainUrl = body.mainUrl;
       const aboutUrl = body.aboutUrl ?? null;
       const eventsUrl = body.eventsUrl ?? null;
-      console.log("[dash-worker] Starting SeedGallery workflow", { mainUrl, aboutUrl, eventsUrl });
-      const run = await env.SEED_GALLERY.create({ params: { mainUrl, aboutUrl, eventsUrl } });
+      const name = body.name ?? null;
+      const address = body.address ?? null;
+      const instagram = body.instagram ?? null;
+      console.log("[dash-worker] Starting SeedGallery workflow", { mainUrl, aboutUrl, eventsUrl, name, address, instagram });
+      const run = await env.SEED_GALLERY.create({ params: { mainUrl, aboutUrl, eventsUrl, name, address, instagram } });
       const galleryId = run.id ?? run;
 
       return Response.json({ id: galleryId });

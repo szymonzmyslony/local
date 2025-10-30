@@ -113,7 +113,7 @@ export async function getGalleryPipeline(
       .from("pages")
       .select(
         "id, gallery_id, url, normalized_url, kind, fetch_status, fetched_at, http_status, created_at, updated_at, " +
-          "page_content(markdown, parsed_at), page_structured(parse_status, parsed_at, extracted_page_kind, extraction_error)"
+          "page_content(markdown, parsed_at), page_structured(parse_status, parsed_at, extraction_error)"
       )
       .eq("gallery_id", galleryId)
       .order("created_at", { ascending: false })

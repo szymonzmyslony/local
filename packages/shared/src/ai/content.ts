@@ -8,11 +8,12 @@ import {
     type GalleryExtraction,
     type PageExtraction
 } from "../schema";
+import { Constants } from "../types/database_types";
 
 const MAX_MD_LENGTH = 50_000;
 
 const pageKindSchema = z.object({
-    kind: z.enum(["init", "gallery_main", "gallery_about", "event_list", "event_detail", "other", "event_candidate"]).describe("Predicted page_kind classification")
+    kind: z.enum(Constants.public.Enums.page_kind).describe("Predicted page_kind classification")
 });
 
 export async function classifyPageKindFromMarkdown(openai: OpenAIProvider, md: string, url: string): Promise<z.infer<typeof pageKindSchema>["kind"]> {
@@ -21,13 +22,13 @@ export async function classifyPageKindFromMarkdown(openai: OpenAIProvider, md: s
         schema: pageKindSchema,
         prompt: [
             "Classify the Markdown content below into one of the following page kinds:",
-            "- init (needs human triage before we know what it is)",
+            "- init (needs human triage before classification)",
             "- gallery_main (home/landing page for the gallery)",
             "- gallery_about (about/biography page for the gallery)",
+            "- galery_event_page (gallery-controlled page about events that may need manual review)",
+            "- event (describes a single event in detail)",
             "- event_list (lists multiple events or programs)",
-            "- event_detail (describes a single event in detail)",
             "- other (any other supporting page)",
-            "- event_candidate (unclear, likely contains navigation or needs manual review)",
             "",
             "Return ONLY the classification string in the schema.",
             "",
@@ -83,7 +84,7 @@ export async function extractPageContentFromMarkdown(openai: OpenAIProvider, md:
             ].join("\n")
         });
 
-        return { type: "event_detail", payload: object };
+        return { type: "event", payload: object };
     } catch (error) {
         console.error("[extractPageContentFromMarkdown] Failed to generate object", {
             url,

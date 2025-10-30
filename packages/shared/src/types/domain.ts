@@ -25,12 +25,12 @@ export type GalleryWithRelations = Gallery & {
 
 export type PageDetail = Page & {
   page_content: Pick<PageContent, "markdown" | "parsed_at"> | null;
-  page_structured: Pick<PageStructured, "parse_status" | "parsed_at" | "extracted_page_kind" | "extraction_error"> | null;
+  page_structured: Pick<PageStructured, "parse_status" | "parsed_at" | "extraction_error"> | null;
 };
 
 export type PipelinePage = Page & {
   page_content: Pick<PageContent, "markdown" | "parsed_at"> | null;
-  page_structured: Pick<PageStructured, "parse_status" | "parsed_at" | "extracted_page_kind" | "extraction_error"> | null;
+  page_structured: Pick<PageStructured, "parse_status" | "parsed_at" | "extraction_error"> | null;
 };
 
 export type PipelineEvent = Event & {

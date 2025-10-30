@@ -8,11 +8,38 @@ A TypeScript script that reads a CSV file and triggers Cloudflare Worker workflo
 - Automatically triggers scraping for all pages
 - Processes everything asynchronously in Cloudflare Workers
 
+### Usage
+
+```bash
+bun run scripts/seed-galleries-workflow.ts <path-to-csv> <worker-api-url>
+```
+
+Example:
+```bash
+bun run scripts/seed-galleries-workflow.ts scripts/my.csv https://your-worker.workers.dev
+```
+
+### What it does
+
+1. Reads the CSV file
+2. For each gallery with a homepage URL:
+   - Calls the `/api/galleries/seed` endpoint with mainUrl, aboutUrl (if present), and eventsUrl (if present)
+   - The workflow creates:
+     - A `galleries` record
+     - A `gallery_info` record
+     - `pages` records for main, about (if provided), and events (if provided)
+     - Automatically triggers scraping for all pages
+3. Returns workflow IDs for tracking
+
+---
+
 ## import-galleries.ts
 
 A simpler TypeScript script to directly import galleries and gallery information from a CSV file into the database (without creating pages or triggering scrapes).
 
-### CSV Format
+---
+
+## CSV Format (for both scripts)
 
 The CSV file should have the following columns:
 
@@ -23,12 +50,24 @@ The CSV file should have the following columns:
 - `address` - The physical address of the gallery
 - `opening_hours` - Opening hours (currently not imported to database)
 - `instagram` - The Instagram handle of the gallery
-- `facebook` - Facebook URL (currently not imported to database)
-- `manually checked` - Check mark field (currently not imported to database)
+- `facebook` - Facebook URL (not used by either script)
+- `manually checked` - Check mark field (not used by either script)
 
-See `my.csv` for an example. The script currently imports only: gallery_name, gallery_homepage, gallery_event, gallery_about, address, and instagram.
+See `my.csv` for an example.
 
-Rows without a `gallery_homepage` will be automatically skipped.
+**seed-galleries-workflow.ts** uses:
+- gallery_homepage (as mainUrl - required)
+- gallery_about (as aboutUrl - optional)
+- gallery_event (as eventsUrl - optional)
+
+**import-galleries.ts** uses:
+- gallery_name, gallery_homepage, gallery_event, gallery_about, address, instagram
+
+Rows without a `gallery_homepage` will be automatically skipped by both scripts.
+
+---
+
+## import-galleries.ts Details
 
 ### Environment Variables
 
