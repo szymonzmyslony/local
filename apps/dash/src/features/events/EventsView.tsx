@@ -1,9 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
 import { EVENT_STATUSES } from "../../api";
 import type { DashboardAction, PipelineEvent, PipelinePage } from "../../api";
 import { LinkRowComponent } from "../../components/common/LinkRowComponent";
-import { PreviewModal } from "../../components/common/PreviewModal";
 import {
   Button,
   Badge,
@@ -12,6 +11,11 @@ import {
   CardHeader,
   CardSubtitle,
   CardTitle,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
   Table,
   TableBody,
   TableCell,
@@ -44,6 +48,11 @@ export function EventsView({
   const [sortOrder, setSortOrder] = useState<EventSort>("nearest");
   const [structuredEvent, setStructuredEvent] = useState<PipelineEvent | null>(null);
   const [embeddingEvent, setEmbeddingEvent] = useState<PipelineEvent | null>(null);
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   const pageById = useMemo(() => {
     const map = new Map<string, PipelinePage>();
@@ -239,20 +248,42 @@ export function EventsView({
           </TableBody>
         </Table>
 
-        {structuredEvent ? (
-          <PreviewModal
-            title={`Structured output - ${structuredEvent.title}`}
-            markdown={formatStructured(structuredEvent)}
-            onClose={() => setStructuredEvent(null)}
-          />
+        {isClient && structuredEvent ? (
+          <Dialog open onOpenChange={open => !open && setStructuredEvent(null)}>
+            <DialogContent className="max-w-3xl" aria-describedby={undefined}>
+              <DialogHeader>
+                <DialogTitle>{`Structured output - ${structuredEvent.title}`}</DialogTitle>
+                <DialogDescription>Structured event payload generated from markdown.</DialogDescription>
+              </DialogHeader>
+              <pre className="max-h-[60vh] overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-4 text-xs text-slate-700">
+                {formatStructured(structuredEvent)}
+              </pre>
+              <div className="mt-4 flex justify-end">
+                <Button type="button" variant="muted" onClick={() => setStructuredEvent(null)}>
+                  Close
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         ) : null}
 
-        {embeddingEvent ? (
-          <PreviewModal
-            title={`Embedding - ${embeddingEvent.title}`}
-            markdown={embeddingEvent.event_info?.embedding ?? "No embedding stored."}
-            onClose={() => setEmbeddingEvent(null)}
-          />
+        {isClient && embeddingEvent ? (
+          <Dialog open onOpenChange={open => !open && setEmbeddingEvent(null)}>
+            <DialogContent className="max-w-2xl" aria-describedby={undefined}>
+              <DialogHeader>
+                <DialogTitle>{`Embedding - ${embeddingEvent.title}`}</DialogTitle>
+                <DialogDescription>Embedding vector stored for this event.</DialogDescription>
+              </DialogHeader>
+              <pre className="max-h-[60vh] overflow-y-auto rounded-md bg-slate-900/90 p-4 text-xs text-slate-100">
+                {embeddingEvent.event_info?.embedding ?? "No embedding stored."}
+              </pre>
+              <div className="mt-4 flex justify-end">
+                <Button type="button" variant="muted" onClick={() => setEmbeddingEvent(null)}>
+                  Close
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         ) : null}
       </CardBody>
     </Card>

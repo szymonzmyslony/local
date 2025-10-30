@@ -54,6 +54,10 @@ function DialogContent({
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
     showCloseButton?: boolean
 }) {
+    if (typeof document === "undefined") {
+        return null
+    }
+
     return (
         <DialogPortal data-slot="dialog-portal">
             <DialogOverlay />

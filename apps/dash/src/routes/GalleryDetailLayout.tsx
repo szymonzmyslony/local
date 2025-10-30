@@ -10,6 +10,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   Label,
   Select,
   SelectContent,
@@ -34,7 +35,6 @@ import {
   type PipelineData
 } from "../api";
 import { useDashboard } from "../providers/dashboard-context";
-import { PreviewModal } from "../components/common/PreviewModal";
 
 type PagePreviewState = { title: string; markdown: string | null };
 type GalleryEmbeddingPreview = { title: string; embedding: string };
@@ -57,8 +57,6 @@ export type GalleryRouteContext = {
   updatePageKinds: (updates: PageKindUpdate[]) => Promise<number>;
   openPagePreview: (pageId: string, label: string) => Promise<void>;
   openEmbeddingPreview: (title: string, embedding: string) => void;
-  closePagePreview: () => void;
-  closeEmbeddingPreview: () => void;
   pagePreview: PagePreviewState | null;
   embeddingPreview: GalleryEmbeddingPreview | null;
   setStatus: (value: string | null) => void;
@@ -94,6 +92,7 @@ export function GalleryDetailLayout() {
       void refreshGalleries();
     }
   }, [galleries.length, galleriesLoading, refreshGalleries]);
+
 
   async function loadPipeline(id: string, options?: { silent?: boolean }) {
     if (!options?.silent) {
@@ -289,8 +288,6 @@ export function GalleryDetailLayout() {
           updatePageKinds: handleUpdatePageKinds,
           openPagePreview,
           openEmbeddingPreview,
-          closePagePreview: () => setPagePreview(null),
-          closeEmbeddingPreview: () => setEmbeddingPreview(null),
           pagePreview,
           embeddingPreview,
           setStatus,
@@ -299,22 +296,39 @@ export function GalleryDetailLayout() {
       />
 
       {pagePreview ? (
-        <PreviewModal
-          title={pagePreview.title}
-          markdown={pagePreview.markdown}
-          onClose={() => setPagePreview(null)}
-        />
+        <Dialog open onOpenChange={open => !open && setPagePreview(null)}>
+          <DialogContent className="max-w-3xl" aria-describedby={undefined}>
+            <DialogHeader>
+              <DialogTitle>{pagePreview.title}</DialogTitle>
+              <DialogDescription>Markdown captured from the latest scrape.</DialogDescription>
+            </DialogHeader>
+            <pre className="max-h-[60vh] overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-4 text-xs text-slate-700">
+              {pagePreview.markdown ?? "No content available."}
+            </pre>
+            <div className="mt-4 flex justify-end">
+              <Button type="button" variant="muted" onClick={() => setPagePreview(null)}>
+                Close
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       ) : null}
 
       {embeddingPreview ? (
         <Dialog open onOpenChange={open => !open && setEmbeddingPreview(null)}>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-2xl" aria-describedby={undefined}>
             <DialogHeader>
               <DialogTitle>{embeddingPreview.title}</DialogTitle>
+              <DialogDescription>Embedding vector payload for inspection.</DialogDescription>
             </DialogHeader>
             <pre className="max-h-[60vh] overflow-y-auto rounded-md bg-slate-900/90 p-4 text-xs text-slate-100">
-              {embeddingPreview.embedding}
+              {embeddingPreview.embedding ?? "No embedding stored."}
             </pre>
+            <div className="mt-4 flex justify-end">
+              <Button type="button" variant="muted" onClick={() => setEmbeddingPreview(null)}>
+                Close
+              </Button>
+            </div>
           </DialogContent>
         </Dialog>
       ) : null}
