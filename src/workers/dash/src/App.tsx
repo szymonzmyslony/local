@@ -3,6 +3,7 @@ import "./App.css";
 import {
   discoverLinks,
   embedEvents,
+  embedGallery,
   extractGalleryInfo,
   extractPages,
   fetchPipeline,
@@ -31,6 +32,11 @@ type PagePreviewState = {
   markdown: string | null;
 };
 
+type GalleryEmbeddingPreview = {
+  title: string;
+  embedding: string;
+};
+
 export function App() {
   const [galleries, setGalleries] = useState<GalleryListItem[]>([]);
   const [selectedGalleryId, setSelectedGalleryId] = useState<string | null>(null);
@@ -42,6 +48,7 @@ export function App() {
   const [seeding, setSeeding] = useState(false);
   const [seedOpen, setSeedOpen] = useState(false);
   const [pagePreview, setPagePreview] = useState<PagePreviewState | null>(null);
+  const [galleryEmbeddingPreview, setGalleryEmbeddingPreview] = useState<GalleryEmbeddingPreview | null>(null);
 
   useEffect(() => {
     void loadGalleries();
@@ -179,6 +186,11 @@ export function App() {
     await runWorkflow("embed", () => embedEvents(eventIds));
   }
 
+  async function handleEmbedGallery(): Promise<void> {
+    if (!selectedGalleryId) return;
+    await runWorkflow("embedGallery", () => embedGallery(selectedGalleryId));
+  }
+
   async function handleExtractGallery(): Promise<void> {
     if (!selectedGalleryId) return;
     await runWorkflow("extractGallery", () => extractGalleryInfo(selectedGalleryId));
@@ -274,6 +286,18 @@ export function App() {
           onPreviewMarkdown={handlePreviewPage}
           onScrapePage={pageId => {
             void handleScrapePages([pageId]);
+          }}
+          onEmbedGallery={() => {
+            void handleEmbedGallery();
+          }}
+          embedPending={pendingAction === "embedGallery"}
+          onViewEmbedding={() => {
+            const info = pipeline.gallery.gallery_info;
+            if (!info?.embedding) return;
+            setGalleryEmbeddingPreview({
+              title: info.name ?? pipeline.gallery.normalized_main_url,
+              embedding: info.embedding
+            });
           }}
         />
       );
@@ -374,6 +398,14 @@ export function App() {
           title={pagePreview.title}
           markdown={pagePreview.markdown}
           onClose={() => setPagePreview(null)}
+        />
+      ) : null}
+
+      {galleryEmbeddingPreview ? (
+        <PreviewModal
+          title={`Gallery embedding — ${galleryEmbeddingPreview.title}`}
+          markdown={galleryEmbeddingPreview.embedding}
+          onClose={() => setGalleryEmbeddingPreview(null)}
         />
       ) : null}
     </div>

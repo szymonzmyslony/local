@@ -307,6 +307,12 @@ export default {
       return Response.json({ id: run.id ?? run });
     }
 
+    if (request.method === "POST" && url.pathname === "/api/embed/galleries") {
+      const { galleryId } = ExtractGalleryBodySchema.parse(await request.json());
+      const run = await env.EMBEDDING.create({ params: { galleryIds: [galleryId] } });
+      return Response.json({ id: run.id ?? run });
+    }
+
     // Extract gallery
     if (request.method === "POST" && url.pathname === "/api/galleries/extract") {
       const body = ExtractGalleryBodySchema.parse(await request.json());

@@ -13,7 +13,10 @@ const galleryInfoDetailSchema = z.object({
   email: z.string().nullable(),
   phone: z.string().nullable(),
   instagram: z.string().nullable(),
-  tags: z.array(z.string()).nullable()
+  tags: z.array(z.string()).nullable(),
+  embedding: z.string().nullable(),
+  embedding_model: z.string().nullable(),
+  embedding_created_at: z.string().nullable()
 });
 
 const galleryInfoListSchema = z.object({
@@ -208,6 +211,7 @@ export type DashboardAction =
   | "extract"
   | "process"
   | "embed"
+  | "embedGallery"
   | "extractGallery";
 
 export async function discoverLinks(payload: { galleryId: string; listUrls: string[]; limit?: number }): Promise<string> {
@@ -255,6 +259,16 @@ export async function embedEvents(eventIds: string[]): Promise<string> {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ eventIds })
+  });
+  const { id } = await parseResponse(response, runResponseSchema);
+  return id;
+}
+
+export async function embedGallery(galleryId: string): Promise<string> {
+  const response = await fetch("/api/embed/galleries", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ galleryId })
   });
   const { id } = await parseResponse(response, runResponseSchema);
   return id;

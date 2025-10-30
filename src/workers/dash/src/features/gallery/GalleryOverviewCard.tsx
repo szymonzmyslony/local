@@ -12,6 +12,9 @@ type GalleryOverviewCardProps = {
   onExtractGallery: () => void;
   onPreviewMarkdown: (pageId: string, label: string) => void;
   onScrapePage: (pageId: string) => void;
+  onEmbedGallery: () => void;
+  embedPending: boolean;
+  onViewEmbedding: () => void;
 };
 
 export function GalleryOverviewCard({
@@ -22,11 +25,17 @@ export function GalleryOverviewCard({
   onRefresh,
   onExtractGallery,
   onPreviewMarkdown,
-  onScrapePage
+  onScrapePage,
+  onEmbedGallery,
+  embedPending,
+  onViewEmbedding
 }: GalleryOverviewCardProps) {
   const mainPage = findPageByKind(pages, "gallery_main");
   const aboutPage = findPageByKind(pages, "gallery_about");
   const canExtract = Boolean(mainPage && mainPage.fetch_status === "ok" && (!aboutPage || aboutPage.fetch_status === "ok"));
+  const embedding = gallery.gallery_info?.embedding ?? null;
+  const embeddingModel = gallery.gallery_info?.embedding_model ?? null;
+  const embeddingCreatedAt = gallery.gallery_info?.embedding_created_at ?? null;
 
   return (
     <section className="card">
@@ -51,6 +60,25 @@ export function GalleryOverviewCard({
                 ? "Extract gallery info"
                 : "Scrape primary pages first"}
           </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onEmbedGallery}
+            disabled={embedPending || !canExtract}
+          >
+            {embedPending
+              ? "Embedding…"
+              : canExtract
+                ? embedding
+                  ? "Re-embed gallery"
+                  : "Embed gallery"
+                : "Scrape primary pages first"}
+          </Button>
+          {embedding ? (
+            <Button type="button" variant="muted" onClick={onViewEmbedding}>
+              View embedding
+            </Button>
+          ) : null}
         </div>
       </header>
 
@@ -107,6 +135,8 @@ export function GalleryOverviewCard({
           {gallery.gallery_info?.instagram ? formatInstagram(gallery.gallery_info.instagram) : "—"}
         </InfoItem>
         <InfoItem label="Tags">{formatTags(gallery.gallery_info?.tags)}</InfoItem>
+        <InfoItem label="Embedding model">{embeddingModel ?? "—"}</InfoItem>
+        <InfoItem label="Embedding updated">{embeddingCreatedAt ?? "—"}</InfoItem>
       </div>
 
       <div className="info-grid info-grid--full">

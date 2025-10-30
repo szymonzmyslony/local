@@ -18,8 +18,9 @@
 	},
 	"workers_dev": false,
 	"routes": [
-		{ "pattern": "admin.zinelocal.com/*", "zone_name": "zinelocal.com" }
+		{ "pattern": "admin.zinelocal.com", "zone_name": "zinelocal.com", "custom_domain": true }
 	],
+	
 	"workflows": [
 		{ "name": "seed-gallery",   "binding": "SEED_GALLERY",   "class_name": "SeedGallery"   },
 		{ "name": "discover-links", "binding": "DISCOVER_LINKS", "class_name": "DiscoverLinks" },
