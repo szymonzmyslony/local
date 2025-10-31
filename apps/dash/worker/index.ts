@@ -62,6 +62,7 @@ export { ScrapePages } from "../workflows/scrape_pages";
 export { ExtractEventPages } from "../workflows/extract_event_pages";
 export { ExtractGallery } from "../workflows/extract_gallery";
 export { Embed } from "../workflows/embeed";
+export { PromotePages } from "../workflows/promote_pages";
 export { ScrapeAndExtract } from "../workflows/scrape_and_extract";
 export { SeedAndStartupGallery } from "../workflows/seedAndStartupGallery";
 

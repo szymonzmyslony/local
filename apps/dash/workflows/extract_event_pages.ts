@@ -56,11 +56,10 @@ export class ExtractEventPages extends WorkflowEntrypoint<Env, Params> {
 
         for (const p of pages) {
             try {
-                if (p.kind !== "event" && p.kind !== "galery_event_page") {
-                    console.log(`[ExtractEventPages] Skipping ${p.id} - kind=${p.kind}`);
-                    continue;
-                }
-                console.log(`[ExtractEventPages] Extracting ${p.url ?? p.normalized_url}`);
+                const originalKind = p.kind;
+                console.log(
+                    `[ExtractEventPages] Extracting ${p.url ?? p.normalized_url} (kind=${originalKind})`
+                );
                 const md = await step.do(`load-md:${p.id}`, async () => {
                     return (await getPageMarkdown(supabase, p.id)) ?? "";
                 });
@@ -101,8 +100,8 @@ export class ExtractEventPages extends WorkflowEntrypoint<Env, Params> {
                     console.log(`[ExtractEventPages] Saved structured data for ${p.id}`);
                 });
 
-                if (p.kind === "galery_event_page") {
-                    await step.do(`promote-kind:${p.id}`, async () => {
+                if (originalKind !== "event") {
+                    await step.do(`ensure-kind:${p.id}`, async () => {
                         const pageUpdate: PageUpdate = {
                             kind: "event",
                             updated_at: new Date().toISOString()

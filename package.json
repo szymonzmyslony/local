@@ -42,6 +42,7 @@
     "wrangler": "^4.45.0"
   },
   "dependencies": {
+    "@radix-ui/react-navigation-menu": "^1.2.14",
     "csv-parse": "^6.1.0"
   }
 }

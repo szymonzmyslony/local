@@ -4,7 +4,7 @@ import { parse } from "csv-parse/sync";
 interface CSVRow {
   gallery_name: string;
   gallery_homepage: string;
-  gallery_event: string;
+  gallery_events: string;
   gallery_about: string;
   address: string;
   opening_hours: string;
@@ -70,7 +70,7 @@ async function seedAndStartupGalleriesFromCSV(csvPath: string, apiUrl: string) {
       const payload: SeedAndStartupGalleryPayload = {
         mainUrl: row.gallery_homepage,
         aboutUrl: row.gallery_about && row.gallery_about.trim() !== "" ? row.gallery_about : null,
-        eventsUrl: row.gallery_event && row.gallery_event.trim() !== "" ? row.gallery_event : null,
+        eventsUrl: row.gallery_events && row.gallery_events.trim() !== "" ? row.gallery_events : null,
         name: row.gallery_name && row.gallery_name.trim() !== "" ? row.gallery_name : null,
         address: row.address && row.address.trim() !== "" ? row.address : null,
         instagram: row.instagram && row.instagram.trim() !== "" ? row.instagram : null,

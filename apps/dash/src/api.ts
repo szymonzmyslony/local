@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Constants } from "@shared";
+import type { GalleryWithRelations } from "@shared";
 
 const fetchStatusEnum = z.enum(Constants.public.Enums.fetch_status);
 const pageKindEnum = z.enum(Constants.public.Enums.page_kind);
@@ -16,39 +17,53 @@ const galleryInfoDetailSchema = z.object({
   tags: z.array(z.string()).nullable(),
   embedding: z.string().nullable(),
   embedding_model: z.string().nullable(),
-  embedding_created_at: z.string().nullable()
+  embedding_created_at: z.string().nullable(),
+  // Required fields in GalleryInfo
+  data: z.any(),
+  gallery_id: z.string(),
+  updated_at: z.string()
 });
+
+// Minimal hours schema used for gallery detail; accepts extra properties
+const galleryHoursSchema = z
+  .object({
+    id: z.string(),
+    gallery_id: z.string(),
+    dow: z.number(),
+    open_time: z.string(),
+    close_time: z.string()
+  })
+  .catchall(z.unknown());
+
+// Gallery detail corresponds to GalleryWithRelations from @shared
+const galleryDetailSchema = z
+  .object({
+    id: z.string(),
+    main_url: z.string(),
+    about_url: z.string().nullable(),
+    normalized_main_url: z.string(),
+    events_page: z.string().nullable(),
+    created_at: z.string(),
+    updated_at: z.string(),
+    gallery_info: galleryInfoDetailSchema.nullable(),
+    gallery_hours: z.array(galleryHoursSchema)
+  })
+  .catchall(z.unknown());
 
 const galleryInfoListSchema = z.object({
   name: z.string().nullable()
 });
 
-const galleryListItemSchema = z.object({
-  id: z.string().uuid(),
+export const galleryListItemSchema = z.object({
+  id: z.string(),
   main_url: z.string().url(),
   about_url: z.string().url().nullable(),
   normalized_main_url: z.string(),
   gallery_info: galleryInfoListSchema.nullable()
 });
 
-const galleryHoursSchema = z.array(z.object({
-  id: z.string().uuid(),
-  gallery_id: z.string().uuid(),
-  dow: z.number(),
-  open_time: z.string(),
-  close_time: z.string()
-}));
 
-const galleryDetailSchema = z.object({
-  id: z.string().uuid(),
-  main_url: z.string().url(),
-  about_url: z.string().url().nullable(),
-  normalized_main_url: z.string(),
-  gallery_info: galleryInfoDetailSchema.nullable(),
-  gallery_hours: galleryHoursSchema,
-  created_at: z.string(),
-  updated_at: z.string()
-});
+
 
 const pageContentSummarySchema = z
   .object({
@@ -119,7 +134,7 @@ const eventInfoSummarySchema = z
     md: z.string().nullable(),
     embedding: z.string().nullable()
   })
-  .passthrough()
+  .catchall(z.unknown())
   .nullable();
 
 const eventOccurrenceSchema = z.object({
@@ -167,7 +182,7 @@ export const FETCH_STATUSES = Constants.public.Enums.fetch_status;
 export const EVENT_STATUSES = Constants.public.Enums.event_status;
 
 export type GalleryListItem = z.infer<typeof galleryListItemSchema>;
-export type GalleryDetail = z.infer<typeof galleryDetailSchema>;
+export type GalleryDetail = GalleryWithRelations;
 export type GalleryPage = z.infer<typeof galleryPageSchema>;
 export type GalleryEvent = z.infer<typeof galleryEventSchema>;
 export type PageContentResponse = z.infer<typeof pageContentDetailSchema>;

@@ -8,6 +8,7 @@ import { fetchGalleryPages, getPageContent, type GalleryPage } from "../api";
 export function GalleryPagesPage() {
   const {
     galleryId,
+    gallery,
     loadingGallery,
     pendingAction,
     dataVersion,
@@ -81,6 +82,7 @@ export function GalleryPagesPage() {
         }}
       />
       <PageLinksView
+        gallery={gallery ?? null}
         pages={pages}
         pendingAction={pendingAction}
         onScrapePages={ids => {

@@ -167,8 +167,20 @@ export function GalleryDetailLayout() {
       const eventIds = events
         .filter(event => event.page_id && pageIds.includes(event.page_id))
         .map(event => event.id);
+      console.log("[GalleryDetailLayout] Promote events result", {
+        galleryId,
+        pageIds,
+        fetchedEvents: events.length,
+        matchedEvents: eventIds.length
+      });
       if (eventIds.length) {
+        console.log("[GalleryDetailLayout] Triggering embed workflow for events", { eventIds });
         await runWorkflow("embed", () => embedEvents(eventIds));
+      } else {
+        console.log("[GalleryDetailLayout] No matching events immediately available after promote", {
+          galleryId,
+          pageIds
+        });
       }
     } catch (issue) {
       setError(issue instanceof Error ? issue.message : String(issue));

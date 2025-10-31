@@ -3,7 +3,9 @@ import type {
   ColumnDef,
   ColumnFiltersState,
   SortingState,
-  VisibilityState
+  VisibilityState,
+  RowSelectionState,
+  OnChangeFn
 } from "@tanstack/react-table";
 import {
   flexRender,
@@ -47,6 +49,14 @@ type DataTableProps<TData> = {
    */
   getRowId?: (originalRow: TData, index: number) => string;
   enableRowSelection?: boolean;
+  /**
+   * Controlled row selection state. When provided, the table will respect this value.
+   */
+  rowSelection?: RowSelectionState;
+  /**
+   * Called whenever row selection changes. Useful when controlling selection state.
+   */
+  onRowSelectionChange?: OnChangeFn<RowSelectionState>;
 };
 
 export function DataTable<TData>({
@@ -57,12 +67,17 @@ export function DataTable<TData>({
   emptyMessage = "No results found.",
   className,
   getRowId,
-  enableRowSelection = false
+  enableRowSelection = false,
+  rowSelection: controlledRowSelection,
+  onRowSelectionChange
 }: DataTableProps<TData>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
-  const [rowSelection, setRowSelection] = useState({});
+  const [uncontrolledRowSelection, setUncontrolledRowSelection] = useState<RowSelectionState>({});
+
+  const rowSelection = controlledRowSelection ?? uncontrolledRowSelection;
+  const handleRowSelectionChange = onRowSelectionChange ?? setUncontrolledRowSelection;
 
   const table = useReactTable({
     data,
@@ -77,7 +92,7 @@ export function DataTable<TData>({
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
-    onRowSelectionChange: setRowSelection,
+    onRowSelectionChange: handleRowSelectionChange,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -85,7 +100,6 @@ export function DataTable<TData>({
     enableRowSelection
   });
 
-  const toolbar = useMemo(() => (renderToolbar ? renderToolbar(table) : null), [renderToolbar, table]);
   const footer = useMemo(
     () =>
       renderFooter
@@ -98,7 +112,7 @@ export function DataTable<TData>({
 
   return (
     <div className={cn("space-y-4", className)}>
-      {toolbar}
+      {renderToolbar ? renderToolbar(table) : null}
       <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
         <Table>
           <TableHead>

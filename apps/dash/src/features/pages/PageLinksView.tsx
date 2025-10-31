@@ -1,11 +1,12 @@
-import { useMemo, useState, type ReactNode } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
-import { Button, Input } from "@shared/ui";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import type { ColumnDef, RowSelectionState } from "@tanstack/react-table";
+import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@shared/ui";
 import { DataTable, DataTableColumnHeader } from "../../components/data-table";
 import { FETCH_STATUSES, PAGE_KINDS } from "../../api";
-import type { DashboardAction, GalleryPage, PageKind, PageKindUpdate } from "../../api";
+import type { DashboardAction, GalleryDetail, GalleryPage, PageKind, PageKindUpdate } from "../../api";
 
 type PageLinksViewProps = {
+  gallery: GalleryDetail | null;
   pages: GalleryPage[];
   pendingAction: DashboardAction | null;
   onScrapePages: (pageIds: string[]) => Promise<void>;
@@ -17,6 +18,7 @@ type PageLinksViewProps = {
 type SortOrder = "newest" | "oldest" | "alphabetical";
 
 export function PageLinksView({
+  gallery: _gallery,
   pages,
   pendingAction,
   onScrapePages,
@@ -28,6 +30,7 @@ export function PageLinksView({
   const [selectedKind, setSelectedKind] = useState<PageKind | "all">("all");
   const [selectedStatus, setSelectedStatus] = useState<GalleryPage["fetch_status"] | "all">("all");
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 
   const filteredPages = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -54,6 +57,19 @@ export function PageLinksView({
 
     return sorted;
   }, [pages, search, selectedKind, selectedStatus, sortOrder]);
+
+  const selectedPageIds = useMemo(
+    () => Object.entries(rowSelection).filter(([, value]) => value).map(([rowId]) => rowId),
+    [rowSelection]
+  );
+  const selectedPages = useMemo(
+    () => pages.filter(page => selectedPageIds.includes(page.id)),
+    [pages, selectedPageIds]
+  );
+
+  useEffect(() => {
+    setRowSelection({});
+  }, [pages]);
 
   const columns = useMemo<ColumnDef<GalleryPage>[]>(
     () => [
@@ -150,37 +166,13 @@ export function PageLinksView({
           return <StatusBadge status={page.fetch_status}>{label}</StatusBadge>;
         },
         meta: { cellClassName: "w-[140px]" }
-      },
-      {
-        id: "actions",
-        header: () => <span className="sr-only">Actions</span>,
-        enableSorting: false,
-        cell: ({ row }) => {
-          const page = row.original;
-          const scraping = pendingAction === "scrape";
-          const label = page.fetch_status === "ok" ? "Rescrape" : "Scrape";
-          return (
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  console.log("[PageLinksView] scrape requested", { pageId: page.id });
-                  onScrapePages([page.id]);
-                }}
-                disabled={scraping || page.fetch_status === "fetching"}
-              >
-                {scraping ? "Working…" : page.fetch_status === "fetching" ? "Queued" : label}
-              </Button>
-            </div>
-          );
-        },
-        meta: { cellClassName: "w-[180px]" }
       }
     ],
-    [onPreviewPages, onScrapePages, pendingAction]
+    [onPreviewPages, onUpdatePageKind]
   );
+
+  const busyScrape = pendingAction === "scrape";
+  const busyPromote = pendingAction === "scrapeAndExtract";
 
   return (
     <section className="space-y-6">
@@ -190,95 +182,109 @@ export function PageLinksView({
         getRowId={row => row.id}
         emptyMessage="No pages match the current filters."
         enableRowSelection
+        rowSelection={rowSelection}
+        onRowSelectionChange={setRowSelection}
         renderToolbar={table => {
-          const selectedRows = table.getSelectedRowModel().rows;
-          const selectedPages = selectedRows.map(row => row.original);
-          const selectedIds = selectedPages.map(page => page.id);
-          const selectionDisabled = selectedIds.length === 0;
+          const selectionDisabled = selectedPageIds.length === 0;
 
           return (
-            <div className="flex flex-col gap-4">
-              <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center">
-                <FilterField label="Search">
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
+              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+                <FieldGroup label="Search">
                   <Input
                     placeholder="Filter by normalized URL…"
                     value={search}
                     onChange={event => setSearch(event.target.value)}
                   />
-                </FilterField>
-                <FilterField label="Page kind">
-                  <select
-                    value={selectedKind}
-                    onChange={event => setSelectedKind(event.target.value as PageKind | "all")}
-                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                  >
-                    <option value="all">All kinds</option>
-                    {PAGE_KINDS.map(kind => (
-                      <option key={kind} value={kind}>
-                        {kind}
-                      </option>
-                    ))}
-                  </select>
-                </FilterField>
-                <FilterField label="Fetch status">
-                  <select
+                </FieldGroup>
+                <FieldGroup label="Page kind">
+                  <Select value={selectedKind} onValueChange={value => setSelectedKind(value as PageKind | "all")}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="All kinds" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All kinds</SelectItem>
+                      {PAGE_KINDS.map(kind => (
+                        <SelectItem key={kind} value={kind}>
+                          {kind}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </FieldGroup>
+                <FieldGroup label="Fetch status">
+                  <Select
                     value={selectedStatus}
-                    onChange={event => setSelectedStatus(event.target.value as GalleryPage["fetch_status"] | "all")}
-                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                    onValueChange={value => setSelectedStatus(value as GalleryPage["fetch_status"] | "all")}
                   >
-                    <option value="all">All statuses</option>
-                    {FETCH_STATUSES.map(status => (
-                      <option key={status} value={status}>
-                        {status}
-                      </option>
-                    ))}
-                  </select>
-                </FilterField>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="All statuses" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All statuses</SelectItem>
+                      {FETCH_STATUSES.map(status => (
+                        <SelectItem key={status} value={status}>
+                          {status}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </FieldGroup>
+                <FieldGroup label="Sort order">
+                  <Select value={sortOrder} onValueChange={value => setSortOrder(value as SortOrder)}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="newest">Newest first</SelectItem>
+                      <SelectItem value="oldest">Oldest first</SelectItem>
+                      <SelectItem value="alphabetical">Alphabetical</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </FieldGroup>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <FilterField label="Sort">
-                  <select
-                    value={sortOrder}
-                    onChange={event => setSortOrder(event.target.value as SortOrder)}
-                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                  >
-                    <option value="newest">Newest first</option>
-                    <option value="oldest">Oldest first</option>
-                    <option value="alphabetical">Alphabetical</option>
-                  </select>
-                </FilterField>
+              <div className="flex flex-col gap-3 border-t border-slate-200 pt-4 md:flex-row md:items-center md:justify-between">
+                <div className="text-sm text-slate-600">
+                  <span>{filteredPages.length} pages</span>
+                  <span className="hidden md:inline"> • </span>
+                  <span>{selectedPageIds.length} selected</span>
+                </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
                     type="button"
                     variant="secondary"
                     size="sm"
-                    disabled={selectionDisabled}
+                    disabled={selectionDisabled || busyScrape}
                     onClick={() => {
                       if (selectionDisabled) return;
-                      onScrapePages(selectedIds);
+                      console.log("[PageLinksView] bulk scrape", { ids: selectedPageIds });
+                      void (async () => {
+                        await onScrapePages(selectedPageIds);
+                        table.resetRowSelection();
+                      })();
                     }}
                   >
-                    Scrape selected
+                    {busyScrape ? "Scraping…" : "Scrape selected"}
                   </Button>
-                 <Button
-                   type="button"
-                   variant="secondary"
-                   size="sm"
-                   className="bg-blue-600 text-white hover:bg-blue-500"
-                   disabled={selectionDisabled}
-                   onClick={() => {
-                     if (selectionDisabled) return;
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    disabled={selectionDisabled || busyPromote}
+                    onClick={() => {
+                      if (selectionDisabled) return;
                       console.log("[PageLinksView] mark as event selected pages", {
                         count: selectedPages.length,
                         ids: selectedPages.map(page => page.id),
                         kinds: selectedPages.map(page => page.kind)
                       });
-                      const ids = selectedPages.map(page => page.id);
-                      if (ids.length === 0) return;
-                      void onMarkPagesAsEvent(ids);
+                      void (async () => {
+                        await onMarkPagesAsEvent(selectedPageIds);
+                        table.resetRowSelection();
+                      })();
                     }}
-                 >
-                    Mark as event
+                  >
+                    {busyPromote ? "Promoting…" : "Mark as event"}
                   </Button>
                 </div>
               </div>
@@ -302,10 +308,10 @@ function handlePreview(page: GalleryPage, onPreviewPages: PageLinksViewProps["on
   void onPreviewPages([{ id: page.id, label: page.normalized_url }]);
 }
 
-function FilterField({ label, children }: { label: string; children: ReactNode }) {
+function FieldGroup({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="flex w-full flex-col gap-1 text-sm font-medium text-slate-700">
-      {label}
+    <label className="flex w-full flex-col gap-2 text-sm text-slate-700">
+      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</span>
       {children}
     </label>
   );

@@ -10,3 +10,4 @@ export * from "./select";
 export * from "./textarea";
 export * from "./tooltip";
 export * from "./collapsible";
+export * from "./navigation-menu";

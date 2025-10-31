@@ -3,6 +3,7 @@ import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 import { createOpenAI } from "@ai-sdk/openai";
 import {
     extractGalleryInfoFromMarkdown,
+    getGalleryWithInfo,
     getPageMarkdownBulk,
     getServiceClient,
     selectPagesByGallery,
@@ -20,6 +21,27 @@ export class ExtractGallery extends WorkflowEntrypoint<Env, Params> {
         const openai = createOpenAI({ apiKey: this.env.OPENAI_API_KEY });
 
         console.log(`[ExtractGallery] Starting - gallery ${galleryId}`);
+
+        // Idempotency check: Skip if already extracted
+        const existingGallery = await step.do("check-if-already-extracted", async (): Promise<{ gallery_info?: { about?: string | null; email?: string | null } | null } | null> => {
+            const gallery = await getGalleryWithInfo(supabase, galleryId);
+            // Return only the fields we need to check
+            return gallery ? { gallery_info: gallery.gallery_info } : null;
+        });
+
+        if (existingGallery?.gallery_info?.about || existingGallery?.gallery_info?.email) {
+            console.log(`[ExtractGallery] Gallery ${galleryId} already has extracted data (about="${existingGallery.gallery_info.about?.substring(0, 50)}...", email="${existingGallery.gallery_info.email}"), skipping extraction`);
+
+            // Still trigger embedding workflow in case it hasn't been done
+            await step.do("trigger-embedding", async () => {
+                console.log(`[ExtractGallery] Triggering embedding for gallery ${galleryId}`);
+                await this.env.EMBEDDING.create({ params: { galleryIds: [galleryId] } });
+            });
+
+            return { ok: true as const, skipped: true };
+        }
+
+        console.log(`[ExtractGallery] No existing extraction found, proceeding with extraction`);
 
         // 1) Load gallery pages (main, about)
         const pages = await step.do("load-gallery-pages", async () => {

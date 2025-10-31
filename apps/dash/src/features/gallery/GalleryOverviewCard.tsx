@@ -35,9 +35,12 @@ export function GalleryOverviewCard({
 }: GalleryOverviewCardProps) {
   const primaryPages: PrimaryPage[] = [
     { id: "gallery_main", label: "Main page", page: mainPage },
-    { id: "gallery_about", label: "About page", page: aboutPage },
-    { id: "event_list", label: "Events page", page: eventsPage ?? null }
+    { id: "gallery_about", label: "About page", page: aboutPage }
   ];
+
+  if (eventsPage || gallery.events_page) {
+    primaryPages.push({ id: "event_list", label: "Events page", page: eventsPage ?? null });
+  }
 
   const info = gallery.gallery_info;
   return (

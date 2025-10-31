@@ -35,15 +35,12 @@ export class ScrapePages extends WorkflowEntrypoint<Env, Params> {
 
         for (const p of pages) {
             try {
-                console.log(`[ScrapePages] Scraping ${p.normalized_url}`);
                 const markdown: string | null = await step.do(`scrape:${p.id}`, async () => {
                     const doc = await firecrawl.scrape(p.normalized_url, { formats: ["markdown"] });
                     const parsed = markdownSchema.safeParse(doc);
                     if (!parsed.success) return null;
                     return parsed.data.markdown ?? null;
                 });
-
-                console.log(`[ScrapePages] Scraped ${p.normalized_url} - ${markdown ? markdown.length + ' chars' : 'no content'}`);
 
                 await step.do(`save-content:${p.id}`, async () => {
                     const contentRecord: PageContentInsert = {
@@ -52,7 +49,6 @@ export class ScrapePages extends WorkflowEntrypoint<Env, Params> {
                         parsed_at: new Date().toISOString(),
                     };
                     await upsertPageContent(supabase, contentRecord);
-                    console.log(`[ScrapePages] Saved content for page ${p.id} (length ${markdown?.length ?? 0})`);
                 });
 
                 await step.do(`mark-ok:${p.id}`, async () => {
@@ -61,17 +57,15 @@ export class ScrapePages extends WorkflowEntrypoint<Env, Params> {
                         fetched_at: new Date().toISOString(),
                     };
                     await updatePageById(supabase, p.id, pageUpdate);
-                    console.log(`[ScrapePages] Marked page ${p.id} as ok`);
                 });
                 successCount++;
-                console.log(`[ScrapePages] Success ${successCount}/${pages.length} - ${p.normalized_url}`);
+                console.log(`[ScrapePages] ✓ ${successCount}/${pages.length} - ${p.normalized_url}`);
             } catch (error) {
                 errorCount++;
-                console.error(`[ScrapePages] Error ${errorCount}/${pages.length} - ${p.normalized_url}:`, error);
+                console.error(`[ScrapePages] ✗ ${errorCount}/${pages.length} - ${p.normalized_url}:`, error);
                 await step.do(`mark-error:${p.id}`, async () => {
                     const pageUpdate: PageUpdate = { fetch_status: "error" };
                     await updatePageById(supabase, p.id, pageUpdate);
-                    console.log(`[ScrapePages] Marked page ${p.id} as error`);
                 });
             }
         }

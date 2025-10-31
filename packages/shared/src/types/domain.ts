@@ -10,7 +10,7 @@ import type {
   PageStructured
 } from "./common";
 
-export type GalleryListItem = Pick<Gallery, "id" | "main_url" | "about_url" | "normalized_main_url"> & {
+export type GalleryListItem = Pick<Gallery, "id" | "main_url" | "about_url" | "normalized_main_url" | "events_page"> & {
   gallery_info: Pick<GalleryInfo, "name"> | null;
 };
 
@@ -21,6 +21,7 @@ export type EventListItem = Pick<Event, "id" | "title" | "start_at" | "status" |
 export type GalleryWithRelations = Gallery & {
   gallery_info: GalleryInfo | null;
   gallery_hours: GalleryHours[];
+  events_page: string | null;
 };
 
 export type PageDetail = Page & {

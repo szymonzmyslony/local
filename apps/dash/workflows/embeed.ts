@@ -60,6 +60,18 @@ export class Embed extends WorkflowEntrypoint<Env, Params> {
             const res = await step.do("embed-call:galleries", async () => {
                 const out: { gallery_id: string; embedding: number[]; model: string }[] = [];
                 for (const id of galleryIds) {
+                    // Idempotency check: Skip if embedding already exists
+                    const { data: existingInfo } = await supabase
+                        .from("gallery_info")
+                        .select("embedding")
+                        .eq("gallery_id", id)
+                        .maybeSingle();
+
+                    if (existingInfo?.embedding) {
+                        console.log(`[Embed] Gallery ${id} already has an embedding, skipping`);
+                        continue;
+                    }
+
                     // Fetch gallery_info fields: name, tags, about
                     const name = await selectGalleryName(supabase, id);
                     const tags = await selectGalleryTags(supabase, id);

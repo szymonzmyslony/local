@@ -26,6 +26,7 @@
 		{ "name": "discover-links", "binding": "DISCOVER_LINKS", "class_name": "DiscoverLinks" },
 		{ "name": "scrape-pages",   "binding": "SCRAPE_PAGES",   "class_name": "ScrapePages"   },
 		{ "name": "extract-event-pages",  "binding": "EXTRACT_EVENT_PAGES",  "class_name": "ExtractEventPages"  },
+		{ "name": "promote-pages",  "binding": "PROMOTE_PAGES",  "class_name": "PromotePages"  },
 		{ "name": "scrape-and-extract",  "binding": "SCRAPE_AND_EXTRACT",  "class_name": "ScrapeAndExtract"  },
 		{ "name": "extract-gallery",  "binding": "EXTRACT_GALLERY",  "class_name": "ExtractGallery"  },
 		{ "name": "embed",          "binding": "EMBEDDING",      "class_name": "Embed"         },

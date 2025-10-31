@@ -1,5 +1,6 @@
 import { WorkflowEntrypoint } from "cloudflare:workers";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
+import { getServiceClient, normalizeUrl, selectPagesByGallery } from "@shared";
 
 type Params = {
     mainUrl: string;
@@ -23,21 +24,58 @@ export class SeedAndStartupGallery extends WorkflowEntrypoint<Env, Params> {
         console.log(`[SeedAndStartupGallery] Starting full gallery startup - name: ${name ?? 'none'}, main: ${mainUrl}`);
 
         // STEP 1: Trigger SeedGallery workflow
-        const galleryId = await step.do("trigger-seed-gallery", async () => {
+        await step.do("trigger-seed-gallery", async () => {
             console.log("[SeedAndStartupGallery] Triggering SeedGallery workflow");
             const run = await this.env.SEED_GALLERY.create({
                 params: { mainUrl, aboutUrl, eventsUrl, name, address, instagram }
             });
-            const id = run.id ?? run;
-            console.log(`[SeedAndStartupGallery] SeedGallery workflow triggered: ${id}`);
-            return id;
+            const workflowId = run.id ?? run;
+            console.log(`[SeedAndStartupGallery] SeedGallery workflow triggered: ${workflowId}`);
+            return workflowId;
         });
 
-        // STEP 2: Wait for scraping to complete
-        // SeedGallery triggers SCRAPE_PAGES, so we give it time to finish
-        await step.sleep("wait-for-scraping", "45 seconds");
+        // STEP 2: Look up the gallery ID from the database
+        const supabase = getServiceClient(this.env);
+        const galleryId = await step.do("lookup-gallery-id", async () => {
+            const normalizedUrl = normalizeUrl(mainUrl);
+            const { data, error } = await supabase
+                .from("galleries")
+                .select("id")
+                .eq("normalized_main_url", normalizedUrl)
+                .maybeSingle();
 
-        // STEP 3: Trigger ExtractGallery workflow
+            if (error || !data) {
+                throw new Error(`Failed to find gallery with URL ${normalizedUrl}: ${error?.message ?? 'not found'}`);
+            }
+
+            console.log(`[SeedAndStartupGallery] Found gallery ID: ${data.id} for URL ${normalizedUrl}`);
+            return data.id;
+        });
+
+        // STEP 3: Wait for scraping to complete
+        // SeedGallery triggers SCRAPE_PAGES, so we give it time to finish
+        await step.sleep("wait-for-scraping", "60 seconds");
+
+        // STEP 4: Check if any pages were successfully scraped
+        const scrapedPages = await step.do("check-scraping-status", async () => {
+            const pages = await selectPagesByGallery(supabase, galleryId);
+            const galleryPages = pages.filter(p => p.kind === "gallery_main" || p.kind === "gallery_about");
+            const successfulPages = galleryPages.filter(p => p.fetch_status === "ok");
+
+            console.log(`[SeedAndStartupGallery] Gallery pages: ${galleryPages.length}, Successfully scraped: ${successfulPages.length}`);
+            galleryPages.forEach(p => {
+                console.log(`[SeedAndStartupGallery] Page ${p.id} kind=${p.kind} status=${p.fetch_status} url=${p.url ?? p.normalized_url}`);
+            });
+
+            return successfulPages;
+        });
+
+        if (scrapedPages.length === 0) {
+            console.log(`[SeedAndStartupGallery] No pages were successfully scraped for gallery ${galleryId}, skipping extraction`);
+            return { galleryId, extracted: false, reason: "No pages scraped successfully" };
+        }
+
+        // STEP 5: Trigger ExtractGallery workflow
         // This will extract gallery info and automatically trigger embedding
         await step.do("trigger-extract-gallery", async () => {
             console.log(`[SeedAndStartupGallery] Triggering ExtractGallery for gallery ${galleryId}`);
@@ -49,6 +87,6 @@ export class SeedAndStartupGallery extends WorkflowEntrypoint<Env, Params> {
         });
 
         console.log(`[SeedAndStartupGallery] Complete - gallery ${galleryId} seeded, extracted, and embedding triggered`);
-        return { galleryId };
+        return { galleryId, extracted: true };
     }
 }
