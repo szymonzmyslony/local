@@ -11,7 +11,7 @@ export function GalleryOverviewPage() {
     loadingGallery,
     pendingAction,
     dataVersion,
-    runExtractGallery,
+    runEmbedGallery,
     runScrapePages,
     showPreviewDialog,
     setError
@@ -74,11 +74,7 @@ export function GalleryOverviewPage() {
   const aboutPage = pages.find(page => page.kind === "gallery_about") ?? null;
   const eventsPage = pages.find(page => page.kind === "event_list") ?? null;
 
-  const canExtract = Boolean(
-    mainPage &&
-      mainPage.fetch_status === "ok" &&
-      (!aboutPage || aboutPage.fetch_status === "ok")
-  );
+  const lastEmbeddedAt = gallery.gallery_info?.embedding_created_at ?? null;
 
   return (
     <GalleryOverviewCard
@@ -86,12 +82,12 @@ export function GalleryOverviewPage() {
       mainPage={mainPage}
       aboutPage={aboutPage}
       eventsPage={eventsPage}
-      extractDisabled={pendingAction === "extractGallery"}
+      embedDisabled={pendingAction === "embedGallery"}
       scrapeDisabled={pendingAction === "scrape"}
-      canExtract={canExtract}
-      onExtractGallery={() => {
-        console.log("[GalleryOverviewPage] extract requested", { galleryId });
-        void runExtractGallery();
+      lastEmbeddedAt={lastEmbeddedAt}
+      onEmbedGallery={() => {
+        console.log("[GalleryOverviewPage] embed requested", { galleryId });
+        void runEmbedGallery();
       }}
       onPreviewMarkdown={async (pageId, label) => {
         console.log("[GalleryOverviewPage] preview requested", { pageId, label });

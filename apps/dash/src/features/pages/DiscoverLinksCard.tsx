@@ -75,7 +75,7 @@ export function DiscoverLinksCard({ pendingAction, onDiscover }: DiscoverLinksCa
                 />
               </div>
 
-              <Button type="submit" variant="secondary" disabled={disabled}>
+              <Button type="submit" variant="primary" disabled={disabled}>
                 {pendingAction === "discover" ? "Discovering..." : "Discover links"}
               </Button>
             </div>

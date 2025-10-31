@@ -23,76 +23,74 @@ export class ScrapeAndExtract extends WorkflowEntrypoint<Env, Params> {
             return resolvedRunId;
         });
 
-        const readyIds = await step.do("await-markdown", async () => {
-            const pending = new Set(uniqueIds);
-            const maxAttempts = 24;
+        const pending = new Set(uniqueIds);
+        const extractRuns = new Map<string, string>();
+        const eventIds = new Map<string, string>();
+        let waitAttempts = 0;
 
-            for (let attempt = 0; attempt < maxAttempts && pending.size; attempt += 1) {
-                const markdownMap = await getPageMarkdownBulk(supabase, uniqueIds);
-                for (const id of Array.from(pending)) {
-                    const md = markdownMap.get(id) ?? "";
-                    if (md.trim().length > 0) {
-                        pending.delete(id);
+        while (pending.size) {
+            const markdownMap = await getPageMarkdownBulk(supabase, uniqueIds);
+            const ready = Array.from(pending).filter(id => {
+                const md = markdownMap.get(id) ?? "";
+                return md.trim().length > 0;
+            });
+
+            if (!ready.length) {
+                waitAttempts += 1;
+                if (waitAttempts > 24) {
+                    throw new Error(`Scrape did not produce markdown for: ${Array.from(pending).join(", ")}`);
+                }
+                await step.sleep(`wait-markdown-${waitAttempts}`, "5 seconds");
+                continue;
+            }
+
+            waitAttempts = 0;
+
+            for (const id of ready) {
+                const extractRunId = await step.do(`extract-${id}`, async () => {
+                    const run = await this.env.EXTRACT_EVENT_PAGES.create({ params: { pageIds: [id] } });
+                    const resolvedRunId = run.id ?? run;
+                    console.log("[ScrapeAndExtract] Triggered ExtractEventPages workflow", { runId: resolvedRunId, pageId: id });
+                    return resolvedRunId;
+                });
+
+                extractRuns.set(id, extractRunId);
+
+                const eventId = await step.do(`await-event-${id}`, async () => {
+                    for (let attempt = 0; attempt < 24; attempt += 1) {
+                        const map = await selectEventIdsByPageIds(supabase, [id]);
+                        const eventId = map.get(id);
+                        if (eventId) {
+                            return eventId;
+                        }
+                        await step.sleep(`wait-event-${id}-${attempt}`, "5 seconds");
                     }
-                }
+                    throw new Error(`Extraction workflow completed but no event row for page ${id}`);
+                });
 
-                if (pending.size === 0) {
-                    break;
-                }
+                await step.do(`mark-event-${id}`, async () => {
+                    await updatePageById(supabase, id, { kind: "event", updated_at: new Date().toISOString() });
+                });
 
-                await step.sleep(`wait-markdown-${attempt}`, "5 seconds");
+                eventIds.set(id, eventId);
+                pending.delete(id);
             }
-
-            if (pending.size) {
-                throw new Error(`Scrape did not produce markdown for: ${Array.from(pending).join(", ")}`);
-            }
-
-            return [...uniqueIds];
-        });
-
-        const extractRunId = await step.do("extract-pages", async () => {
-            const run = await this.env.EXTRACT_EVENT_PAGES.create({ params: { pageIds: readyIds } });
-            const resolvedRunId = run.id ?? run;
-            console.log("[ScrapeAndExtract] Triggered ExtractEventPages workflow", { runId: resolvedRunId, pageIds: readyIds });
-            return resolvedRunId;
-        });
-
-        const confirmedEventIds = await step.do("await-events", async () => {
-            const maxAttempts = 24;
-            let latest = await selectEventIdsByPageIds(supabase, readyIds);
-            for (let attempt = 0; attempt < maxAttempts && latest.size < readyIds.length; attempt += 1) {
-                await step.sleep(`wait-events-${attempt}`, "5 seconds");
-                latest = await selectEventIdsByPageIds(supabase, readyIds);
-            }
-            return latest;
-        });
-
-        if (confirmedEventIds.size !== readyIds.length) {
-            const missing = readyIds.filter(id => !confirmedEventIds.has(id));
-            throw new Error(`Extraction did not produce events for: ${missing.join(", ")}`);
         }
-
-        await step.do("update-kind", async () => {
-            const timestamp = new Date().toISOString();
-            await Promise.all(
-                readyIds.map(id => updatePageById(supabase, id, { kind: "event", updated_at: timestamp }))
-            );
-        });
 
         console.log("[ScrapeAndExtract] Workflow completed", {
             queuedPages: uniqueIds.length,
             scrapeRunId,
-            extractRunId,
-            extractedIds: readyIds,
-            eventIds: readyIds.map(id => confirmedEventIds.get(id))
+            extractRuns: Object.fromEntries(extractRuns),
+            extractedIds: Array.from(eventIds.keys()),
+            eventIds: Object.fromEntries(eventIds)
         });
 
         return {
             queued: uniqueIds.length,
             scrapeRunId,
-            extractRunId,
-            extractedIds: readyIds,
-            eventIds: Object.fromEntries(readyIds.map(id => [id, confirmedEventIds.get(id)!]))
+            extractRuns: Object.fromEntries(extractRuns),
+            extractedIds: Array.from(eventIds.keys()),
+            eventIds: Object.fromEntries(eventIds)
         };
     }
 }

@@ -1,17 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate, useOutletContext, useParams } from "react-router-dom";
-import {
-  Badge,
-  Button,
-  Card,
-  CardBody,
-  CardTitle,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from "@shared/ui";
+import { Badge, Button, Card, CardBody, CardTitle } from "@shared/ui";
 import { cn } from "@shared";
 import { DashboardShell } from "../components/layout";
 import { PreviewDialog, type PreviewDialogItem } from "../components/preview/PreviewDialog";
@@ -20,7 +9,6 @@ import {
   discoverLinks,
   embedEvents,
   embedGallery,
-  extractGalleryInfo,
   extractPages,
   fetchGalleryDetail,
   fetchGalleryEvents,
@@ -47,7 +35,7 @@ export type GalleryRouteContext = {
   runExtractPages: (pageIds: string[]) => Promise<boolean>;
   runPromoteEventPages: (pageIds: string[]) => Promise<void>;
   runProcessEvents: (pageIds: string[]) => Promise<void>;
-  runExtractGallery: () => Promise<void>;
+  runEmbedGallery: () => Promise<void>;
   updatePageKinds: (updates: PageKindUpdate[]) => Promise<number>;
   showPreviewDialog: (payload: { title: string; description?: string; items: PreviewDialogItem[] }) => void;
   setStatus: (value: string | null) => void;
@@ -191,12 +179,8 @@ export function GalleryDetailLayout() {
     await runPromoteEventPages(pageIds);
   }
 
-  async function runExtractGallery(): Promise<void> {
+  async function runEmbedGallery(): Promise<void> {
     if (!galleryId) return;
-    const extracted = await runWorkflow("extractGallery", () => extractGalleryInfo(galleryId));
-    if (!extracted) {
-      return;
-    }
     await runWorkflow("embedGallery", () => embedGallery(galleryId));
   }
 
@@ -249,32 +233,9 @@ export function GalleryDetailLayout() {
 
   const headerContent = (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-col gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Active gallery</span>
-          <Select
-            value={galleryId}
-            onValueChange={value => navigate(`/galleries/${value}/overview`)}
-          >
-            <SelectTrigger className="min-w-[220px]">
-              <SelectValue placeholder="Choose a gallery…" />
-            </SelectTrigger>
-            <SelectContent>
-              {galleries.map(gallery => (
-                <SelectItem key={gallery.id} value={gallery.id}>
-                  {gallery.gallery_info?.name ?? gallery.normalized_main_url}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <Button
-          type="button"
-          variant="muted"
-          onClick={() => navigate("/gallery-list")}
-        >
-          Manage galleries
-        </Button>
+      <div className="flex flex-col gap-1">
+        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Navigation</span>
+        <p className="text-sm text-slate-600">Use the tabs to explore pages, events, and overview data.</p>
       </div>
       <nav className="flex flex-wrap gap-2">
         {[
@@ -320,6 +281,11 @@ export function GalleryDetailLayout() {
             </Badge>
           ) : null
         }
+        actions={
+          <Button type="button" variant="secondary" onClick={() => navigate("/gallery-list")}>
+            Manage galleries
+          </Button>
+        }
         headerContent={headerContent}
         maxWidth="6xl"
       >
@@ -339,7 +305,7 @@ export function GalleryDetailLayout() {
           runExtractPages,
           runPromoteEventPages,
           runProcessEvents,
-          runExtractGallery,
+          runEmbedGallery,
           updatePageKinds: handleUpdatePageKinds,
           showPreviewDialog,
           setStatus,

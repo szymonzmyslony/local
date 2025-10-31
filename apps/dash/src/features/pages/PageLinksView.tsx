@@ -224,7 +224,6 @@ export function PageLinksView({
                   <Button
                     type="button"
                     variant="secondary"
-                    size="sm"
                     disabled={selectionDisabled || busyScrape}
                     onClick={() => {
                       if (selectionDisabled) return;
@@ -239,8 +238,7 @@ export function PageLinksView({
                   </Button>
                   <Button
                     type="button"
-                    variant="secondary"
-                    size="sm"
+                    variant="muted"
                     disabled={selectionDisabled}
                     onClick={() => {
                       if (selectionDisabled) return;
@@ -260,7 +258,6 @@ export function PageLinksView({
                   <Button
                     type="button"
                     variant="primary"
-                    size="sm"
                     disabled={selectionDisabled || busyPromote}
                     onClick={() => {
                       if (selectionDisabled) return;

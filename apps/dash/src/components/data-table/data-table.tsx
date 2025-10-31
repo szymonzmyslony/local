@@ -1,11 +1,12 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode, type KeyboardEvent, type MouseEvent } from "react";
 import type {
   ColumnDef,
   ColumnFiltersState,
   SortingState,
   VisibilityState,
   RowSelectionState,
-  OnChangeFn
+  OnChangeFn,
+  Row
 } from "@tanstack/react-table";
 import {
   flexRender,
@@ -57,6 +58,10 @@ type DataTableProps<TData> = {
    * Called whenever row selection changes. Useful when controlling selection state.
    */
   onRowSelectionChange?: OnChangeFn<RowSelectionState>;
+  /**
+   * When provided, rows become clickable and this handler is invoked.
+   */
+  onRowClick?: (row: Row<TData>) => void;
 };
 
 export function DataTable<TData>({
@@ -69,7 +74,8 @@ export function DataTable<TData>({
   getRowId,
   enableRowSelection = false,
   rowSelection: controlledRowSelection,
-  onRowSelectionChange
+  onRowSelectionChange,
+  onRowClick
 }: DataTableProps<TData>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -132,7 +138,29 @@ export function DataTable<TData>({
           <TableBody>
             {table.getRowModel().rows.length > 0 ? (
               table.getRowModel().rows.map(row => (
-                <TableRow key={row.id} data-state={row.getIsSelected() ? "selected" : undefined}>
+                <TableRow
+                  key={row.id}
+                  data-state={row.getIsSelected() ? "selected" : undefined}
+                  data-clickable={onRowClick ? "true" : undefined}
+                  className={cn(onRowClick && "cursor-pointer transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30")}
+                  tabIndex={onRowClick ? 0 : undefined}
+                  onClick={(event: MouseEvent<HTMLTableRowElement>) => {
+                    if (!onRowClick) return;
+                    if (event.defaultPrevented) return;
+                    const target = event.target as HTMLElement | null;
+                    if (target?.closest("a,button,input,select,textarea,label,[role='button'],[role='menuitem'],[data-row-action]")) {
+                      return;
+                    }
+                    onRowClick(row);
+                  }}
+                  onKeyDown={(event: KeyboardEvent<HTMLTableRowElement>) => {
+                    if (!onRowClick) return;
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onRowClick(row);
+                    }
+                  }}
+                >
                   {row.getVisibleCells().map(cell => {
                     const meta = resolveMeta(cell.column.columnDef.meta);
                     return (
@@ -204,7 +232,7 @@ export function DataTablePagination<TData>({ table }: DataTablePaginationProps<T
         <div className="flex items-center gap-2">
           <Button
             type="button"
-            variant="muted"
+            variant="outline"
             size="sm"
             onClick={() => table.previousPage()}
             disabled={!table.getCanPreviousPage()}
@@ -213,7 +241,7 @@ export function DataTablePagination<TData>({ table }: DataTablePaginationProps<T
           </Button>
           <Button
             type="button"
-            variant="muted"
+            variant="outline"
             size="sm"
             onClick={() => table.nextPage()}
             disabled={!table.getCanNextPage()}

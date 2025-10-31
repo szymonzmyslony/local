@@ -62,7 +62,8 @@ const SeedGalleryBodySchema = z.object({
   eventsUrl: z.string().trim().url().nullable().optional(),
   name: z.string().trim().min(1).nullable().optional(),
   address: z.string().trim().min(1).nullable().optional(),
-  instagram: z.string().trim().min(1).nullable().optional()
+  instagram: z.string().trim().min(1).nullable().optional(),
+  openingHours: z.string().trim().min(1).nullable().optional()
 });
 
 const DiscoverLinksBodySchema = z.object({
@@ -112,7 +113,7 @@ export default {
     const supabase = getServiceClient(env);
     console.log(`[dash-worker] ${request.method} ${url.pathname}${url.search}`);
 
-    // 0) Seed gallery
+    // 0) Seed gallery (now uses full pipeline with SeedAndStartupGallery)
     if (request.method === "POST" && url.pathname === "/api/galleries/seed") {
       const body = SeedGalleryBodySchema.parse(await request.json());
       const mainUrl = body.mainUrl;
@@ -121,14 +122,15 @@ export default {
       const name = body.name ?? null;
       const address = body.address ?? null;
       const instagram = body.instagram ?? null;
-      console.log("[dash-worker] Starting SeedGallery workflow", { mainUrl, aboutUrl, eventsUrl, name, address, instagram });
-      const run = await env.SEED_GALLERY.create({ params: { mainUrl, aboutUrl, eventsUrl, name, address, instagram } });
-      const galleryId = run.id ?? run;
+      const openingHours = body.openingHours ?? null;
+      console.log("[dash-worker] Starting SeedAndStartupGallery workflow (via seed endpoint)", { mainUrl, aboutUrl, eventsUrl, name, address, instagram, openingHours });
+      const run = await env.SEED_AND_STARTUP_GALLERY.create({ params: { mainUrl, aboutUrl, eventsUrl, name, address, instagram, openingHours } });
+      const workflowId = run.id ?? run;
 
-      return Response.json({ id: galleryId });
+      return Response.json({ id: workflowId });
     }
 
-    // 0b) Seed and startup gallery (full pipeline)
+    // 0b) Seed and startup gallery (full pipeline - explicit endpoint)
     if (request.method === "POST" && url.pathname === "/api/galleries/seed-and-startup") {
       const body = SeedGalleryBodySchema.parse(await request.json());
       const mainUrl = body.mainUrl;
@@ -137,8 +139,9 @@ export default {
       const name = body.name ?? null;
       const address = body.address ?? null;
       const instagram = body.instagram ?? null;
-      console.log("[dash-worker] Starting SeedAndStartupGallery workflow", { mainUrl, aboutUrl, eventsUrl, name, address, instagram });
-      const run = await env.SEED_AND_STARTUP_GALLERY.create({ params: { mainUrl, aboutUrl, eventsUrl, name, address, instagram } });
+      const openingHours = body.openingHours ?? null;
+      console.log("[dash-worker] Starting SeedAndStartupGallery workflow (explicit endpoint)", { mainUrl, aboutUrl, eventsUrl, name, address, instagram, openingHours });
+      const run = await env.SEED_AND_STARTUP_GALLERY.create({ params: { mainUrl, aboutUrl, eventsUrl, name, address, instagram, openingHours } });
       const workflowId = run.id ?? run;
 
       return Response.json({ id: workflowId });

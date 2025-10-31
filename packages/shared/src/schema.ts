@@ -56,8 +56,26 @@ export const pageExtractionSchema = z.discriminatedUnion("type", [
     z.object({ type: z.literal("event_detail"), payload: eventExtractionSchema }).describe("Legacy event detail payload")
 ]).describe("Structured classification of page content");
 
+/** ---- Opening hours extraction schema ---- */
+// Aligns with gallery_hours table (weekday + open_minutes array)
+const timeRangeSchema = z.object({
+    open: z.number().min(0).max(1439).describe("Opening time in minutes from midnight (0-1439)"),
+    close: z.number().min(0).max(1439).describe("Closing time in minutes from midnight (0-1439)")
+});
+
+export const openingHoursItemSchema = z.object({
+    weekday: z.number().min(0).max(6).describe("Day of week: 0=Sunday, 1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday, 5=Friday, 6=Saturday"),
+    open_minutes: z.array(timeRangeSchema).describe("Array of opening time ranges for this day. Empty array if closed.")
+});
+
+export const openingHoursExtractionSchema = z.object({
+    hours: z.array(openingHoursItemSchema).describe("Array of opening hours for each day of the week")
+}).describe("Structured opening hours extracted from text");
+
 /** Convenience types */
 export type GalleryExtraction = z.infer<typeof galleryExtractionSchema>;
 export type EventExtraction = z.infer<typeof eventExtractionSchema>;
 export type SchemaEventOccurrence = z.infer<typeof eventOccurrenceSchema>;
 export type PageExtraction = z.infer<typeof pageExtractionSchema>;
+export type OpeningHoursExtraction = z.infer<typeof openingHoursExtractionSchema>;
+export type OpeningHoursItem = z.infer<typeof openingHoursItemSchema>;

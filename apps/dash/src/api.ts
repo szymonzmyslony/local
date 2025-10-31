@@ -24,14 +24,13 @@ const galleryInfoDetailSchema = z.object({
   updated_at: z.string()
 });
 
-// Minimal hours schema used for gallery detail; accepts extra properties
+// Gallery hours schema matching database_types.ts
 const galleryHoursSchema = z
   .object({
     id: z.string(),
     gallery_id: z.string(),
-    dow: z.number(),
-    open_time: z.string(),
-    close_time: z.string()
+    weekday: z.number(),
+    open_minutes: z.any() // JSONB array of time ranges
   })
   .catchall(z.unknown());
 
@@ -143,7 +142,8 @@ const eventInfoSummarySchema = z
     tags: z.array(z.string()).nullable(),
     artists: z.array(z.string()).nullable(),
     md: z.string().nullable(),
-    embedding: z.string().nullable()
+    embedding: z.string().nullable(),
+    embedding_created_at: z.string().nullable()
   })
   .catchall(z.unknown())
   .nullable();

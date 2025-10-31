@@ -192,25 +192,22 @@ export type Database = {
       }
       gallery_hours: {
         Row: {
-          close_time: string
-          dow: number
           gallery_id: string
           id: string
-          open_time: string
+          open_minutes: Json
+          weekday: number
         }
         Insert: {
-          close_time: string
-          dow: number
           gallery_id: string
           id?: string
-          open_time: string
+          open_minutes?: Json
+          weekday: number
         }
         Update: {
-          close_time?: string
-          dow?: number
           gallery_id?: string
           id?: string
-          open_time?: string
+          open_minutes?: Json
+          weekday?: number
         }
         Relationships: [
           {

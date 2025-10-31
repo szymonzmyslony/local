@@ -41,14 +41,10 @@ export function GalleryListPage() {
           const item = row.original;
           const displayName = item.gallery_info?.name ?? item.normalized_main_url;
           return (
-            <button
-              type="button"
-              className="flex flex-col gap-1 text-left"
-              onClick={() => navigate(`/galleries/${item.id}/overview`)}
-            >
+            <div className="flex flex-col gap-1">
               <span className="font-medium text-slate-900">{displayName}</span>
               <span className="text-xs text-slate-500">{item.normalized_main_url}</span>
-            </button>
+            </div>
           );
         },
         sortingFn: (a, b) => {
@@ -94,22 +90,6 @@ export function GalleryListPage() {
           </a>
         ),
         meta: { headerClassName: "w-1/3" }
-      },
-      {
-        id: "actions",
-        header: " ",
-        enableSorting: false,
-        cell: ({ row }) => (
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={() => navigate(`/galleries/${row.original.id}/overview`)}
-          >
-            Open
-          </Button>
-        ),
-        meta: { cellClassName: "w-[120px]" }
       }
     ],
     [navigate]
@@ -140,10 +120,10 @@ export function GalleryListPage() {
         maxWidth="5xl"
         actions={
           <>
-            <Button type="button" variant="muted" onClick={() => refreshGalleries()}>
+            <Button type="button" variant="secondary" onClick={() => refreshGalleries()}>
               {loading ? "Refreshing..." : "Refresh"}
             </Button>
-            <Button type="button" onClick={() => setModalOpen(true)}>
+            <Button type="button" variant="primary" onClick={() => setModalOpen(true)}>
               Seed gallery
             </Button>
           </>
@@ -154,6 +134,7 @@ export function GalleryListPage() {
           columns={columns}
           data={filteredGalleries}
           getRowId={row => row.id}
+          onRowClick={row => navigate(`/galleries/${row.original.id}/overview`)}
           emptyMessage={loading ? "Loading galleries..." : "No galleries found. Seed one to get started."}
           renderToolbar={() => (
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">

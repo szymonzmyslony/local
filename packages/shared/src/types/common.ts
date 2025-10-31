@@ -6,6 +6,7 @@ export type { Database, Tables, TablesInsert, Enums };
 // Table row types
 export type Gallery = Tables<"galleries">;
 export type GalleryInfo = Tables<"gallery_info">;
+
 export type GalleryHours = Tables<"gallery_hours">;
 
 export type Page = Tables<"pages">;
@@ -77,8 +78,4 @@ export type EventComplete = Event & {
 
 export type GalleryWithInfo = Gallery & {
     gallery_info: GalleryInfo | null;
-};
-
-export type GalleryWithHours = Gallery & {
-    gallery_hours: GalleryHours[];
 };

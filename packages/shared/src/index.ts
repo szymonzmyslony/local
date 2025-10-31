@@ -9,10 +9,14 @@ export {
   galleryExtractionSchema,
   eventExtractionSchema,
   pageExtractionSchema,
+  openingHoursExtractionSchema,
+  openingHoursItemSchema,
   type GalleryExtraction,
   type EventExtraction,
   type SchemaEventOccurrence,
-  type PageExtraction
+  type PageExtraction,
+  type OpeningHoursExtraction,
+  type OpeningHoursItem
 } from "./schema";
 export * from "./types/common";
 export * from "./types/database_types";

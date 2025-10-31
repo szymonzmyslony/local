@@ -5,8 +5,10 @@ import { AI_CONFIG } from "../config/ai";
 import {
     galleryExtractionSchema,
     eventExtractionSchema,
+    openingHoursExtractionSchema,
     type GalleryExtraction,
-    type PageExtraction
+    type PageExtraction,
+    type OpeningHoursExtraction
 } from "../schema";
 import { Constants } from "../types/database_types";
 
@@ -89,6 +91,38 @@ export async function extractPageContentFromMarkdown(openai: OpenAIProvider, md:
         console.error("[extractPageContentFromMarkdown] Failed to generate object", {
             url,
             markdownLength: md.length,
+            error
+        });
+        throw error;
+    }
+}
+
+export async function extractOpeningHoursFromText(openai: OpenAIProvider, hoursText: string): Promise<OpeningHoursExtraction> {
+    try {
+        const { object } = await generateObject({
+            model: openai(AI_CONFIG.CHAT_MODEL),
+            schema: openingHoursExtractionSchema,
+            prompt: [
+                "You are given text describing gallery/museum opening hours in Polish.",
+                "Extract structured opening hours for each day of the week.",
+                "",
+                "IMPORTANT RULES:",
+                "- Weekday numbers: 0=Niedziela (Sunday), 1=Poniedziałek (Monday), 2=Wtorek (Tuesday), 3=Środa (Wednesday), 4=Czwartek (Thursday), 5=Piątek (Friday), 6=Sobota (Saturday)",
+                "- Convert times to minutes from midnight (e.g., 12:00 = 720, 19:00 = 1140)",
+                "- If a day is closed (\"nieczynne\"), include it with an empty array for open_minutes",
+                "- Handle ranges like 'Środa - Piątek' by creating entries for each day in the range",
+                "- Handle special notes like 'on appointment' by treating the day as closed (empty array)",
+                "- Always include all 7 days of the week in the output",
+                "",
+                "Opening hours text:",
+                hoursText
+            ].join("\n")
+        });
+
+        return object;
+    } catch (error) {
+        console.error("[extractOpeningHoursFromText] Failed to generate object", {
+            hoursText,
             error
         });
         throw error;

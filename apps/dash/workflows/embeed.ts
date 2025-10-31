@@ -60,44 +60,28 @@ export class Embed extends WorkflowEntrypoint<Env, Params> {
             const res = await step.do("embed-call:galleries", async () => {
                 const out: { gallery_id: string; embedding: number[]; model: string }[] = [];
                 for (const id of galleryIds) {
-                    // Idempotency check: Skip if embedding already exists
-                    const { data: existingInfo } = await supabase
-                        .from("gallery_info")
-                        .select("embedding")
-                        .eq("gallery_id", id)
-                        .maybeSingle();
-
-                    if (existingInfo?.embedding) {
-                        console.log(`[Embed] Gallery ${id} already has an embedding, skipping`);
-                        continue;
-                    }
-
-                    // Fetch gallery_info fields: name, tags, about
                     const name = await selectGalleryName(supabase, id);
                     const tags = await selectGalleryTags(supabase, id);
                     const about = await selectGalleryAbout(supabase, id);
 
-                    // Build embedding text from available fields
                     const parts: string[] = [];
                     if (name) parts.push(`Gallery: ${name}`);
                     if (tags?.length) parts.push(`Tags: ${tags.join(", ")}`);
                     if (about) parts.push(`About: ${about}`);
 
-                    // Fallback to main_url if no gallery_info fields available
                     if (parts.length === 0) {
                         const mainUrl = await selectGalleryMainUrl(supabase, id);
                         if (mainUrl) parts.push(`URL: ${mainUrl}`);
                     }
 
-                    const text = parts.join("\n");
-                    const trimmed = text.trim();
-                    if (!trimmed) {
+                    const text = parts.join("\n").trim();
+                    if (!text) {
                         console.log(`[Embed] No content for gallery ${id}, skipping`);
                         continue;
                     }
 
-                    console.log(`[Embed] Embedding for gallery ${id}:\n${trimmed}`);
-                    const vector = await embedder(trimmed);
+                    console.log(`[Embed] Re-embedding gallery ${id}`);
+                    const vector = await embedder(text);
                     out.push({ gallery_id: id, embedding: vector, model: AI_CONFIG.EMBEDDING_MODEL });
                 }
                 return out;

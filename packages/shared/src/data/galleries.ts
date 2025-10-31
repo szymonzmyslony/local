@@ -116,7 +116,7 @@ export async function upsertGalleryHours(
 
   const { error } = await client
     .from("gallery_hours")
-    .upsert(rows, { onConflict: "gallery_id,dow" });
+    .upsert(rows, { onConflict: "gallery_id,weekday" });
 
   if (error) {
     throw toError("upsertGalleryHours", error);

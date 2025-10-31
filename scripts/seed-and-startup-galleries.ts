@@ -20,6 +20,7 @@ interface SeedAndStartupGalleryPayload {
   name?: string | null;
   address?: string | null;
   instagram?: string | null;
+  openingHours?: string | null;
 }
 
 async function seedAndStartupGallery(apiUrl: string, payload: SeedAndStartupGalleryPayload): Promise<string> {
@@ -74,6 +75,7 @@ async function seedAndStartupGalleriesFromCSV(csvPath: string, apiUrl: string) {
         name: row.gallery_name && row.gallery_name.trim() !== "" ? row.gallery_name : null,
         address: row.address && row.address.trim() !== "" ? row.address : null,
         instagram: row.instagram && row.instagram.trim() !== "" ? row.instagram : null,
+        openingHours: row.opening_hours && row.opening_hours.trim() !== "" ? row.opening_hours : null,
       };
 
       const workflowId = await seedAndStartupGallery(apiUrl, payload);
@@ -84,6 +86,7 @@ async function seedAndStartupGalleriesFromCSV(csvPath: string, apiUrl: string) {
       if (payload.eventsUrl) console.log(`    Events: ${payload.eventsUrl}`);
       if (payload.address) console.log(`    Address: ${payload.address}`);
       if (payload.instagram) console.log(`    Instagram: ${payload.instagram}`);
+      if (payload.openingHours) console.log(`    Hours: ${payload.openingHours}`);
 
       successCount++;
     } catch (error) {
@@ -98,7 +101,7 @@ async function seedAndStartupGalleriesFromCSV(csvPath: string, apiUrl: string) {
   console.log(`Errors: ${errorCount}`);
   console.log(`Total: ${records.length}`);
   console.log(`\nNote: Galleries are being processed in the background by Cloudflare Workers.`);
-  console.log(`The full pipeline includes: seeding → scraping → extraction → embedding.`);
+  console.log(`The full pipeline includes: seeding → scraping → extraction → hours → embedding.`);
   console.log(`This typically takes 45-60 seconds per gallery to complete.`);
 }
 
@@ -114,7 +117,8 @@ if (!csvPath || !apiUrl) {
   console.error("  1. Seeds the gallery (creates records)");
   console.error("  2. Scrapes the pages");
   console.error("  3. Extracts gallery information");
-  console.error("  4. Creates embeddings");
+  console.error("  4. Extracts opening hours (if provided)");
+  console.error("  5. Creates embeddings");
   process.exit(1);
 }
 

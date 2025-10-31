@@ -11,7 +11,6 @@ export function GalleryEventsPage() {
     pendingAction,
     dataVersion,
     runProcessEvents,
-    showPreviewDialog,
     setError
   } = useGalleryRoute();
 
@@ -81,9 +80,6 @@ export function GalleryEventsPage() {
       pendingAction={pendingAction}
       onProcessEventPages={pageIds => {
         void runProcessEvents(pageIds);
-      }}
-      onPreview={payload => {
-        showPreviewDialog(payload);
       }}
     />
   );
