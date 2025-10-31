@@ -4,7 +4,7 @@ import {
   AI_CONFIG,
   createEmbedder,
   getServiceClient,
-  selectEventDescription,
+  selectEventInfoBasics,
   selectEventTitle,
   selectGalleryAbout,
   selectGalleryMainUrl,
@@ -33,10 +33,11 @@ export class Embed extends WorkflowEntrypoint<Env, Params> {
                 const out: { event_id: string; embedding: number[]; model: string }[] = [];
                 for (const id of eventIds) {
                     const parts: string[] = [];
-                    const description = await selectEventDescription(supabase, id);
+                    const { description, tags } = await selectEventInfoBasics(supabase, id);
                     const title = await selectEventTitle(supabase, id);
                     if (title) parts.push(title);
                     if (description) parts.push(description);
+                    if (tags?.length) parts.push(`Tags: ${tags.join(", ")}`);
                     const trimmed = parts.join("\n").trim();
                     if (!trimmed) continue;
                     const vector = await embedder(trimmed);

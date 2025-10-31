@@ -213,19 +213,22 @@ export async function selectEventTitle(client: SupabaseServiceClient, eventId: s
   return data?.title ?? null;
 }
 
-export async function selectEventDescription(client: SupabaseServiceClient, eventId: string): Promise<string | null> {
+export async function selectEventInfoBasics(client: SupabaseServiceClient, eventId: string): Promise<{ description: string | null; tags: string[] | null }> {
   const { data, error } = await client
     .from("event_info")
-    .select("description")
+    .select("description, tags")
     .eq("event_id", eventId)
     .limit(1)
     .maybeSingle();
 
   if (error) {
-    throw toError("selectEventDescription", error);
+    throw toError("selectEventInfoBasics", error);
   }
 
-  return data?.description ?? null;
+  return {
+    description: data?.description ?? null,
+    tags: (data?.tags as string[] | null) ?? null
+  };
 }
 
 export async function updateEventFields(
@@ -262,6 +265,7 @@ export async function saveEventInfo(
   if (!data) {
     const insertPayload: EventInfoInsert = {
       event_id: eventId,
+      data: {},
       ...info
     };
     const { error: insertError } = await client.from("event_info").insert([insertPayload]);
