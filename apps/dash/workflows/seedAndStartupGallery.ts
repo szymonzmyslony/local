@@ -6,8 +6,14 @@ import {
     getServiceClient,
     normalizeUrl,
     selectPagesByGallery,
+    upsertGallery,
+    upsertGalleryInfo,
+    upsertGalleryPage,
     upsertGalleryHours,
-    type GalleryHoursInsert
+    type GalleryHoursInsert,
+    type GalleryInsert,
+    type GalleryInfoInsert,
+    type PageInsert
 } from "@shared";
 
 type Params = {
@@ -35,45 +41,94 @@ export class SeedAndStartupGallery extends WorkflowEntrypoint<Env, Params> {
 
         const supabase = getServiceClient(this.env);
 
-        // STEP 1: Check if gallery already exists (idempotency)
-        const normalizedUrl = normalizeUrl(mainUrl);
-        const galleryId = await step.do("lookup-or-seed-gallery", async () => {
-            const { data: existing } = await supabase
-                .from("galleries")
-                .select("id")
-                .eq("normalized_main_url", normalizedUrl)
-                .maybeSingle();
+        // STEP 1: Upsert gallery and create pages (inlined from SeedGallery)
+        const normalizedMainUrl = normalizeUrl(mainUrl);
+        const normalizedAboutUrl = aboutUrl ? normalizeUrl(aboutUrl) : null;
+        const normalizedEventsUrl = eventsUrl ? normalizeUrl(eventsUrl) : null;
+        const pagesToScrape: string[] = [];
+        const seededPages: Array<{ pageId: string; url: string }> = [];
+        const seenNormalized = new Set<string>();
 
-            if (existing) {
-                console.log(`[SeedAndStartupGallery] Gallery already exists: ${existing.id}`);
-                return existing.id;
-            }
-
-            // Gallery doesn't exist, trigger SeedGallery
-            console.log("[SeedAndStartupGallery] Gallery not found, triggering SeedGallery workflow");
-            const run = await this.env.SEED_GALLERY.create({
-                params: { mainUrl, aboutUrl, eventsUrl, name, address, instagram }
-            });
-            const workflowId = run.id ?? run;
-            console.log(`[SeedAndStartupGallery] SeedGallery workflow triggered: ${workflowId}`);
-
-            // Wait a moment for gallery to be created
-            await new Promise(resolve => setTimeout(resolve, 2000));
-
-            // Look up the newly created gallery
-            const { data: newGallery, error } = await supabase
-                .from("galleries")
-                .select("id")
-                .eq("normalized_main_url", normalizedUrl)
-                .maybeSingle();
-
-            if (error || !newGallery) {
-                throw new Error(`Failed to find gallery after seeding: ${error?.message ?? 'not found'}`);
-            }
-
-            console.log(`[SeedAndStartupGallery] Created gallery ID: ${newGallery.id}`);
-            return newGallery.id;
+        const galleryId = await step.do("upsert-gallery", async () => {
+            const galleryRecord: GalleryInsert = {
+                main_url: mainUrl,
+                about_url: aboutUrl ?? null,
+                events_page: eventsUrl ?? null,
+                normalized_main_url: normalizedMainUrl,
+            };
+            const gallery = await upsertGallery(supabase, galleryRecord);
+            console.log(`[SeedAndStartupGallery] Gallery created/updated: ${gallery.id}`);
+            return gallery.id;
         });
+
+        await step.do("upsert-gallery-info", async () => {
+            const galleryInfoRecord: GalleryInfoInsert = {
+                gallery_id: galleryId,
+                name: name ?? null,
+                address: address ?? null,
+                instagram: instagram ?? null,
+                data: {},
+            };
+            await upsertGalleryInfo(supabase, galleryInfoRecord);
+            console.log(`[SeedAndStartupGallery] Gallery info created/updated`);
+        });
+
+        // Create page records
+        const pageDefinitions: Array<{ label: string; inputUrl: string; normalized: string | null; kind: PageInsert["kind"] }> = [
+            { label: "main", inputUrl: mainUrl, normalized: normalizedMainUrl, kind: "gallery_main" },
+        ];
+
+        if (aboutUrl && normalizedAboutUrl) {
+            pageDefinitions.push({ label: "about", inputUrl: aboutUrl, normalized: normalizedAboutUrl, kind: "gallery_about" });
+        }
+        if (eventsUrl && normalizedEventsUrl) {
+            pageDefinitions.push({ label: "events", inputUrl: eventsUrl, normalized: normalizedEventsUrl, kind: "event_list" });
+        }
+
+        for (const definition of pageDefinitions) {
+            if (!definition.normalized) continue;
+            if (seenNormalized.has(definition.normalized)) {
+                console.log(`[SeedAndStartupGallery] Skipping ${definition.label} page - already processed`);
+                continue;
+            }
+            seenNormalized.add(definition.normalized);
+
+            const pageId = await step.do(`upsert-page-${definition.label}`, async () => {
+                const page: PageInsert = {
+                    gallery_id: galleryId,
+                    url: definition.inputUrl,
+                    normalized_url: definition.normalized!,
+                    kind: definition.kind,
+                    fetch_status: "never",
+                };
+                const pageId = await upsertGalleryPage(supabase, page);
+                console.log(`[SeedAndStartupGallery] Upserted ${definition.label} page: ${pageId}`);
+                return pageId ?? null;
+            });
+
+            if (pageId) {
+                pagesToScrape.push(pageId);
+                seededPages.push({ pageId, url: definition.inputUrl });
+            }
+        }
+
+        // Trigger scraping and link discovery
+        if (pagesToScrape.length > 0) {
+            await step.do("trigger-scrape-pages", async () => {
+                console.log(`[SeedAndStartupGallery] Triggering scrape for ${pagesToScrape.length} pages`);
+                await this.env.SCRAPE_PAGES.create({ params: { pageIds: pagesToScrape } });
+            });
+
+            await step.do("trigger-discover-links", async () => {
+                const seedUrls = Array.from(new Set(seededPages.map(entry => entry.url)));
+                if (seedUrls.length === 0) {
+                    console.log("[SeedAndStartupGallery] No seed URLs for discovery");
+                    return;
+                }
+                console.log(`[SeedAndStartupGallery] Triggering DiscoverLinks with ${seedUrls.length} URLs`);
+                await this.env.DISCOVER_LINKS.create({ params: { galleryId, listUrls: seedUrls } });
+            });
+        }
 
         // STEP 2: Wait for pages to scrape (best effort - don't block on failures)
         const scrapingResult = await step.do("await-gallery-scrape", async () => {

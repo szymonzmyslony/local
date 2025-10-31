@@ -1,5 +1,4 @@
-import { useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   Badge,
   Button,
@@ -27,50 +26,39 @@ type EventsEditorListProps = {
   onProcessEventPages: (pageIds: string[]) => void;
 };
 
-type EventSort = "nearest" | "latest" | "title";
 type StatusFilter = "all" | GalleryEvent["status"];
 
 const statusOptions: StatusFilter[] = ["all", ...EVENT_STATUSES];
-const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-export function EventsEditorList({
-  events,
-  pages,
-  pendingAction,
-  onSaveEvent,
-  onProcessEventPages
-}: EventsEditorListProps) {
+export function EventsEditorList({ events, pages, pendingAction, onSaveEvent, onProcessEventPages }: EventsEditorListProps) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [sortOrder, setSortOrder] = useState<EventSort>("nearest");
 
   const pagesById = useMemo(() => new Map(pages.map(page => [page.id, page])), [pages]);
 
   const filteredEvents = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return events
-      .filter(event => {
-        if (statusFilter !== "all" && event.status !== statusFilter) {
-          return false;
-        }
-        if (!query) {
-          return true;
-        }
-        const haystack = [event.title, event.ticket_url ?? "", event.event_info?.description ?? ""]
-          .join(" ")
-          .toLowerCase();
-        return haystack.includes(query);
-      })
-      .sort((left, right) => compareEvents(left, right, sortOrder));
-  }, [events, statusFilter, search, sortOrder]);
+    return events.filter(event => {
+      if (statusFilter !== "all" && event.status !== statusFilter) {
+        return false;
+      }
+      if (!query) {
+        return true;
+      }
+      const haystack = [event.title, event.ticket_url ?? "", event.event_info?.description ?? ""]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [events, statusFilter, search]);
 
   return (
     <section className="space-y-6">
       <div className="space-y-4 rounded-2xl bg-white p-6 shadow-sm">
-        <div className="grid gap-4 md:grid-cols-3 md:items-end">
+        <div className="grid gap-4 md:grid-cols-2 md:items-end">
           <FilterField label="Search">
             <Input
-              placeholder="Filter by title, ticket link, or description…"
+              placeholder="Filter by title or description…"
               value={search}
               onChange={event => setSearch(event.target.value)}
             />
@@ -89,27 +77,10 @@ export function EventsEditorList({
               </SelectContent>
             </Select>
           </FilterField>
-          <FilterField label="Sort by">
-            <Select value={sortOrder} onValueChange={value => setSortOrder(value as EventSort)}>
-              <SelectTrigger data-size="default">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="nearest">Nearest start</SelectItem>
-                <SelectItem value="latest">Latest start</SelectItem>
-                <SelectItem value="title">Title</SelectItem>
-              </SelectContent>
-            </Select>
-          </FilterField>
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
-          <span>
-            Showing <strong>{filteredEvents.length}</strong> of <strong>{events.length}</strong> events
-          </span>
-          <Badge variant="secondary" className="capitalize">
-            {statusFilter === "all" ? "All statuses" : statusFilter}
-          </Badge>
-        </div>
+        <span className="text-sm text-slate-600">
+          Showing <strong>{filteredEvents.length}</strong> of <strong>{events.length}</strong> events
+        </span>
       </div>
 
       <div className="space-y-4">
@@ -144,75 +115,66 @@ type EventEditorCardProps = {
 };
 
 function EventEditorCard({ event, page, pendingAction, onSave, onProcess }: EventEditorCardProps) {
-  const [expanded, setExpanded] = useState(false);
-  const [form, setForm] = useState(() => toFormState(event));
+  const [form, setForm] = useState<EventFormState>(() => toFormState(event));
   const [saving, setSaving] = useState(false);
 
-  const processing = pendingAction === "scrapeAndExtract";
-  const savingDisabled = saving || pendingAction === "saveEvent";
-  const hasStructured = Boolean(event.event_info);
-  const occurrences = sortOccurrences(event.event_occurrences ?? []);
-  const nextOccurrence = occurrences[0] ?? null;
+  useEffect(() => {
+    setForm(toFormState(event));
+  }, [event]);
 
-  async function handleSave() {
-    if (savingDisabled) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (saving) {
       return;
     }
     setSaving(true);
     try {
-      const payload = toStructuredPayload(form);
-      const updated = await onSave(payload);
+      const updated = await onSave(toStructuredPayload(form));
       if (updated) {
         setForm(toFormState(updated));
-        setExpanded(false);
       }
     } finally {
       setSaving(false);
     }
   }
 
+  const processing = pendingAction === "scrapeAndExtract";
+  const disableInputs = saving || pendingAction === "saveEvent";
+
   return (
-    <article className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+    <form className="space-y-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm" onSubmit={handleSubmit}>
       <header className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-lg font-semibold text-slate-900">{event.title}</h3>
-            <EventStatusBadge status={event.status} />
-            {hasStructured ? <Badge variant="secondary">Structured</Badge> : null}
+            <Input
+              value={form.title}
+              onChange={event => setForm(current => ({ ...current, title: event.target.value }))}
+              disabled={disableInputs}
+              className="w-full md:w-[320px]"
+            />
+            <EventStatusBadge status={form.status} />
           </div>
-          <p className="text-sm text-slate-600">{formatEventDateRange(event)}</p>
-          {event.event_info?.description ? (
-            <p className="text-sm text-slate-700">{event.event_info.description}</p>
-          ) : null}
-          {event.event_info?.tags ? (
-            <div className="flex flex-wrap gap-2">
-              {event.event_info.tags.map(tag => (
-                <Badge key={tag} variant="outline" className="capitalize">
-                  {tag}
-                </Badge>
-              ))}
-            </div>
-          ) : null}
+          <div className="flex flex-wrap gap-2 text-sm text-slate-600">
+            <span>Created {formatDateTime(form.created_at)}</span>
+            {event.page_id ? <span>Page linked</span> : <span>No source page</span>}
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" onClick={() => setExpanded(current => !current)}>
-            {expanded ? "Close editor" : "Edit structured data"}
-          </Button>
           {page ? (
-            <Button variant="ghost" asChild>
+            <Button variant="outline" asChild>
               <a href={page.url ?? page.normalized_url} target="_blank" rel="noreferrer">
                 Source page
               </a>
             </Button>
           ) : null}
-          {event.ticket_url ? (
+          {form.ticket_url ? (
             <Button variant="ghost" asChild>
-              <a href={event.ticket_url} target="_blank" rel="noreferrer">
+              <a href={form.ticket_url} target="_blank" rel="noreferrer">
                 Ticket link
               </a>
             </Button>
           ) : null}
-          {!hasStructured && page ? (
+          {!event.event_info && page ? (
             <Button type="button" variant="primary" disabled={processing} onClick={() => onProcess(page.id)}>
               {processing ? "Processing…" : "Process event"}
             </Button>
@@ -220,220 +182,168 @@ function EventEditorCard({ event, page, pendingAction, onSave, onProcess }: Even
         </div>
       </header>
 
-      <dl className="grid gap-3 text-sm text-slate-600 md:grid-cols-2">
-        <DetailRow label="Next occurrence">
-          {nextOccurrence ? formatOccurrence(nextOccurrence) : "Not scheduled"}
-        </DetailRow>
-        <DetailRow label="Occurrences">
-          {occurrences.length ? (
-            <div className="space-y-1">
-              <span>{occurrences.length} scheduled</span>
-              <ul className="list-disc pl-4 text-xs text-slate-500">
-                {occurrences.slice(0, 3).map(item => (
-                  <li key={item.id}>{formatOccurrence(item)}</li>
-                ))}
-                {occurrences.length > 3 ? <li>…and {occurrences.length - 3} more</li> : null}
-              </ul>
-            </div>
-          ) : (
-            "No occurrences recorded"
-          )}
-        </DetailRow>
-        <DetailRow label="Status updated">{formatDate(event.updated_at)}</DetailRow>
-        <DetailRow label="Created">{formatDate(event.created_at)}</DetailRow>
-        {page ? (
-          <DetailRow label="Source page">
-            <span className="flex flex-col gap-1 text-slate-500">
-              <span>{page.normalized_url}</span>
-              <Badge variant="outline" className="w-fit uppercase">
-                {page.kind}
-              </Badge>
-            </span>
-          </DetailRow>
-        ) : null}
-      </dl>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Status">
+          <Select
+            value={form.status}
+            onValueChange={value => setForm(current => ({ ...current, status: value as GalleryEvent["status"] }))}
+            disabled={disableInputs}
+          >
+            <SelectTrigger data-size="default">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {EVENT_STATUSES.map(option => (
+                <SelectItem key={option} value={option}>
+                  {option}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field label="Ticket URL">
+          <Input
+            value={form.ticket_url}
+            onChange={event => setForm(current => ({ ...current, ticket_url: event.target.value }))}
+            disabled={disableInputs}
+            placeholder="https://…"
+          />
+        </Field>
+        <Field label="Start">
+          <Input
+            type="datetime-local"
+            value={form.start_at}
+            onChange={event => setForm(current => ({ ...current, start_at: event.target.value }))}
+            disabled={disableInputs}
+          />
+        </Field>
+        <Field label="End">
+          <Input
+            type="datetime-local"
+            value={form.end_at}
+            onChange={event => setForm(current => ({ ...current, end_at: event.target.value }))}
+            disabled={disableInputs}
+          />
+        </Field>
+      </div>
 
-      {expanded ? (
-        <div className="space-y-6 border-t border-slate-200 pt-6">
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Title">
-              <Input
-                value={form.title}
-                onChange={event => setForm(current => ({ ...current, title: event.target.value }))}
-                disabled={savingDisabled}
-              />
-            </Field>
-            <Field label="Status">
-              <Select
-                value={form.status}
-                onValueChange={value => setForm(current => ({ ...current, status: value as GalleryEvent["status"] }))}
-                disabled={savingDisabled}
-              >
-                <SelectTrigger data-size="default">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {EVENT_STATUSES.map(option => (
-                    <SelectItem key={option} value={option}>
-                      {option}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Start">
-              <Input
-                type="datetime-local"
-                value={form.start_at}
-                onChange={event => setForm(current => ({ ...current, start_at: event.target.value }))}
-                disabled={savingDisabled}
-              />
-            </Field>
-            <Field label="End">
-              <Input
-                type="datetime-local"
-                value={form.end_at}
-                onChange={event => setForm(current => ({ ...current, end_at: event.target.value }))}
-                disabled={savingDisabled}
-              />
-            </Field>
-            <Field label="Ticket URL" fullWidth>
-              <Input
-                value={form.ticket_url}
-                onChange={event => setForm(current => ({ ...current, ticket_url: event.target.value }))}
-                disabled={savingDisabled}
-                placeholder="https://…"
-              />
-            </Field>
-          </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Description" fullWidth>
+          <Textarea
+            rows={4}
+            value={form.description}
+            onChange={event => setForm(current => ({ ...current, description: event.target.value }))}
+            disabled={disableInputs}
+          />
+        </Field>
+      </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Description" fullWidth>
-              <Textarea
-                rows={4}
-                value={form.description}
-                onChange={event => setForm(current => ({ ...current, description: event.target.value }))}
-                disabled={savingDisabled}
-              />
-            </Field>
-            <Field label="Markdown" fullWidth description="Optional rich markdown captured from scraping.">
-              <Textarea
-                rows={8}
-                value={form.md}
-                onChange={event => setForm(current => ({ ...current, md: event.target.value }))}
-                disabled={savingDisabled}
-              />
-            </Field>
-          </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Tags" description="Comma separated">
+          <Input
+            value={form.tags}
+            onChange={event => setForm(current => ({ ...current, tags: event.target.value }))}
+            disabled={disableInputs}
+          />
+        </Field>
+        <Field label="Artists" description="Comma separated">
+          <Input
+            value={form.artists}
+            onChange={event => setForm(current => ({ ...current, artists: event.target.value }))}
+            disabled={disableInputs}
+          />
+        </Field>
+      </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Tags" description="Comma separated.">
-              <Input
-                value={form.tags}
-                onChange={event => setForm(current => ({ ...current, tags: event.target.value }))}
-                disabled={savingDisabled}
-              />
-            </Field>
-            <Field label="Artists" description="Comma separated.">
-              <Input
-                value={form.artists}
-                onChange={event => setForm(current => ({ ...current, artists: event.target.value }))}
-                disabled={savingDisabled}
-              />
-            </Field>
-          </div>
-
-          <section className="space-y-4">
-            <header className="flex items-center justify-between">
-              <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">Occurrences</p>
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={savingDisabled}
-                onClick={() =>
-                  setForm(current => ({
-                    ...current,
-                    occurrences: [
-                      ...current.occurrences,
-                      {
-                        id: generateId(),
-                        start_at: "",
-                        end_at: "",
-                        timezone: ""
-                      }
-                    ]
-                  }))
-                }
-              >
-                Add
-              </Button>
-            </header>
-            {form.occurrences.length === 0 ? (
-              <p className="text-xs text-slate-500">No occurrences recorded.</p>
-            ) : (
-              <div className="space-y-3">
-                {form.occurrences.map((occurrence, index) => (
-                  <div key={occurrence.id ?? `occ-${index}`} className="grid gap-3 md:grid-cols-[220px_220px_140px_auto] md:items-center">
-                    <Input
-                      type="datetime-local"
-                      value={occurrence.start_at}
-                      onChange={event =>
-                        setForm(current => ({
-                          ...current,
-                          occurrences: updateOccurrence(current.occurrences, index, { start_at: event.target.value })
-                        }))
-                      }
-                      disabled={savingDisabled}
-                    />
-                    <Input
-                      type="datetime-local"
-                      value={occurrence.end_at}
-                      onChange={event =>
-                        setForm(current => ({
-                          ...current,
-                          occurrences: updateOccurrence(current.occurrences, index, { end_at: event.target.value })
-                        }))
-                      }
-                      disabled={savingDisabled}
-                    />
-                    <Input
-                      value={occurrence.timezone}
-                      onChange={event =>
-                        setForm(current => ({
-                          ...current,
-                          occurrences: updateOccurrence(current.occurrences, index, { timezone: event.target.value })
-                        }))
-                      }
-                      placeholder="Timezone"
-                      disabled={savingDisabled}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      disabled={savingDisabled}
-                      onClick={() =>
-                        setForm(current => ({
-                          ...current,
-                          occurrences: current.occurrences.filter((_, itemIndex) => itemIndex !== index)
-                        }))
-                      }
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                ))}
+      <section className="space-y-3">
+        <header className="flex items-center justify-between">
+          <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">Occurrences</span>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={disableInputs}
+            onClick={() =>
+              setForm(current => ({
+                ...current,
+                occurrences: [
+                  ...current.occurrences,
+                  {
+                    id: generateId(),
+                    start_at: "",
+                    end_at: "",
+                    timezone: ""
+                  }
+                ]
+              }))
+            }
+          >
+            Add occurrence
+          </Button>
+        </header>
+        {form.occurrences.length === 0 ? (
+          <p className="text-xs text-slate-500">No occurrences recorded.</p>
+        ) : (
+          <div className="space-y-3">
+            {form.occurrences.map((occurrence, index) => (
+              <div key={occurrence.id ?? `occ-${index}`} className="grid gap-3 md:grid-cols-[220px_220px_140px_auto] md:items-center">
+                <Input
+                  type="datetime-local"
+                  value={occurrence.start_at}
+                  onChange={event =>
+                    setForm(current => ({
+                      ...current,
+                      occurrences: updateOccurrence(current.occurrences, index, { start_at: event.target.value })
+                    }))
+                  }
+                  disabled={disableInputs}
+                />
+                <Input
+                  type="datetime-local"
+                  value={occurrence.end_at}
+                  onChange={event =>
+                    setForm(current => ({
+                      ...current,
+                      occurrences: updateOccurrence(current.occurrences, index, { end_at: event.target.value })
+                    }))
+                  }
+                  disabled={disableInputs}
+                />
+                <Input
+                  value={occurrence.timezone}
+                  onChange={event =>
+                    setForm(current => ({
+                      ...current,
+                      occurrences: updateOccurrence(current.occurrences, index, { timezone: event.target.value })
+                    }))
+                  }
+                  placeholder="Timezone"
+                  disabled={disableInputs}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={disableInputs}
+                  onClick={() =>
+                    setForm(current => ({
+                      ...current,
+                      occurrences: current.occurrences.filter((_, itemIndex) => itemIndex !== index)
+                    }))
+                  }
+                >
+                  Remove
+                </Button>
               </div>
-            )}
-          </section>
-
-          <div className="flex justify-end">
-            <Button type="button" variant="primary" disabled={savingDisabled} onClick={() => void handleSave()}>
-              {savingDisabled ? "Saving…" : "Save event"}
-            </Button>
+            ))}
           </div>
-        </div>
-      ) : null}
-    </article>
+        )}
+      </section>
+
+      <div className="flex justify-end">
+        <Button type="submit" variant="primary" disabled={disableInputs}>
+          {disableInputs ? "Saving…" : "Save event"}
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -442,6 +352,16 @@ function FilterField({ label, children }: { label: string; children: ReactNode }
     <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
       {label}
       {children}
+    </label>
+  );
+}
+
+function Field({ label, description, fullWidth = false, children }: { label: string; description?: string; fullWidth?: boolean; children: ReactNode }) {
+  return (
+    <label className={fullWidth ? "flex flex-col gap-2 md:col-span-2" : "flex flex-col gap-2"}>
+      <span className="text-sm font-medium text-slate-700">{label}</span>
+      {children}
+      {description ? <span className="text-xs text-slate-500">{description}</span> : null}
     </label>
   );
 }
@@ -455,75 +375,9 @@ function EventStatusBadge({ status }: { status: GalleryEvent["status"] }) {
   };
   const tone = palette[status.toLowerCase()] ?? "bg-slate-200 text-slate-600";
   return (
-    <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold uppercase ${tone}`}>
+    <Badge variant="secondary" className={`uppercase ${tone}`}>
       {status}
-    </span>
-  );
-}
-
-function compareEvents(left: GalleryEvent, right: GalleryEvent, order: EventSort): number {
-  if (order === "title") {
-    return left.title.localeCompare(right.title);
-  }
-  const leftDate = left.start_at ?? left.created_at;
-  const rightDate = right.start_at ?? right.created_at;
-  if (!leftDate || !rightDate) {
-    return 0;
-  }
-  if (order === "latest") {
-    return rightDate.localeCompare(leftDate);
-  }
-  return leftDate.localeCompare(rightDate);
-}
-
-function sortOccurrences(occurrences: GalleryEvent["event_occurrences"]): GalleryEvent["event_occurrences"] {
-  return [...occurrences].sort((left, right) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime());
-}
-
-function formatOccurrence(occurrence: GalleryEvent["event_occurrences"][number]): string {
-  const start = formatDateTime(occurrence.start_at);
-  const end = occurrence.end_at ? formatDateTime(occurrence.end_at) : null;
-  const zone = occurrence.timezone ? ` (${occurrence.timezone})` : "";
-  if (end) {
-    return `${start} → ${end}${zone}`;
-  }
-  return `${start}${zone}`;
-}
-
-function formatEventDateRange(event: GalleryEvent): string {
-  const start = event.start_at ?? event.created_at;
-  const end = event.end_at;
-  const formattedStart = formatDateTime(start);
-  if (!end) {
-    return formattedStart;
-  }
-  const formattedEnd = formatDateTime(end);
-  return `${formattedStart} → ${formattedEnd}`;
-}
-
-function formatDateTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  const weekday = dayNames[date.getDay()];
-  return `${weekday} ${date.toLocaleString()}`;
-}
-
-function formatDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString();
-}
-
-function DetailRow({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="space-y-1">
-      <dt className="font-semibold text-slate-700">{label}</dt>
-      <dd>{children}</dd>
-    </div>
+    </Badge>
   );
 }
 
@@ -544,13 +398,13 @@ type EventFormState = {
   description: string;
   tags: string;
   artists: string;
-  md: string;
   occurrences: Array<{
     id: string | null;
     start_at: string;
     end_at: string;
     timezone: string;
   }>;
+  created_at: string;
 };
 
 function toFormState(event: GalleryEvent): EventFormState {
@@ -563,13 +417,13 @@ function toFormState(event: GalleryEvent): EventFormState {
     description: event.event_info?.description ?? "",
     tags: (event.event_info?.tags ?? []).join(", "),
     artists: (event.event_info?.artists ?? []).join(", "),
-    md: event.event_info?.md ?? "",
     occurrences: (event.event_occurrences ?? []).map(item => ({
       id: item.id,
       start_at: toLocalInput(item.start_at),
       end_at: toLocalInput(item.end_at),
       timezone: item.timezone ?? ""
-    }))
+    })),
+    created_at: event.created_at
   };
 }
 
@@ -585,8 +439,7 @@ function toStructuredPayload(form: EventFormState): EventStructuredPayload {
     info: {
       description: normalizeField(form.description),
       tags: parseList(form.tags),
-      artists: parseList(form.artists),
-      md: normalizeField(form.md)
+      artists: parseList(form.artists)
     },
     occurrences: form.occurrences
       .map(item => {
@@ -601,7 +454,7 @@ function toStructuredPayload(form: EventFormState): EventStructuredPayload {
           timezone: normalizeField(item.timezone)
         };
       })
-      .filter(Boolean) as EventStructuredPayload["occurrences"]
+      .filter((entry): entry is EventStructuredPayload["occurrences"][number] => entry !== null)
   };
 }
 
@@ -611,13 +464,6 @@ function updateOccurrence(
   patch: Partial<EventFormState["occurrences"][number]>
 ): EventFormState["occurrences"] {
   return occurrences.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item));
-}
-
-function generateId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function normalizeField(value: string): string | null {
@@ -660,22 +506,17 @@ function fromLocalInput(value: string): string | null {
   return parsed.toISOString();
 }
 
-function Field({
-  label,
-  description,
-  fullWidth = false,
-  children
-}: {
-  label: string;
-  description?: string;
-  fullWidth?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <label className={fullWidth ? "flex flex-col gap-2 md:col-span-2" : "flex flex-col gap-2"}>
-      <span className="text-sm font-medium text-slate-700">{label}</span>
-      {children}
-      {description ? <span className="text-xs text-slate-500">{description}</span> : null}
-    </label>
-  );
+function generateId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function formatDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString();
 }

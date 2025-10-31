@@ -24,7 +24,6 @@ export type Database = {
           embedding_model: string | null
           event_id: string
           images: string[] | null
-          md: string | null
           prices: Json | null
           source_page_id: string | null
           tags: string[] | null
@@ -38,7 +37,6 @@ export type Database = {
           embedding_model?: string | null
           event_id: string
           images?: string[] | null
-          md?: string | null
           prices?: Json | null
           source_page_id?: string | null
           tags?: string[] | null
@@ -52,7 +50,6 @@ export type Database = {
           embedding_model?: string | null
           event_id?: string
           images?: string[] | null
-          md?: string | null
           prices?: Json | null
           source_page_id?: string | null
           tags?: string[] | null

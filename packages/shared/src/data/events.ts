@@ -198,21 +198,6 @@ export async function updateGalleryInfoEmbedding(
   }
 }
 
-export async function selectEventInfoText(client: SupabaseServiceClient, eventId: string): Promise<string | null> {
-  const { data, error } = await client
-    .from("event_info")
-    .select("md")
-    .eq("event_id", eventId)
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    throw toError("selectEventInfoText", error);
-  }
-
-  return data?.md ?? null;
-}
-
 export async function selectEventTitle(client: SupabaseServiceClient, eventId: string): Promise<string | null> {
   const { data, error } = await client
     .from("events")
@@ -226,6 +211,21 @@ export async function selectEventTitle(client: SupabaseServiceClient, eventId: s
   }
 
   return data?.title ?? null;
+}
+
+export async function selectEventDescription(client: SupabaseServiceClient, eventId: string): Promise<string | null> {
+  const { data, error } = await client
+    .from("event_info")
+    .select("description")
+    .eq("event_id", eventId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw toError("selectEventDescription", error);
+  }
+
+  return data?.description ?? null;
 }
 
 export async function updateEventFields(
@@ -246,7 +246,7 @@ export async function updateEventFields(
 export async function saveEventInfo(
   client: SupabaseServiceClient,
   eventId: string,
-  info: Pick<EventInfo, "description" | "tags" | "artists" | "md">
+  info: Pick<EventInfo, "description" | "tags" | "artists">
 ): Promise<void> {
   const { data, error } = await client
     .from("event_info")

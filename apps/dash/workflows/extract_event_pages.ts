@@ -216,6 +216,14 @@ export class ExtractEventPages extends WorkflowEntrypoint<Env, Params> {
             `[ExtractEventPages] Event processing complete - ${processedEventIds.length} events linked`
         );
 
+        // Automatically trigger embedding for extracted events
+        if (processedEventIds.length > 0) {
+            await step.do("trigger-embedding", async () => {
+                console.log(`[ExtractEventPages] Triggering embedding for ${processedEventIds.length} events`);
+                await this.env.EMBEDDING.create({ params: { eventIds: processedEventIds } });
+            });
+        }
+
         return { ok: true, processed: successCount, events: processedEventIds.length };
     }
 }

@@ -131,8 +131,7 @@ const EventBasePayloadSchema = z.object({
 const EventInfoPayloadSchema = z.object({
   description: z.string().nullable(),
   tags: z.array(z.string()).nullable(),
-  artists: z.array(z.string()).nullable(),
-  md: z.string().nullable()
+  artists: z.array(z.string()).nullable()
 });
 
 const EventOccurrencePayloadSchema = z.object({
@@ -148,13 +147,11 @@ const EventStructuredPayloadSchema = z.object({
   occurrences: z.array(EventOccurrencePayloadSchema)
 });
 // Re-export workflow entrypoints so the runtime can find them by class_name
-export { SeedGallery } from "../workflows/seed_gallery";
 export { DiscoverLinks } from "../workflows/discover_links";
 export { ScrapePages } from "../workflows/scrape_pages";
 export { ExtractEventPages } from "../workflows/extract_event_pages";
 export { ExtractGallery } from "../workflows/extract_gallery";
 export { Embed } from "../workflows/embeed";
-export { PromotePages } from "../workflows/promote_pages";
 export { ScrapeAndExtract } from "../workflows/scrape_and_extract";
 export { SeedAndStartupGallery } from "../workflows/seedAndStartupGallery";
 
@@ -386,15 +383,6 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/pages/extract") {
       const body = PageIdsBodySchema.parse(await request.json());
       const run = await env.EXTRACT_EVENT_PAGES.create({ params: { pageIds: body.pageIds } });
-      return Response.json({ id: run.id ?? run });
-    }
-
-    if (request.method === "POST" && url.pathname === "/api/pages/process-events") {
-      const body = PageIdsBodySchema.parse(await request.json());
-      console.log("[dash-worker] Starting ScrapeAndExtract workflow via /process-events", {
-        count: body.pageIds.length
-      });
-      const run = await env.SCRAPE_AND_EXTRACT.create({ params: { pageIds: body.pageIds } });
       return Response.json({ id: run.id ?? run });
     }
 

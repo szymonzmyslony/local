@@ -53,7 +53,7 @@ export type GalleryHoursPayload = {
 };
 
 export type EventBasePayload = Pick<EventRow, "title" | "status" | "start_at" | "end_at" | "ticket_url">;
-export type EventInfoPayload = Pick<EventInfoRow, "description" | "tags" | "artists" | "md">;
+export type EventInfoPayload = Pick<EventInfoRow, "description" | "tags" | "artists">;
 export type EventOccurrencePayload = Pick<EventOccurrenceRow, "id" | "start_at" | "end_at" | "timezone"> & {
   id?: string | null;
 };
