@@ -5,6 +5,7 @@ import { GalleryDetailLayout } from "./routes/GalleryDetailLayout";
 import { GalleryOverviewPage } from "./routes/GalleryOverviewPage";
 import { GalleryPagesPage } from "./routes/GalleryPagesPage";
 import { GalleryEventsPage } from "./routes/GalleryEventsPage";
+import { EventsPage } from "./routes/EventsPage";
 
 export default function App() {
   return (
@@ -13,6 +14,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/gallery-list" replace />} />
           <Route path="/gallery-list" element={<GalleryListPage />} />
+          <Route path="/events" element={<EventsPage />} />
           <Route path="/galleries/:galleryId" element={<GalleryDetailLayout />}>
             <Route index element={<Navigate to="overview" replace />} />
             <Route path="overview" element={<GalleryOverviewPage />} />

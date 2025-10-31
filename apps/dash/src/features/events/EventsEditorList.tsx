@@ -138,8 +138,9 @@ function EventEditorCard({ event, page, pendingAction, onSave, onProcess }: Even
     }
   }
 
-  const processing = pendingAction === "scrapeAndExtract";
+  const processing = pendingAction === "extractAndEmbedEvents";
   const disableInputs = saving || pendingAction === "saveEvent";
+  const canExtract = page?.status.scrape === "ok";
 
   return (
     <form className="space-y-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm" onSubmit={handleSubmit}>
@@ -159,25 +160,30 @@ function EventEditorCard({ event, page, pendingAction, onSave, onProcess }: Even
             {event.page_id ? <span>Page linked</span> : <span>No source page</span>}
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {page ? (
-            <Button variant="outline" asChild>
-              <a href={page.url ?? page.normalized_url} target="_blank" rel="noreferrer">
-                Source page
-              </a>
-            </Button>
-          ) : null}
-          {form.ticket_url ? (
-            <Button variant="ghost" asChild>
-              <a href={form.ticket_url} target="_blank" rel="noreferrer">
-                Ticket link
-              </a>
-            </Button>
-          ) : null}
-          {!event.event_info && page ? (
-            <Button type="button" variant="primary" disabled={processing} onClick={() => onProcess(page.id)}>
-              {processing ? "Processing…" : "Process event"}
-            </Button>
+        <div className="flex flex-col gap-2 items-end">
+          <div className="flex flex-wrap gap-2">
+            {page ? (
+              <Button variant="outline" asChild>
+                <a href={page.url ?? page.normalized_url} target="_blank" rel="noreferrer">
+                  Source page
+                </a>
+              </Button>
+            ) : null}
+            {form.ticket_url ? (
+              <Button variant="ghost" asChild>
+                <a href={form.ticket_url} target="_blank" rel="noreferrer">
+                  Ticket link
+                </a>
+              </Button>
+            ) : null}
+            {!event.event_info && page ? (
+              <Button type="button" variant="primary" disabled={processing || !canExtract} onClick={() => onProcess(page.id)}>
+                {processing ? "Processing…" : "Process event"}
+              </Button>
+            ) : null}
+          </div>
+          {!event.event_info && page && !canExtract ? (
+            <span className="text-xs text-slate-500">Page must be scraped first</span>
           ) : null}
         </div>
       </header>

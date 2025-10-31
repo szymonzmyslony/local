@@ -385,7 +385,31 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      match_events: {
+        Args: {
+          match_count: number
+          match_threshold: number
+          query_embedding: string
+        }
+        Returns: {
+          description: string
+          id: string
+          similarity: number
+        }[]
+      }
+      match_galeries: {
+        Args: {
+          match_count: number
+          match_threshold: number
+          query_embedding: string
+        }
+        Returns: {
+          about: string
+          id: string
+          name: string
+          similarity: number
+        }[]
+      }
     }
     Enums: {
       event_status:

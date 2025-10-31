@@ -1,7 +1,5 @@
 import { routeAgentRequest, type Schedule } from "agents";
 
-import { getSchedulePrompt } from "agents/schedule";
-
 import { AIChatAgent } from "agents/ai-chat-agent";
 import {
   generateId,
@@ -54,12 +52,7 @@ export class Chat extends AIChatAgent<Env> {
         });
 
         const result = streamText({
-          system: `You are a helpful assistant that can do various tasks... 
-
-${getSchedulePrompt({ date: new Date() })}
-
-If the user asks to schedule a task, use the schedule tool to schedule the task.
-`,
+          system: `You help people discover art galleries and events. When a user asks for recommendations or information, prefer calling the match_gallery or match_event tools to retrieve relevant results. Explain the findings clearly and keep replies concise.`,
 
           messages: convertToModelMessages(processedMessages),
           model,

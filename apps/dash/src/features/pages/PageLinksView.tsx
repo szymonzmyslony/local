@@ -143,7 +143,7 @@ export function PageLinksView({
   );
 
   const busyScrape = pendingAction === "scrape";
-  const busyPromote = pendingAction === "scrapeAndExtract";
+  const busyPromote = pendingAction === "extractAndEmbedEvents";
 
   return (
     <section className="space-y-6">
@@ -157,6 +157,8 @@ export function PageLinksView({
         onRowSelectionChange={setRowSelection}
         renderToolbar={table => {
           const selectionDisabled = selectedPageIds.length === 0;
+          const allSelectedScraped = selectedPages.every(page => page.status.scrape === "ok");
+          const canPromote = !selectionDisabled && allSelectedScraped;
 
           return (
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
@@ -258,9 +260,9 @@ export function PageLinksView({
                   <Button
                     type="button"
                     variant="primary"
-                    disabled={selectionDisabled || busyPromote}
+                    disabled={!canPromote || busyPromote}
                     onClick={() => {
-                      if (selectionDisabled) return;
+                      if (!canPromote) return;
                       console.log("[PageLinksView] mark as event selected pages", {
                         count: selectedPages.length,
                         ids: selectedPages.map(page => page.id),
@@ -274,6 +276,9 @@ export function PageLinksView({
                   >
                     {busyPromote ? "Promoting…" : "Mark as event"}
                   </Button>
+                  {selectedPageIds.length > 0 && !allSelectedScraped ? (
+                    <span className="text-xs text-slate-500">All pages must be scraped first</span>
+                  ) : null}
                 </div>
               </div>
             </div>

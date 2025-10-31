@@ -1,5 +1,6 @@
 import type { PostgrestError } from "@supabase/supabase-js";
 import type { SupabaseServiceClient } from "../database/client";
+import { toPgVector } from "../database/vector";
 import type {
   Gallery,
   GalleryHoursInsert,
@@ -15,6 +16,7 @@ import type { OpeningHoursItem } from "../schema";
 function toError(operation: string, error: PostgrestError): Error {
   return new Error(`[${operation}] ${error.message}`);
 }
+
 
 export async function upsertGallery(
   client: SupabaseServiceClient,
@@ -78,6 +80,43 @@ export async function listRecentGalleries(
       open_minutes: hours.open_minutes
     }))
   })) as GalleryListItem[];
+}
+
+type MatchGalleryOptions = {
+  matchCount?: number;
+  matchThreshold?: number;
+};
+
+type MatchGalleryRow = {
+  id: string;
+  name: string | null;
+  about: string | null;
+  similarity: number;
+};
+
+export async function matchGalleries(
+  client: SupabaseServiceClient,
+  queryVector: readonly number[],
+  options?: MatchGalleryOptions
+): Promise<MatchGalleryRow[]> {
+  if (queryVector.length === 0) {
+    return [];
+  }
+
+  const matchCount = options?.matchCount ?? 10;
+  const matchThreshold = options?.matchThreshold ?? 0.7;
+
+  const { data, error } = await client.rpc("match_galeries", {
+    match_count: matchCount,
+    match_threshold: matchThreshold,
+    query_embedding: toPgVector(Array.from(queryVector))
+  });
+
+  if (error) {
+    throw toError("matchGalleries", error);
+  }
+
+  return (data ?? []) as MatchGalleryRow[];
 }
 
 export async function getGalleryWithInfo(

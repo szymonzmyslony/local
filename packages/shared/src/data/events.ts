@@ -1,5 +1,6 @@
 import type { PostgrestError } from "@supabase/supabase-js";
 import type { SupabaseServiceClient } from "../database/client";
+import { toPgVector } from "../database/vector";
 import type {
   EventInfo,
   EventInfoInsert,
@@ -34,6 +35,42 @@ export async function selectEventsByGallery(
     event_info: event.event_info ?? null,
     event_occurrences: event.event_occurrences ?? []
   })) as EventWithRelations[];
+}
+
+type MatchEventOptions = {
+  matchCount?: number;
+  matchThreshold?: number;
+};
+
+export type EventMatchRow = {
+  id: string;
+  description: string | null;
+  similarity: number;
+};
+
+export async function matchEvents(
+  client: SupabaseServiceClient,
+  queryVector: readonly number[],
+  options?: MatchEventOptions
+): Promise<EventMatchRow[]> {
+  if (queryVector.length === 0) {
+    return [];
+  }
+
+  const matchCount = options?.matchCount ?? 10;
+  const matchThreshold = options?.matchThreshold ?? 0.7;
+
+  const { data, error } = await client.rpc("match_events", {
+    match_count: matchCount,
+    match_threshold: matchThreshold,
+    query_embedding: toPgVector(Array.from(queryVector))
+  });
+
+  if (error) {
+    throw toError("matchEvents", error);
+  }
+
+  return (data ?? []) as EventMatchRow[];
 }
 
 export async function findEventIdByPage(

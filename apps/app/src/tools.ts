@@ -1,133 +1,221 @@
-/**
- * Tool definitions for the AI chat agent
- * Tools can either require human confirmation or execute automatically
- */
 import { tool, type ToolSet } from "ai";
 import { z } from "zod/v3";
+import { createEmbedder, getServiceClient, toPgVector } from "@shared";
+import type { GalleryToolResult, EventToolResult, GalleryMatchItem, EventMatchItem } from "./types/tool-results";
 
-import type { Chat } from "./server";
-import { getCurrentAgent } from "agents";
-import { scheduleSchema } from "agents/schedule";
-
-/**
- * Weather information tool that requires human confirmation
- * When invoked, this will present a confirmation dialog to the user
- */
-const getWeatherInformation = tool({
-  description: "show the weather in a given city to the user",
-  inputSchema: z.object({ city: z.string() })
-  // Omitting execute function makes this tool require human confirmation
+const searchInputSchema = z.object({
+  query: z.string().trim().min(2, "Query must be at least 2 characters"),
+  matchCount: z.number().int().min(1).max(20).optional(),
+  matchThreshold: z.number().min(-1).max(1).optional()
 });
 
-/**
- * Local time tool that executes automatically
- * Since it includes an execute function, it will run without user confirmation
- * This is suitable for low-risk operations that don't need oversight
- */
-const getLocalTime = tool({
-  description: "get the local time for a specified location",
-  inputSchema: z.object({ location: z.string() }),
-  execute: async ({ location }) => {
-    console.log(`Getting local time for ${location}`);
-    return "10am";
+type RequiredEnv = Pick<Env, "OPENAI_API_KEY" | "SUPABASE_URL" | "SUPABASE_ANON_KEY">;
+
+function enforceEnv(): RequiredEnv {
+  const openaiKey = process.env.OPENAI_API_KEY;
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+  if (!openaiKey) {
+    throw new Error("OPENAI_API_KEY is missing");
+  }
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error("Supabase configuration is missing");
+  }
+  return {
+    OPENAI_API_KEY: openaiKey,
+    SUPABASE_URL: supabaseUrl,
+    SUPABASE_ANON_KEY: supabaseAnonKey
+  };
+}
+
+const matchGallery = tool({
+  description: "Find galleries similar to a free-form query using vector search over gallery info.",
+  inputSchema: searchInputSchema,
+  execute: async ({ query, matchCount, matchThreshold }): Promise<GalleryToolResult> => {
+    const env = enforceEnv();
+    const supabase = getServiceClient(env);
+    const embedder = createEmbedder(env.OPENAI_API_KEY);
+    const vector = await embedder(query);
+
+    if (!vector.length) {
+      return { type: "gallery-results", query, items: [] };
+    }
+
+    const { data, error } = await supabase.rpc("match_galeries", {
+      match_count: matchCount ?? 8,
+      match_threshold: matchThreshold ?? 0.6,
+      query_embedding: toPgVector(vector)
+    });
+
+    if (error) {
+      throw new Error(`[match_gallery] ${error.message}`);
+    }
+
+    const matches = (data ?? []).map((row) => {
+      const galleryId = (row as { gallery_id?: string; id?: string }).gallery_id ?? (row as { id?: string }).id;
+      return {
+        id: galleryId as string,
+        similarity: (row as { similarity?: number }).similarity ?? 0
+      };
+    }).filter((item) => typeof item.id === "string");
+
+    if (!matches.length) {
+      return { type: "gallery-results", query, items: [] };
+    }
+
+    const galleryIds = matches.map((item) => item.id);
+
+    const { data: galleryRows, error: galleryError } = await supabase
+      .from("galleries")
+      .select("id, main_url, normalized_main_url, events_page, gallery_info(name, about)")
+      .in("id", galleryIds);
+
+    if (galleryError) {
+      throw new Error(`[match_gallery] fetch galleries failed: ${galleryError.message}`);
+    }
+
+    const galleryMap = new Map(
+      (galleryRows ?? []).map((row) => [row.id, row])
+    );
+
+    const items: GalleryMatchItem[] = [];
+    for (const match of matches) {
+      const row = galleryMap.get(match.id);
+      if (!row) continue;
+      const info = (row.gallery_info ?? {}) as { name?: string | null; about?: string | null };
+      items.push({
+        id: row.id,
+        name: info.name ?? null,
+        about: info.about ?? null,
+        mainUrl: row.main_url ?? null,
+        normalizedMainUrl: row.normalized_main_url ?? null,
+        eventsPage: row.events_page ?? null,
+        similarity: match.similarity
+      });
+    }
+
+    return {
+      type: "gallery-results",
+      query,
+      items
+    } satisfies GalleryToolResult;
   }
 });
 
-const scheduleTask = tool({
-  description: "A tool to schedule a task to be executed at a later time",
-  inputSchema: scheduleSchema,
-  execute: async ({ when, description }) => {
-    // we can now read the agent context from the ALS store
-    const { agent } = getCurrentAgent<Chat>();
+const matchEvent = tool({
+  description: "Find events similar to a query using vector search over event descriptions and metadata.",
+  inputSchema: searchInputSchema,
+  execute: async ({ query, matchCount, matchThreshold }): Promise<EventToolResult> => {
+    const env = enforceEnv();
+    const supabase = getServiceClient(env);
+    const embedder = createEmbedder(env.OPENAI_API_KEY);
+    const vector = await embedder(query);
 
-    function throwError(msg: string): string {
-      throw new Error(msg);
+    if (!vector.length) {
+      return { type: "event-results", query, items: [] };
     }
-    if (when.type === "no-schedule") {
-      return "Not a valid schedule input";
+
+    const { data, error } = await supabase.rpc("match_events", {
+      match_count: matchCount ?? 8,
+      match_threshold: matchThreshold ?? 0.6,
+      query_embedding: toPgVector(vector)
+    });
+
+    if (error) {
+      throw new Error(`[match_event] ${error.message}`);
     }
-    const input =
-      when.type === "scheduled"
-        ? when.date // scheduled
-        : when.type === "delayed"
-          ? when.delayInSeconds // delayed
-          : when.type === "cron"
-            ? when.cron // cron
-            : throwError("not a valid schedule input");
-    try {
-      agent!.schedule(input!, "executeTask", description);
-    } catch (error) {
-      console.error("error scheduling task", error);
-      return `Error scheduling task: ${error}`;
+
+    const matches = (data ?? []).map((row) => {
+      const eventId = (row as { event_id?: string; id?: string }).event_id ?? (row as { id?: string }).id;
+      return {
+        id: eventId as string,
+        similarity: (row as { similarity?: number }).similarity ?? 0
+      };
+    }).filter((item) => typeof item.id === "string");
+
+    if (!matches.length) {
+      return { type: "event-results", query, items: [] };
     }
-    return `Task scheduled for type "${when.type}" : ${input}`;
+
+    const eventIds = matches.map((item) => item.id);
+
+    const { data: eventsData, error: eventsError } = await supabase
+      .from("events")
+      .select("id, title, status, start_at, end_at, gallery_id, event_info(description), event_occurrences(id, start_at, end_at, timezone)")
+      .in("id", eventIds);
+
+    if (eventsError) {
+      throw new Error(`[match_event] fetch events failed: ${eventsError.message}`);
+    }
+
+    const galleryIds = Array.from(
+      new Set(
+        (eventsData ?? [])
+          .map((event) => event.gallery_id)
+          .filter((value): value is string => typeof value === "string")
+      )
+    );
+
+    const { data: galleriesData, error: galleriesError } = await supabase
+      .from("galleries")
+      .select("id, main_url, normalized_main_url, gallery_info(name)")
+      .in("id", galleryIds);
+
+    if (galleriesError) {
+      throw new Error(`[match_event] fetch galleries failed: ${galleriesError.message}`);
+    }
+
+    const galleryMap = new Map(
+      (galleriesData ?? []).map((row) => [row.id, row])
+    );
+
+    const eventMap = new Map((eventsData ?? []).map((row) => [row.id, row]));
+
+    const items: EventMatchItem[] = [];
+    for (const match of matches) {
+      const event = eventMap.get(match.id);
+      if (!event) continue;
+      const info = (event.event_info ?? {}) as { description?: string | null };
+      const occurrences = Array.isArray(event.event_occurrences)
+        ? event.event_occurrences.map((occ) => ({
+            id: String(occ.id ?? `${event.id}-${occ.start_at ?? "occ"}`),
+            start_at: occ.start_at ?? null,
+            end_at: occ.end_at ?? null,
+            timezone: occ.timezone ?? null
+          }))
+        : [];
+      const gallery = event.gallery_id ? galleryMap.get(event.gallery_id) : undefined;
+      items.push({
+        id: event.id,
+        title: event.title ?? "Untitled event",
+        status: (event.status as string | null) ?? null,
+        startAt: event.start_at ?? null,
+        endAt: event.end_at ?? null,
+        description: info.description ?? null,
+        occurrences,
+        gallery: gallery
+          ? {
+              id: gallery.id,
+              name: ((gallery.gallery_info ?? {}) as { name?: string | null }).name ?? null,
+              mainUrl: gallery.main_url ?? null,
+              normalizedMainUrl: gallery.normalized_main_url ?? null
+            }
+          : null,
+        similarity: match.similarity
+      });
+    }
+
+    return {
+      type: "event-results",
+      query,
+      items
+    } satisfies EventToolResult;
   }
 });
 
-/**
- * Tool to list all scheduled tasks
- * This executes automatically without requiring human confirmation
- */
-const getScheduledTasks = tool({
-  description: "List all tasks that have been scheduled",
-  inputSchema: z.object({}),
-  execute: async () => {
-    const { agent } = getCurrentAgent<Chat>();
-
-    try {
-      const tasks = agent!.getSchedules();
-      if (!tasks || tasks.length === 0) {
-        return "No scheduled tasks found.";
-      }
-      return tasks;
-    } catch (error) {
-      console.error("Error listing scheduled tasks", error);
-      return `Error listing scheduled tasks: ${error}`;
-    }
-  }
-});
-
-/**
- * Tool to cancel a scheduled task by its ID
- * This executes automatically without requiring human confirmation
- */
-const cancelScheduledTask = tool({
-  description: "Cancel a scheduled task using its ID",
-  inputSchema: z.object({
-    taskId: z.string().describe("The ID of the task to cancel")
-  }),
-  execute: async ({ taskId }) => {
-    const { agent } = getCurrentAgent<Chat>();
-    try {
-      await agent!.cancelSchedule(taskId);
-      return `Task ${taskId} has been successfully canceled.`;
-    } catch (error) {
-      console.error("Error canceling scheduled task", error);
-      return `Error canceling task ${taskId}: ${error}`;
-    }
-  }
-});
-
-/**
- * Export all available tools
- * These will be provided to the AI model to describe available capabilities
- */
 export const tools = {
-  getWeatherInformation,
-  getLocalTime,
-  scheduleTask,
-  getScheduledTasks,
-  cancelScheduledTask
+  match_gallery: matchGallery,
+  match_event: matchEvent
 } satisfies ToolSet;
 
-/**
- * Implementation of confirmation-required tools
- * This object contains the actual logic for tools that need human approval
- * Each function here corresponds to a tool above that doesn't have an execute function
- */
-export const executions = {
-  getWeatherInformation: async ({ city }: { city: string }) => {
-    console.log(`Getting weather information for ${city}`);
-    return `The weather in ${city} is sunny`;
-  }
-};
+export const executions = {} as const;

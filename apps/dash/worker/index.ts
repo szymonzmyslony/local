@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   Constants,
+  createEmbedder,
   getServiceClient,
   getGalleryWithInfo,
   getPageDetail,
@@ -14,6 +15,7 @@ import {
   selectEventIdsByPageIds,
   selectEventsByGallery,
   selectPagesWithRelations,
+  toPgVector,
   updateEventFields,
   updatePageById
 } from "@shared";
@@ -30,6 +32,7 @@ type PageStatus = {
   event: "missing" | "ready";
   event_id: string | null;
 };
+
 
 function withPageStatus(page: PageWithRelations, eventsByPageId: Map<string, string>) {
   const parseStatus = page.page_structured?.parse_status ?? "never";
@@ -100,11 +103,20 @@ const EventIdsBodySchema = z.object({
   eventIds: z.array(z.string().uuid()).min(1)
 });
 
+const GallerySearchBodySchema = z.object({
+  query: z.string().trim().min(1).max(2000),
+  matchCount: z.number().int().positive().max(100).optional(),
+  matchThreshold: z.number().min(-1).max(1).optional()
+});
+
 const ExtractGalleryBodySchema = z.object({
   galleryId: z.string().uuid()
 });
 
 const eventStatusEnum = z.enum(Constants.public.Enums.event_status);
+type EventStatusValue = z.infer<typeof eventStatusEnum>;
+
+const EventSearchBodySchema = GallerySearchBodySchema;
 
 const GalleryInfoPayloadSchema = z.object({
   name: z.string().nullable(),
@@ -149,10 +161,11 @@ const EventStructuredPayloadSchema = z.object({
 // Re-export workflow entrypoints so the runtime can find them by class_name
 export { DiscoverLinks } from "../workflows/discover_links";
 export { ScrapePages } from "../workflows/scrape_pages";
+export { ClassifyPage } from "../workflows/classify_page";
 export { ExtractEventPages } from "../workflows/extract_event_pages";
+export { ExtractAndEmbedEvents } from "../workflows/extract_and_embed_events";
 export { ExtractGallery } from "../workflows/extract_gallery";
 export { Embed } from "../workflows/embeed";
-export { ScrapeAndExtract } from "../workflows/scrape_and_extract";
 export { SeedAndStartupGallery } from "../workflows/seedAndStartupGallery";
 
 export default {
@@ -202,6 +215,113 @@ export default {
         return Response.json(galleries);
       } catch (error) {
         console.error("[dash-worker] Failed listing galleries", error);
+        const message = error instanceof Error ? error.message : String(error);
+        return new Response(message, { status: 500 });
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/search/galleries") {
+      try {
+        const body = GallerySearchBodySchema.parse(await request.json());
+        if (!env.OPENAI_API_KEY) {
+          throw new Error("Missing OPENAI_API_KEY");
+        }
+        const embed = createEmbedder(env.OPENAI_API_KEY);
+        const vector = await embed(body.query);
+        if (!vector.length) {
+          return Response.json([]);
+        }
+        const { data, error } = await supabase.rpc("match_galeries", {
+          match_count: body.matchCount ?? 10,
+          match_threshold: body.matchThreshold ?? 0.7,
+          query_embedding: toPgVector(vector)
+        });
+        if (error) {
+          throw error;
+        }
+        return Response.json(data ?? []);
+      } catch (error) {
+        console.error("[dash-worker] Gallery search failed", error);
+        const message = error instanceof Error ? error.message : String(error);
+        return new Response(message, { status: 500 });
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/search/events") {
+      try {
+        const body = EventSearchBodySchema.parse(await request.json());
+        if (!env.OPENAI_API_KEY) {
+          throw new Error("Missing OPENAI_API_KEY");
+        }
+        const embed = createEmbedder(env.OPENAI_API_KEY);
+        const vector = await embed(body.query);
+        if (!vector.length) {
+          return Response.json([]);
+        }
+        const { data, error } = await supabase.rpc("match_events", {
+          match_count: body.matchCount ?? 10,
+          match_threshold: body.matchThreshold ?? 0.7,
+          query_embedding: toPgVector(vector)
+        });
+        if (error) {
+          throw error;
+        }
+        return Response.json(data ?? []);
+      } catch (error) {
+        console.error("[dash-worker] Event search failed", error);
+        const message = error instanceof Error ? error.message : String(error);
+        return new Response(message, { status: 500 });
+      }
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/events") {
+      try {
+        const statusFilters = url.searchParams.getAll("status");
+        const galleryFilters = url.searchParams.getAll("galleryId");
+        const upcoming = url.searchParams.get("upcoming") === "true";
+        const limitParam = Number.parseInt(url.searchParams.get("limit") ?? "200", 10);
+        const limit = Number.isNaN(limitParam) ? 200 : Math.min(Math.max(limitParam, 1), 500);
+        const orderParam = url.searchParams.get("order");
+        const ascending = orderParam === "desc" ? false : true;
+
+        let query = supabase
+          .from("events")
+          .select("*, event_info(*), event_occurrences(*), gallery:galleries(id, main_url, normalized_main_url, gallery_info(name))")
+          .order("start_at", { ascending })
+          .limit(limit);
+
+        if (statusFilters.length) {
+          const validStatuses = statusFilters.filter((value): value is EventStatusValue =>
+            eventStatusEnum.options.includes(value as EventStatusValue)
+          );
+          if (validStatuses.length) {
+            query = query.in("status", validStatuses);
+          }
+        }
+
+        if (galleryFilters.length) {
+          query = query.in("gallery_id", galleryFilters);
+        }
+
+        if (upcoming) {
+          query = query.gte("start_at", new Date().toISOString());
+        }
+
+        const { data, error } = await query;
+        if (error) {
+          throw error;
+        }
+
+        const payload = (data ?? []).map(event => ({
+          ...event,
+          event_info: event.event_info ?? null,
+          event_occurrences: event.event_occurrences ?? [],
+          gallery: event.gallery ?? null
+        }));
+
+        return Response.json(payload);
+      } catch (error) {
+        console.error("[dash-worker] Failed listing events", error);
         const message = error instanceof Error ? error.message : String(error);
         return new Response(message, { status: 500 });
       }
@@ -388,10 +508,10 @@ export default {
 
     if (request.method === "POST" && url.pathname === "/api/pages/promote-event") {
       const body = PageIdsBodySchema.parse(await request.json());
-      console.log("[dash-worker] Starting ScrapeAndExtract workflow via /promote-event", {
+      console.log("[dash-worker] Starting ExtractAndEmbedEvents workflow via /promote-event", {
         count: body.pageIds.length
       });
-      const run = await env.SCRAPE_AND_EXTRACT.create({ params: { pageIds: body.pageIds } });
+      const run = await env.EXTRACT_AND_EMBED_EVENTS.create({ params: { pageIds: body.pageIds } });
       return Response.json({ id: run.id ?? run });
     }
 

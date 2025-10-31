@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useNavigate } from "react-router-dom";
 import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@shared/ui";
-import type { GalleryListItem } from "../api";
+import { searchGalleries, type GalleryListItem, type GallerySearchMatch } from "../api";
 import { DataTable, DataTableColumnHeader } from "../components/data-table";
 import { DashboardShell } from "../components/layout";
 import { Modal } from "../components/modal";
@@ -18,6 +18,9 @@ export function GalleryListPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [weekdayFilter, setWeekdayFilter] = useState<DayFilter>("all");
+  const [semanticMatches, setSemanticMatches] = useState<GallerySearchMatch[] | null>(null);
+  const [semanticSearching, setSemanticSearching] = useState(false);
+  const [semanticError, setSemanticError] = useState<string | null>(null);
 
   const filteredGalleries = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -112,6 +115,8 @@ export function GalleryListPage() {
   async function handleSeed(payload: { mainUrl: string; aboutUrl: string | null; eventsUrl: string | null }): Promise<void> {
     setStatus(null);
     setError(null);
+    setSemanticMatches(null);
+    setSemanticError(null);
     try {
       const { workflowId, galleryId } = await seedGallery(payload);
       setStatus(`Seed workflow started (${workflowId})`);
@@ -126,6 +131,26 @@ export function GalleryListPage() {
     }
   }
 
+  async function handleSemanticSearch(): Promise<void> {
+    const query = search.trim();
+    if (!query) {
+      setSemanticMatches(null);
+      setSemanticError(null);
+      return;
+    }
+    setSemanticSearching(true);
+    setSemanticError(null);
+    try {
+      const results = await searchGalleries(query);
+      setSemanticMatches(results);
+    } catch (issue) {
+      setSemanticMatches(null);
+      setSemanticError(issue instanceof Error ? issue.message : String(issue));
+    } finally {
+      setSemanticSearching(false);
+    }
+  }
+
   return (
     <>
       <DashboardShell
@@ -137,6 +162,7 @@ export function GalleryListPage() {
             <Button type="button" variant="secondary" onClick={() => refreshGalleries()}>
               {loading ? "Refreshing..." : "Refresh"}
             </Button>
+            <Button type="button" variant="outline" onClick={() => navigate("/events")}>Events page</Button>
             <Button type="button" variant="primary" onClick={() => setModalOpen(true)}>
               Seed gallery
             </Button>
@@ -153,11 +179,21 @@ export function GalleryListPage() {
           renderToolbar={() => (
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div className="flex w-full flex-wrap items-center gap-2 md:max-w-2xl">
-                <Input
-                  placeholder="Search by name or URL…"
-                  value={search}
-                  onChange={event => setSearch(event.target.value)}
-                />
+                <div className="flex w-full gap-2 md:w-auto">
+                  <Input
+                    placeholder="Search by name or URL…"
+                    value={search}
+                    onChange={event => setSearch(event.target.value)}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void handleSemanticSearch()}
+                    disabled={semanticSearching}
+                  >
+                    {semanticSearching ? "Searching…" : "Vector search"}
+                  </Button>
+                </div>
                 <Select value={weekdayFilter} onValueChange={value => setWeekdayFilter(value as DayFilter)}>
                   <SelectTrigger data-size="default" className="w-[180px]">
                     <SelectValue placeholder="All days" />
@@ -178,6 +214,23 @@ export function GalleryListPage() {
             </div>
           )}
         />
+        {semanticError ? <p className="mt-2 text-sm text-red-600">{semanticError}</p> : null}
+        {semanticMatches && semanticMatches.length > 0 ? (
+          <div className="mt-4 space-y-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <h2 className="text-sm font-medium text-slate-700">Vector matches</h2>
+            <ul className="space-y-2">
+              {semanticMatches.map(match => (
+                <li key={match.id} className="rounded-lg border border-slate-100 p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-slate-900">{match.name ?? "Unnamed gallery"}</span>
+                    <span className="text-xs text-slate-500">{match.similarity.toFixed(3)}</span>
+                  </div>
+                  {match.about ? <p className="mt-2 text-sm text-slate-600">{match.about}</p> : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </DashboardShell>
 
       <Modal

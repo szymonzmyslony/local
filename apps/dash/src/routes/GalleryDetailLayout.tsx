@@ -156,7 +156,7 @@ export function GalleryDetailLayout() {
   async function runPromoteEventPages(pageIds: string[]): Promise<void> {
     if (!pageIds.length) return;
     if (!galleryId) return;
-    const started = await runWorkflow("scrapeAndExtract", () => promotePagesToEvent(pageIds));
+    const started = await runWorkflow("extractAndEmbedEvents", () => promotePagesToEvent(pageIds));
     if (!started) {
       return;
     }

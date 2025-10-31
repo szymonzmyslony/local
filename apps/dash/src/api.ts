@@ -66,6 +66,28 @@ export type EventStructuredPayload = {
 
 export type { GalleryListItem } from "@shared";
 
+export type GallerySearchMatch = {
+  id: string;
+  name: string | null;
+  about: string | null;
+  similarity: number;
+};
+
+export type EventSearchMatch = {
+  id: string;
+  description: string | null;
+  similarity: number;
+};
+
+export type EventListEntry = GalleryEvent & {
+  gallery: {
+    id: string;
+    main_url: string | null;
+    normalized_main_url: string | null;
+    gallery_info?: { name: string | null } | null;
+  } | null;
+};
+
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const message = await response.text();
@@ -114,7 +136,7 @@ export type DashboardAction =
   | "embed"
   | "embedGallery"
   | "extractGallery"
-  | "scrapeAndExtract"
+  | "extractAndEmbedEvents"
   | "saveGalleryInfo"
   | "saveGalleryHours"
   | "saveEvent";
@@ -232,4 +254,66 @@ export async function saveEventStructured(eventId: string, payload: EventStructu
     body: JSON.stringify(payload)
   });
   return parseResponse<GalleryEvent>(response);
+}
+
+export type EventsQueryParams = {
+  statuses?: EventStatus[];
+  galleryIds?: string[];
+  upcoming?: boolean;
+  limit?: number;
+  order?: "asc" | "desc";
+};
+
+export async function listEventsAll(params: EventsQueryParams = {}): Promise<EventListEntry[]> {
+  const searchParams = new URLSearchParams();
+
+  params.statuses?.forEach(status => searchParams.append("status", status));
+  params.galleryIds?.forEach(id => searchParams.append("galleryId", id));
+
+  if (params.upcoming) {
+    searchParams.set("upcoming", "true");
+  }
+
+  if (typeof params.limit === "number") {
+    searchParams.set("limit", String(params.limit));
+  }
+
+  if (params.order) {
+    searchParams.set("order", params.order);
+  }
+
+  const query = searchParams.toString();
+  const response = await fetch(`/api/events${query ? `?${query}` : ""}`);
+  return parseResponse<EventListEntry[]>(response);
+}
+
+type SearchOptions = {
+  matchCount?: number;
+  matchThreshold?: number;
+};
+
+export async function searchGalleries(query: string, options: SearchOptions = {}): Promise<GallerySearchMatch[]> {
+  const response = await fetch("/api/search/galleries", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      query,
+      matchCount: options.matchCount,
+      matchThreshold: options.matchThreshold
+    })
+  });
+  return parseResponse<GallerySearchMatch[]>(response);
+}
+
+export async function searchEvents(query: string, options: SearchOptions = {}): Promise<EventSearchMatch[]> {
+  const response = await fetch("/api/search/events", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      query,
+      matchCount: options.matchCount,
+      matchThreshold: options.matchThreshold
+    })
+  });
+  return parseResponse<EventSearchMatch[]>(response);
 }
