@@ -402,7 +402,6 @@ export type Database = {
         | "init"
         | "gallery_main"
         | "gallery_about"
-        | "galery_event_page"
         | "event"
         | "event_list"
         | "other"
@@ -546,7 +545,6 @@ export const Constants = {
         "init",
         "gallery_main",
         "gallery_about",
-        "galery_event_page",
         "event",
         "event_list",
         "other",

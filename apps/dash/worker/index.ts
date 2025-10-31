@@ -5,9 +5,16 @@ import {
   getGalleryWithInfo,
   getPageDetail,
   listRecentGalleries,
+  getEventWithRelations,
+  openingHoursItemSchema,
+  replaceEventOccurrences,
+  replaceGalleryHours,
+  saveEventInfo,
+  saveGalleryInfo,
   selectEventIdsByPageIds,
   selectEventsByGallery,
   selectPagesWithRelations,
+  updateEventFields,
   updatePageById
 } from "@shared";
 import type {
@@ -95,6 +102,50 @@ const EventIdsBodySchema = z.object({
 
 const ExtractGalleryBodySchema = z.object({
   galleryId: z.string().uuid()
+});
+
+const eventStatusEnum = z.enum(Constants.public.Enums.event_status);
+
+const GalleryInfoPayloadSchema = z.object({
+  name: z.string().nullable(),
+  about: z.string().nullable(),
+  address: z.string().nullable(),
+  email: z.string().nullable(),
+  phone: z.string().nullable(),
+  instagram: z.string().nullable(),
+  tags: z.array(z.string()).nullable()
+});
+
+const GalleryHoursPayloadSchema = z.object({
+  hours: z.array(openingHoursItemSchema)
+});
+
+const EventBasePayloadSchema = z.object({
+  title: z.string().trim().min(1),
+  status: eventStatusEnum,
+  start_at: z.string().nullable(),
+  end_at: z.string().nullable(),
+  ticket_url: z.string().trim().url().nullable()
+});
+
+const EventInfoPayloadSchema = z.object({
+  description: z.string().nullable(),
+  tags: z.array(z.string()).nullable(),
+  artists: z.array(z.string()).nullable(),
+  md: z.string().nullable()
+});
+
+const EventOccurrencePayloadSchema = z.object({
+  id: z.string().uuid().optional(),
+  start_at: z.string(),
+  end_at: z.string().nullable(),
+  timezone: z.string().nullable()
+});
+
+const EventStructuredPayloadSchema = z.object({
+  event: EventBasePayloadSchema,
+  info: EventInfoPayloadSchema,
+  occurrences: z.array(EventOccurrencePayloadSchema)
 });
 // Re-export workflow entrypoints so the runtime can find them by class_name
 export { SeedGallery } from "../workflows/seed_gallery";
@@ -204,6 +255,77 @@ export default {
           return Response.json(events satisfies EventWithRelations[]);
         } catch (error) {
           console.error(`[dash-worker] Failed loading events for gallery ${galleryId}`, error);
+          const message = error instanceof Error ? error.message : String(error);
+          return new Response(message, { status: 500 });
+        }
+      }
+    }
+
+    if (request.method === "PATCH") {
+      const galleryInfoMatch = url.pathname.match(/^\/api\/galleries\/([^/]+)\/info$/);
+      if (galleryInfoMatch) {
+        const galleryId = galleryInfoMatch[1];
+        try {
+          const body = GalleryInfoPayloadSchema.parse(await request.json());
+          await saveGalleryInfo(supabase, galleryId, body);
+          const updated = await getGalleryWithInfo(supabase, galleryId);
+          if (!updated) {
+            return new Response("Not found", { status: 404 });
+          }
+          return Response.json(updated satisfies GalleryWithRelations);
+        } catch (error) {
+          console.error(`[dash-worker] Failed saving gallery info for ${galleryId}`, error);
+          const message = error instanceof Error ? error.message : String(error);
+          return new Response(message, { status: 500 });
+        }
+      }
+    }
+
+    if (request.method === "PUT") {
+      const galleryHoursMatch = url.pathname.match(/^\/api\/galleries\/([^/]+)\/hours$/);
+      if (galleryHoursMatch) {
+        const galleryId = galleryHoursMatch[1];
+        try {
+          const body = GalleryHoursPayloadSchema.parse(await request.json());
+          await replaceGalleryHours(supabase, galleryId, body.hours);
+          const updated = await getGalleryWithInfo(supabase, galleryId);
+          if (!updated) {
+            return new Response("Not found", { status: 404 });
+          }
+          return Response.json(updated satisfies GalleryWithRelations);
+        } catch (error) {
+          console.error(`[dash-worker] Failed saving gallery hours for ${galleryId}`, error);
+          const message = error instanceof Error ? error.message : String(error);
+          return new Response(message, { status: 500 });
+        }
+      }
+
+      const eventStructuredMatch = url.pathname.match(/^\/api\/events\/([^/]+)\/structured$/);
+      if (eventStructuredMatch) {
+        const eventId = eventStructuredMatch[1];
+        try {
+          const body = EventStructuredPayloadSchema.parse(await request.json());
+          const timestamp = new Date().toISOString();
+          await updateEventFields(supabase, eventId, {
+            ...body.event,
+            updated_at: timestamp
+          });
+          await saveEventInfo(supabase, eventId, body.info);
+          const occurrenceRows = body.occurrences.map(item => ({
+            id: item.id ?? crypto.randomUUID(),
+            event_id: eventId,
+            start_at: item.start_at,
+            end_at: item.end_at,
+            timezone: item.timezone
+          }));
+          await replaceEventOccurrences(supabase, occurrenceRows, eventId);
+          const updated = await getEventWithRelations(supabase, eventId);
+          if (!updated) {
+            return new Response("Not found", { status: 404 });
+          }
+          return Response.json(updated satisfies EventWithRelations);
+        } catch (error) {
+          console.error(`[dash-worker] Failed saving event structured data for ${eventId}`, error);
           const message = error instanceof Error ? error.message : String(error);
           return new Response(message, { status: 500 });
         }

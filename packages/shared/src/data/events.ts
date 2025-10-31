@@ -1,10 +1,12 @@
 import type { PostgrestError } from "@supabase/supabase-js";
 import type { SupabaseServiceClient } from "../database/client";
 import type {
+  EventInfo,
   EventInfoInsert,
   EventInfoUpdate,
   EventInsert,
-  EventOccurrenceInsert
+  EventOccurrenceInsert,
+  EventUpdate
 } from "../types/common";
 import type { EventListItem, EventWithRelations } from "../types/domain";
 
@@ -224,4 +226,74 @@ export async function selectEventTitle(client: SupabaseServiceClient, eventId: s
   }
 
   return data?.title ?? null;
+}
+
+export async function updateEventFields(
+  client: SupabaseServiceClient,
+  eventId: string,
+  update: EventUpdate
+): Promise<void> {
+  const { error } = await client
+    .from("events")
+    .update(update)
+    .eq("id", eventId);
+
+  if (error) {
+    throw toError("updateEventFields", error);
+  }
+}
+
+export async function saveEventInfo(
+  client: SupabaseServiceClient,
+  eventId: string,
+  info: Pick<EventInfo, "description" | "tags" | "artists" | "md">
+): Promise<void> {
+  const { data, error } = await client
+    .from("event_info")
+    .update(info)
+    .eq("event_id", eventId)
+    .select("event_id")
+    .maybeSingle();
+
+  if (error) {
+    throw toError("saveEventInfo.update", error);
+  }
+
+  if (!data) {
+    const insertPayload: EventInfoInsert = {
+      event_id: eventId,
+      ...info
+    };
+    const { error: insertError } = await client.from("event_info").insert([insertPayload]);
+    if (insertError) {
+      throw toError("saveEventInfo.insert", insertError);
+    }
+  }
+}
+
+export async function getEventWithRelations(
+  client: SupabaseServiceClient,
+  eventId: string
+): Promise<EventWithRelations | null> {
+  const { data, error } = await client
+    .from("events")
+    .select("*, event_info(*), event_occurrences(*)")
+    .eq("id", eventId)
+    .maybeSingle();
+
+  if (error) {
+    throw toError("getEventWithRelations", error);
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const event: EventWithRelations = {
+    ...data,
+    event_info: data.event_info ?? null,
+    event_occurrences: data.event_occurrences ?? []
+  };
+
+  return event;
 }

@@ -3,11 +3,14 @@ import type { SupabaseServiceClient } from "../database/client";
 import type {
   Gallery,
   GalleryHoursInsert,
+  GalleryInfo,
   GalleryInfoInsert,
+  GalleryInfoUpdate,
   GalleryInsert,
   PageInsert
 } from "../types/common";
 import type { GalleryListItem, GalleryWithRelations } from "../types/domain";
+import type { OpeningHoursItem } from "../schema";
 
 function toError(operation: string, error: PostgrestError): Error {
   return new Error(`[${operation}] ${error.message}`);
@@ -57,7 +60,7 @@ export async function listRecentGalleries(
 ): Promise<GalleryListItem[]> {
   const { data, error } = await client
     .from("galleries")
-    .select("id, main_url, about_url, normalized_main_url, gallery_info(name)")
+    .select("id, main_url, about_url, normalized_main_url, events_page, gallery_info(name), gallery_hours(id, gallery_id, weekday, open_minutes)")
     .order("created_at", { ascending: false })
     .limit(limit);
 
@@ -65,7 +68,16 @@ export async function listRecentGalleries(
     throw toError("listRecentGalleries", error);
   }
 
-  return (data ?? []) as GalleryListItem[];
+  return (data ?? []).map(row => ({
+    ...row,
+    gallery_info: row.gallery_info ?? null,
+    gallery_hours: (row.gallery_hours ?? []).map(hours => ({
+      gallery_id: hours.gallery_id,
+      id: hours.id,
+      weekday: hours.weekday,
+      open_minutes: hours.open_minutes
+    }))
+  })) as GalleryListItem[];
 }
 
 export async function getGalleryWithInfo(
@@ -120,6 +132,75 @@ export async function upsertGalleryHours(
 
   if (error) {
     throw toError("upsertGalleryHours", error);
+  }
+}
+
+export type GalleryEditableInfo = Pick<
+  GalleryInfo,
+  "name" | "about" | "address" | "email" | "phone" | "instagram" | "tags"
+>;
+
+export async function saveGalleryInfo(
+  client: SupabaseServiceClient,
+  galleryId: string,
+  info: GalleryEditableInfo
+): Promise<void> {
+  const timestamp = new Date().toISOString();
+  const patch: GalleryInfoUpdate = {
+    ...info,
+    updated_at: timestamp
+  };
+
+  const { data, error } = await client
+    .from("gallery_info")
+    .update(patch)
+    .eq("gallery_id", galleryId)
+    .select("gallery_id")
+    .maybeSingle();
+
+  if (error) {
+    throw toError("saveGalleryInfo.update", error);
+  }
+
+  if (!data) {
+    const insertPayload: GalleryInfoInsert = {
+      gallery_id: galleryId,
+      updated_at: timestamp,
+      data: {},
+      ...info
+    };
+    const { error: insertError } = await client.from("gallery_info").insert([insertPayload]);
+    if (insertError) {
+      throw toError("saveGalleryInfo.insert", insertError);
+    }
+  }
+}
+
+export async function replaceGalleryHours(
+  client: SupabaseServiceClient,
+  galleryId: string,
+  hours: OpeningHoursItem[]
+): Promise<void> {
+  const { error: deleteError } = await client.from("gallery_hours").delete().eq("gallery_id", galleryId);
+
+  if (deleteError) {
+    throw toError("replaceGalleryHours.delete", deleteError);
+  }
+
+  if (hours.length === 0) {
+    return;
+  }
+
+  const rows: GalleryHoursInsert[] = hours.map(item => ({
+    gallery_id: galleryId,
+    weekday: item.weekday,
+    open_minutes: item.open_minutes
+  }));
+
+  const { error } = await client.from("gallery_hours").insert(rows);
+
+  if (error) {
+    throw toError("replaceGalleryHours.insert", error);
   }
 }
 

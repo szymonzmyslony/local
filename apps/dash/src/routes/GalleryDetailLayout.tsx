@@ -13,10 +13,17 @@ import {
   fetchGalleryDetail,
   fetchGalleryEvents,
   promotePagesToEvent,
+  saveEventStructured,
   scrapePages,
+  updateGalleryHours,
+  updateGalleryInfo,
   updatePageKinds,
   type DashboardAction,
+  type EventStructuredPayload,
+  type GalleryEvent,
   type GalleryDetail,
+  type GalleryHoursPayload,
+  type GalleryInfoPayload,
   type PageKindUpdate
 } from "../api";
 import { useDashboard } from "../providers/dashboard-context";
@@ -37,6 +44,9 @@ export type GalleryRouteContext = {
   runProcessEvents: (pageIds: string[]) => Promise<void>;
   runEmbedGallery: () => Promise<void>;
   updatePageKinds: (updates: PageKindUpdate[]) => Promise<number>;
+  saveGalleryInfo: (payload: GalleryInfoPayload) => Promise<GalleryDetail | null>;
+  saveGalleryHours: (payload: GalleryHoursPayload) => Promise<GalleryDetail | null>;
+  saveEventStructured: (eventId: string, payload: EventStructuredPayload) => Promise<GalleryEvent | null>;
   showPreviewDialog: (payload: { title: string; description?: string; items: PreviewDialogItem[] }) => void;
   setStatus: (value: string | null) => void;
   setError: (value: string | null) => void;
@@ -197,6 +207,65 @@ export function GalleryDetailLayout() {
     }
   }
 
+  async function handleSaveGalleryInfo(payload: GalleryInfoPayload): Promise<GalleryDetail | null> {
+    if (!galleryId) {
+      return null;
+    }
+    setPendingAction("saveGalleryInfo");
+    setStatus(null);
+    setError(null);
+    try {
+      const updated = await updateGalleryInfo(galleryId, payload);
+      setGallery(updated);
+      setStatus("Gallery details saved");
+      bumpDataVersion();
+      return updated;
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : String(issue));
+      return null;
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function handleSaveGalleryHours(payload: GalleryHoursPayload): Promise<GalleryDetail | null> {
+    if (!galleryId) {
+      return null;
+    }
+    setPendingAction("saveGalleryHours");
+    setStatus(null);
+    setError(null);
+    try {
+      const updated = await updateGalleryHours(galleryId, payload);
+      setGallery(updated);
+      setStatus("Gallery hours saved");
+      bumpDataVersion();
+      return updated;
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : String(issue));
+      return null;
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function handleSaveEventStructured(eventId: string, payload: EventStructuredPayload): Promise<GalleryEvent | null> {
+    setPendingAction("saveEvent");
+    setStatus(null);
+    setError(null);
+    try {
+      const updated = await saveEventStructured(eventId, payload);
+      setStatus("Event saved");
+      bumpDataVersion();
+      return updated;
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : String(issue));
+      return null;
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
   function showPreviewDialog(payload: { title: string; description?: string; items: PreviewDialogItem[] }): void {
     setPreviewDialog(payload);
   }
@@ -295,20 +364,23 @@ export function GalleryDetailLayout() {
             galleryId,
             gallery,
             loadingGallery,
-          pendingAction,
-          status,
-          error,
-          dataVersion,
-          refreshData,
-          runDiscover,
-          runScrapePages,
-          runExtractPages,
-          runPromoteEventPages,
-          runProcessEvents,
-          runEmbedGallery,
-          updatePageKinds: handleUpdatePageKinds,
-          showPreviewDialog,
-          setStatus,
+            pendingAction,
+            status,
+            error,
+            dataVersion,
+            refreshData,
+            runDiscover,
+            runScrapePages,
+            runExtractPages,
+            runPromoteEventPages,
+            runProcessEvents,
+            runEmbedGallery,
+            updatePageKinds: handleUpdatePageKinds,
+            saveGalleryInfo: handleSaveGalleryInfo,
+            saveGalleryHours: handleSaveGalleryHours,
+            saveEventStructured: handleSaveEventStructured,
+            showPreviewDialog,
+            setStatus,
             setError,
           }}
         />

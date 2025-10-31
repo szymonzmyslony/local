@@ -12,6 +12,7 @@ import type {
 
 export type GalleryListItem = Pick<Gallery, "id" | "main_url" | "about_url" | "normalized_main_url" | "events_page"> & {
   gallery_info: Pick<GalleryInfo, "name"> | null;
+  gallery_hours: GalleryHours[];
 };
 
 export type PageListItem = Pick<Page, "id" | "url" | "normalized_url" | "kind" | "fetch_status">;

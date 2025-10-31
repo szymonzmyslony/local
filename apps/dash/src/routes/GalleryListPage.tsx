@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useNavigate } from "react-router-dom";
-import { Button, Input } from "@shared/ui";
+import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@shared/ui";
 import type { GalleryListItem } from "../api";
 import { DataTable, DataTableColumnHeader } from "../components/data-table";
 import { DashboardShell } from "../components/layout";
@@ -17,11 +17,11 @@ export function GalleryListPage() {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [weekdayFilter, setWeekdayFilter] = useState<DayFilter>("all");
 
   const filteredGalleries = useMemo(() => {
     const query = search.trim().toLowerCase();
-    if (!query) return galleries;
-    return galleries.filter(gallery => {
+    const base = galleries.filter(gallery => {
       const name = gallery.gallery_info?.name?.toLowerCase() ?? "";
       return (
         name.includes(query) ||
@@ -29,7 +29,12 @@ export function GalleryListPage() {
         gallery.main_url.toLowerCase().includes(query)
       );
     });
-  }, [galleries, search]);
+    if (weekdayFilter === "all") {
+      return base;
+    }
+    const weekday = Number(weekdayFilter);
+    return base.filter(gallery => isOpenOnDay(gallery, weekday));
+  }, [galleries, search, weekdayFilter]);
 
   const columns = useMemo<ColumnDef<GalleryListItem>[]>(
     () => [
@@ -90,9 +95,18 @@ export function GalleryListPage() {
           </a>
         ),
         meta: { headerClassName: "w-1/3" }
+      },
+      {
+        id: "hours",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Open days" />,
+        accessorFn: row => summarizeOpenDays(row),
+        cell: ({ row }) => {
+          const summary = summarizeOpenDays(row.original);
+          return summary ? <span className="text-sm text-slate-600">{summary}</span> : <span className="text-sm text-slate-500">—</span>;
+        }
       }
     ],
-    [navigate]
+    []
   );
 
   async function handleSeed(payload: { mainUrl: string; aboutUrl: string | null; eventsUrl: string | null }): Promise<void> {
@@ -138,12 +152,25 @@ export function GalleryListPage() {
           emptyMessage={loading ? "Loading galleries..." : "No galleries found. Seed one to get started."}
           renderToolbar={() => (
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div className="flex w-full max-w-sm items-center gap-2">
+              <div className="flex w-full flex-wrap items-center gap-2 md:max-w-2xl">
                 <Input
                   placeholder="Search by name or URL…"
                   value={search}
                   onChange={event => setSearch(event.target.value)}
                 />
+                <Select value={weekdayFilter} onValueChange={value => setWeekdayFilter(value as DayFilter)}>
+                  <SelectTrigger data-size="default" className="w-[180px]">
+                    <SelectValue placeholder="All days" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All days</SelectItem>
+                    {weekdayOptions.map(option => (
+                      <SelectItem key={option.value} value={String(option.value)}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <span className="text-sm text-slate-500">
                 {filteredGalleries.length} of {galleries.length} galleries
@@ -168,4 +195,71 @@ export function GalleryListPage() {
       </Modal>
     </>
   );
+}
+
+type DayFilter = "all" | `${number}`;
+
+const weekdayOptions = [
+  { value: 0, label: "Sunday" },
+  { value: 1, label: "Monday" },
+  { value: 2, label: "Tuesday" },
+  { value: 3, label: "Wednesday" },
+  { value: 4, label: "Thursday" },
+  { value: 5, label: "Friday" },
+  { value: 6, label: "Saturday" }
+];
+
+type GalleryHour = GalleryListItem["gallery_hours"][number];
+
+function isOpenOnDay(gallery: GalleryListItem, weekday: number): boolean {
+  const hours = Array.isArray(gallery.gallery_hours) ? gallery.gallery_hours : [];
+  return hours.some((hour: GalleryHour) => {
+    if (typeof hour.weekday !== "number" || hour.weekday !== weekday) {
+      return false;
+    }
+    if (parseOpenMinutes(hour.open_minutes).length > 0) {
+      return true;
+    }
+    return false;
+  });
+}
+
+function summarizeOpenDays(gallery: GalleryListItem): string {
+  const days = new Set<number>();
+  const hours = Array.isArray(gallery.gallery_hours) ? gallery.gallery_hours : [];
+  hours.forEach((hour: GalleryHour) => {
+    if (typeof hour.weekday !== "number") {
+      return;
+    }
+    const ranges = parseOpenMinutes(hour.open_minutes);
+    if (ranges.length > 0) {
+      days.add(hour.weekday);
+    }
+  });
+  if (days.size === 0) {
+    return "";
+  }
+  const sorted = [...days].sort((a, b) => a - b);
+  return sorted.map(index => weekdayOptions[index]?.label.slice(0, 3) ?? `Day ${index}`).join(", ");
+}
+
+type TimeRange = { open: number; close: number };
+
+function parseOpenMinutes(value: unknown): TimeRange[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map(item => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+      const open = (item as { open?: unknown }).open;
+      const close = (item as { close?: unknown }).close;
+      if (typeof open === "number" && typeof close === "number") {
+        return { open, close };
+      }
+      return null;
+    })
+    .filter((entry): entry is TimeRange => entry !== null);
 }

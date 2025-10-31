@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Card, CardBody, CardSubtitle, CardTitle } from "@shared/ui";
-import { EventsView } from "../features/events/EventsView";
+import { EventsEditorList } from "../features/events/EventsEditorList";
 import { useGalleryRoute } from "./GalleryDetailLayout";
 import { fetchGalleryEvents, fetchGalleryPages, type GalleryEvent, type GalleryPage } from "../api";
 
@@ -11,6 +11,7 @@ export function GalleryEventsPage() {
     pendingAction,
     dataVersion,
     runProcessEvents,
+    saveEventStructured,
     setError
   } = useGalleryRoute();
 
@@ -74,10 +75,17 @@ export function GalleryEventsPage() {
   }
 
   return (
-    <EventsView
+    <EventsEditorList
       events={events}
       pages={pages}
       pendingAction={pendingAction}
+      onSaveEvent={async (eventId, payload) => {
+        const updated = await saveEventStructured(eventId, payload);
+        if (updated) {
+          setEvents(current => current.map(item => (item.id === updated.id ? updated : item)));
+        }
+        return updated;
+      }}
       onProcessEventPages={pageIds => {
         void runProcessEvents(pageIds);
       }}
