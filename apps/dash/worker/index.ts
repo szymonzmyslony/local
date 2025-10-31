@@ -5,6 +5,7 @@ import {
   getGalleryWithInfo,
   getPageDetail,
   listRecentGalleries,
+  selectEventIdsByPageIds,
   selectEventsByGallery,
   selectPagesWithRelations,
   updatePageById
@@ -15,6 +16,45 @@ import type {
   PageDetail,
   PageWithRelations
 } from "@shared";
+
+type PageStatus = {
+  scrape: PageWithRelations["fetch_status"];
+  extract: "idle" | "pending" | "ok" | "error";
+  event: "missing" | "ready";
+  event_id: string | null;
+};
+
+function withPageStatus(page: PageWithRelations, eventsByPageId: Map<string, string>) {
+  const parseStatus = page.page_structured?.parse_status ?? "never";
+  let extract: PageStatus["extract"];
+  switch (parseStatus) {
+    case "ok":
+      extract = "ok";
+      break;
+    case "error":
+      extract = "error";
+      break;
+    case "queued":
+      extract = "pending";
+      break;
+    default:
+      extract = page.fetch_status === "ok" ? "pending" : "idle";
+      break;
+  }
+
+  const event_id = eventsByPageId.get(page.id) ?? null;
+  const event: PageStatus["event"] = event_id ? "ready" : "missing";
+
+  return {
+    ...page,
+    status: {
+      scrape: page.fetch_status,
+      extract,
+      event,
+      event_id
+    } satisfies PageStatus
+  };
+}
 
 const SeedGalleryBodySchema = z.object({
   mainUrl: z.string().trim().url(),
@@ -140,7 +180,12 @@ export default {
         const galleryId = pagesMatch[1];
         try {
           const pages = await selectPagesWithRelations(supabase, galleryId);
-          return Response.json(pages satisfies PageWithRelations[]);
+          const eventIds = await selectEventIdsByPageIds(
+            supabase,
+            pages.map(page => page.id)
+          );
+          const payload = pages.map(page => withPageStatus(page, eventIds));
+          return Response.json(payload);
         } catch (error) {
           console.error(`[dash-worker] Failed loading pages for gallery ${galleryId}`, error);
           const message = error instanceof Error ? error.message : String(error);

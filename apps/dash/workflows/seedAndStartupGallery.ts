@@ -52,30 +52,46 @@ export class SeedAndStartupGallery extends WorkflowEntrypoint<Env, Params> {
             return data.id;
         });
 
-        // STEP 3: Wait for scraping to complete
-        // SeedGallery triggers SCRAPE_PAGES, so we give it time to finish
-        await step.sleep("wait-for-scraping", "60 seconds");
+        // STEP 3: Wait deterministically for the main/about pages to scrape
+        await step.do("await-gallery-scrape", async () => {
+            const maxAttempts = 24;
+            let pendingKinds: Set<"gallery_main" | "gallery_about"> | null = null;
 
-        // STEP 4: Check if any pages were successfully scraped
-        const scrapedPages = await step.do("check-scraping-status", async () => {
-            const pages = await selectPagesByGallery(supabase, galleryId);
-            const galleryPages = pages.filter(p => p.kind === "gallery_main" || p.kind === "gallery_about");
-            const successfulPages = galleryPages.filter(p => p.fetch_status === "ok");
+            for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+                const pages = await selectPagesByGallery(supabase, galleryId);
+                const galleryPages = pages.filter(p => p.kind === "gallery_main" || p.kind === "gallery_about");
 
-            console.log(`[SeedAndStartupGallery] Gallery pages: ${galleryPages.length}, Successfully scraped: ${successfulPages.length}`);
-            galleryPages.forEach(p => {
-                console.log(`[SeedAndStartupGallery] Page ${p.id} kind=${p.kind} status=${p.fetch_status} url=${p.url ?? p.normalized_url}`);
-            });
+                if (!galleryPages.length) {
+                    await step.sleep(`wait-gallery-scrape-${attempt}`, "5 seconds");
+                    continue;
+                }
 
-            return successfulPages;
+                if (!pendingKinds) {
+                    pendingKinds = new Set(galleryPages.map(page => page.kind as "gallery_main" | "gallery_about"));
+                }
+
+                const failures = galleryPages.filter(page => page.fetch_status === "error");
+                if (failures.length) {
+                    throw new Error(`Scrape failed for pages: ${failures.map(page => page.id).join(", ")}`);
+                }
+
+                galleryPages.forEach(page => {
+                    if (page.fetch_status === "ok") {
+                        pendingKinds?.delete(page.kind as "gallery_main" | "gallery_about");
+                    }
+                });
+
+                if (pendingKinds && pendingKinds.size === 0) {
+                    return;
+                }
+
+                await step.sleep(`wait-gallery-scrape-${attempt}`, "5 seconds");
+            }
+
+            throw new Error("Timed out waiting for gallery pages to scrape");
         });
 
-        if (scrapedPages.length === 0) {
-            console.log(`[SeedAndStartupGallery] No pages were successfully scraped for gallery ${galleryId}, skipping extraction`);
-            return { galleryId, extracted: false, reason: "No pages scraped successfully" };
-        }
-
-        // STEP 5: Trigger ExtractGallery workflow
+        // STEP 4: Trigger ExtractGallery workflow
         // This will extract gallery info and automatically trigger embedding
         await step.do("trigger-extract-gallery", async () => {
             console.log(`[SeedAndStartupGallery] Triggering ExtractGallery for gallery ${galleryId}`);

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { ColumnDef, RowSelectionState } from "@tanstack/react-table";
-import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@shared/ui";
+import { Badge, Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@shared/ui";
 import { DataTable, DataTableColumnHeader } from "../../components/data-table";
-import { FETCH_STATUSES, PAGE_KINDS } from "../../api";
-import type { DashboardAction, GalleryDetail, GalleryPage, PageKind, PageKindUpdate } from "../../api";
+import { FETCH_STATUSES, PAGE_KINDS, type PageStatus } from "../../api";
+import type { DashboardAction, FetchStatus, GalleryDetail, GalleryPage, PageKind, PageKindUpdate } from "../../api";
 
 type PageLinksViewProps = {
   gallery: GalleryDetail | null;
@@ -28,17 +28,17 @@ export function PageLinksView({
 }: PageLinksViewProps) {
   const [search, setSearch] = useState("");
   const [selectedKind, setSelectedKind] = useState<PageKind | "all">("all");
-  const [selectedStatus, setSelectedStatus] = useState<GalleryPage["fetch_status"] | "all">("all");
+  const [selectedScrapeStatus, setSelectedScrapeStatus] = useState<FetchStatus | "all">("all");
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 
   const filteredPages = useMemo(() => {
     const term = search.trim().toLowerCase();
     const byKind = selectedKind;
-    const byStatus = selectedStatus;
+    const byStatus = selectedScrapeStatus;
     const sorted = [...pages].filter(page => {
       if (byKind !== "all" && page.kind !== byKind) return false;
-      if (byStatus !== "all" && page.fetch_status !== byStatus) return false;
+      if (byStatus !== "all" && page.status.scrape !== byStatus) return false;
       if (!term) return true;
       return page.normalized_url.toLowerCase().includes(term);
     });
@@ -56,7 +56,7 @@ export function PageLinksView({
     });
 
     return sorted;
-  }, [pages, search, selectedKind, selectedStatus, sortOrder]);
+  }, [pages, search, selectedKind, selectedScrapeStatus, sortOrder]);
 
   const selectedPageIds = useMemo(
     () => Object.entries(rowSelection).filter(([, value]) => value).map(([rowId]) => rowId),
@@ -128,47 +128,18 @@ export function PageLinksView({
         header: () => <span className="font-semibold text-slate-700">Kind</span>,
         cell: ({ row }) => {
           const page = row.original;
-          return (
-            <select
-              value={page.kind}
-              onChange={event => handleKindChange(event.target.value, page, onUpdatePageKind)}
-              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-            >
-              {PAGE_KINDS.map(kind => (
-                <option key={kind} value={kind}>
-                  {kind}
-                </option>
-              ))}
-            </select>
-          );
-        },
-        meta: { cellClassName: "w-[160px]" }
-      },
-      {
-        id: "fetch_status",
-        header: () => <span className="font-semibold text-slate-700">Fetch status</span>,
-        cell: ({ row }) => {
-          const page = row.original;
-          const label = formatFetchStatus(page.fetch_status);
-          if (page.fetch_status === "ok") {
-            return (
-              <button
-                type="button"
-                className="group inline-flex rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-                onClick={() => handlePreview(page, onPreviewPages)}
-              >
-                <StatusBadge status={page.fetch_status}>
-                  <span className="underline-offset-2 group-hover:underline">{label}</span>
-                </StatusBadge>
-              </button>
-            );
-          }
-          return <StatusBadge status={page.fetch_status}>{label}</StatusBadge>;
+          return <Badge variant="outline" className="capitalize">{page.kind}</Badge>;
         },
         meta: { cellClassName: "w-[140px]" }
+      },
+      {
+        id: "status",
+        header: () => <span className="font-semibold text-slate-700">Status</span>,
+        cell: ({ row }) => renderStatusBadges(row.original, onPreviewPages),
+        meta: { cellClassName: "min-w-[220px]" }
       }
     ],
-    [onPreviewPages, onUpdatePageKind]
+    [onPreviewPages]
   );
 
   const busyScrape = pendingAction === "scrape";
@@ -212,16 +183,16 @@ export function PageLinksView({
                     </SelectContent>
                   </Select>
                 </FieldGroup>
-                <FieldGroup label="Fetch status">
+                <FieldGroup label="Scrape status">
                   <Select
-                    value={selectedStatus}
-                    onValueChange={value => setSelectedStatus(value as GalleryPage["fetch_status"] | "all")}
+                    value={selectedScrapeStatus}
+                    onValueChange={value => setSelectedScrapeStatus(value as FetchStatus | "all")}
                   >
                     <SelectTrigger className="w-full">
-                      <SelectValue placeholder="All statuses" />
+                      <SelectValue placeholder="All scrape states" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All statuses</SelectItem>
+                      <SelectItem value="all">All scrape states</SelectItem>
                       {FETCH_STATUSES.map(status => (
                         <SelectItem key={status} value={status}>
                           {status}
@@ -268,6 +239,26 @@ export function PageLinksView({
                   </Button>
                   <Button
                     type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={selectionDisabled}
+                    onClick={() => {
+                      if (selectionDisabled) return;
+                      console.log("[PageLinksView] mark as other selected pages", {
+                        ids: selectedPageIds
+                      });
+                      void (async () => {
+                        await onUpdatePageKind(
+                          selectedPageIds.map(id => ({ pageId: id, kind: "other" as PageKind }))
+                        );
+                        table.resetRowSelection();
+                      })();
+                    }}
+                  >
+                    Mark as other
+                  </Button>
+                  <Button
+                    type="button"
                     variant="primary"
                     size="sm"
                     disabled={selectionDisabled || busyPromote}
@@ -296,13 +287,6 @@ export function PageLinksView({
   );
 }
 
-function handleKindChange(value: string, record: GalleryPage, onUpdate: PageLinksViewProps["onUpdatePageKind"]): void {
-  if (value === record.kind) return;
-  const match = PAGE_KINDS.find(kind => kind === value);
-  if (!match) return;
-  onUpdate([{ pageId: record.id, kind: match }]);
-}
-
 function handlePreview(page: GalleryPage, onPreviewPages: PageLinksViewProps["onPreviewPages"]): void {
   console.log("[PageLinksView] preview requested", { pageId: page.id });
   void onPreviewPages([{ id: page.id, label: page.normalized_url }]);
@@ -317,38 +301,85 @@ function FieldGroup({ label, children }: { label: string; children: ReactNode })
   );
 }
 
-function StatusBadge({ status, children }: { status: GalleryPage["fetch_status"]; children: ReactNode }) {
-  const tone =
-    status === "ok"
-      ? "bg-emerald-100 text-emerald-700"
-      : status === "error"
-        ? "bg-rose-100 text-rose-700"
-        : status === "fetching" || status === "queued"
-          ? "bg-blue-100 text-blue-700"
-          : status === "skipped"
-            ? "bg-amber-100 text-amber-700"
-            : "bg-slate-100 text-slate-600";
+type Tone = "success" | "info" | "warn" | "danger" | "muted";
 
+const toneClasses: Record<Tone, string> = {
+  success: "bg-emerald-50 text-emerald-700 border border-emerald-200",
+  info: "bg-blue-50 text-blue-700 border border-blue-200",
+  warn: "bg-amber-50 text-amber-700 border border-amber-200",
+  danger: "bg-rose-50 text-rose-700 border border-rose-200",
+  muted: "bg-slate-100 text-slate-600 border border-slate-200"
+};
+
+function renderStatusBadges(
+  page: GalleryPage,
+  onPreview: PageLinksViewProps["onPreviewPages"]
+) {
+  const tokens = buildStatusTokens(page.status);
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${tone}`}>
-      {children}
-    </span>
+    <div className="flex flex-wrap items-center gap-1">
+      {tokens.map(token => (
+        <Badge key={token.key} variant="outline" className={toneClasses[token.tone]}>
+          {token.label}
+        </Badge>
+      ))}
+      {page.status.scrape === "ok" ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => handlePreview(page, onPreview)}
+        >
+          Preview
+        </Button>
+      ) : null}
+    </div>
   );
 }
 
-function formatFetchStatus(status: GalleryPage["fetch_status"]): string {
+function buildStatusTokens(status: PageStatus): Array<{ key: string; label: string; tone: Tone }> {
+  const tokens: Array<{ key: string; label: string; tone: Tone }> = [];
+  tokens.push({ key: "scrape", ...formatScrapeStatus(status.scrape) });
+  tokens.push({ key: "extract", ...formatExtractStatus(status.extract) });
+  tokens.push({ key: "event", ...formatEventStatus(status.event) });
+  return tokens;
+}
+
+function formatScrapeStatus(status: FetchStatus): { label: string; tone: Tone } {
   switch (status) {
     case "ok":
-      return "Scraped";
-    case "queued":
-      return "Queued";
-    case "fetching":
-      return "Fetching";
+      return { label: "Scraped", tone: "success" };
     case "error":
-      return "Error";
+      return { label: "Scrape error", tone: "danger" };
+    case "fetching":
+      return { label: "Scraping", tone: "info" };
+    case "queued":
+      return { label: "Scrape queued", tone: "info" };
     case "skipped":
-      return "Skipped";
+      return { label: "Scrape skipped", tone: "warn" };
     default:
-      return "Never";
+      return { label: "Never scraped", tone: "muted" };
+  }
+}
+
+function formatExtractStatus(status: PageStatus["extract"]): { label: string; tone: Tone } {
+  switch (status) {
+    case "ok":
+      return { label: "Extracted", tone: "success" };
+    case "error":
+      return { label: "Extract error", tone: "danger" };
+    case "pending":
+      return { label: "Extract pending", tone: "info" };
+    default:
+      return { label: "Not extracted", tone: "muted" };
+  }
+}
+
+function formatEventStatus(status: PageStatus["event"]): { label: string; tone: Tone } {
+  switch (status) {
+    case "ready":
+      return { label: "Event ready", tone: "success" };
+    default:
+      return { label: "No event", tone: "warn" };
   }
 }

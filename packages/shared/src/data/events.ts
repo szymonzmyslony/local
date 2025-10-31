@@ -52,6 +52,30 @@ export async function findEventIdByPage(
   return data?.id ?? null;
 }
 
+export async function selectEventIdsByPageIds(
+  client: SupabaseServiceClient,
+  pageIds: readonly string[]
+): Promise<Map<string, string>> {
+  if (pageIds.length === 0) {
+    return new Map();
+  }
+
+  const { data, error } = await client
+    .from("events")
+    .select("id, page_id")
+    .in("page_id", [...pageIds]);
+
+  if (error) {
+    throw toError("selectEventIdsByPageIds", error);
+  }
+
+  return new Map(
+    (data ?? [])
+      .filter(row => row.page_id)
+      .map(row => [row.page_id as string, row.id])
+  );
+}
+
 export async function upsertEvent(
   client: SupabaseServiceClient,
   payload: EventInsert,

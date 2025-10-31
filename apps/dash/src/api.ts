@@ -95,6 +95,16 @@ const updatePageKindResponseSchema = z.object({
   updated: z.number()
 });
 
+const extractStatusEnum = z.enum(["idle", "pending", "ok", "error"]);
+const eventLinkStatusEnum = z.enum(["missing", "ready"]);
+
+const pageStatusSchema = z.object({
+  scrape: fetchStatusEnum,
+  extract: extractStatusEnum,
+  event: eventLinkStatusEnum,
+  event_id: z.string().uuid().nullable()
+});
+
 const galleryPageSchema = z.object({
   id: z.string().uuid(),
   gallery_id: z.string().uuid().nullable(),
@@ -107,7 +117,8 @@ const galleryPageSchema = z.object({
   created_at: z.string(),
   updated_at: z.string(),
   page_content: pageContentSummarySchema,
-  page_structured: pageStructuredSummarySchema
+  page_structured: pageStructuredSummarySchema,
+  status: pageStatusSchema
 });
 
 const pageContentDetailSchema = z.object({
@@ -190,6 +201,9 @@ export type PageKindUpdate = z.infer<typeof updatePageKindPayloadSchema>["update
 export type PageKind = z.infer<typeof pageKindEnum>;
 export type FetchStatus = z.infer<typeof fetchStatusEnum>;
 export type EventStatus = z.infer<typeof eventStatusEnum>;
+export type ExtractStatus = z.infer<typeof extractStatusEnum>;
+export type EventLinkStatus = z.infer<typeof eventLinkStatusEnum>;
+export type PageStatus = z.infer<typeof pageStatusSchema>;
 
 export async function listGalleries(): Promise<GalleryListItem[]> {
   const response = await fetch("/api/galleries");
