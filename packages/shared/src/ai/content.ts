@@ -41,20 +41,27 @@ export async function classifyPageKindFromMarkdown(openai: OpenAIProvider, md: s
     return object.kind;
 }
 
-export async function extractGalleryInfoFromMarkdown(openai: OpenAIProvider, md: string, url: string): Promise<GalleryExtraction> {
+export async function extractGalleryInfoFromMarkdown(openai: OpenAIProvider, md: string, url: string, seededAddress?: string | null): Promise<GalleryExtraction> {
     try {
+        const promptParts = [
+            "Extract gallery information (name, about, district, contacts, socials, tags, weekly hours and exceptions if present) from the Markdown below.",
+            "Return a JSON object matching the gallery extraction schema.",
+            "Only include facts explicitly present in the content.",
+            "",
+            "For district: Extract the Warsaw district (dzielnica) where the gallery is located.",
+            "Valid districts: Ochota, Srodmiescie, Wola, Bemowo, Mokotow, Praga, Zoliborz",
+        ];
+
+        if (seededAddress) {
+            promptParts.push("", `Seeded address (use this to help determine the district): ${seededAddress}`);
+        }
+
+        promptParts.push("", `URL: ${url}`, "---", md.slice(0, MAX_MD_LENGTH));
+
         const { object } = await generateObject({
             model: openai(AI_CONFIG.CHAT_MODEL),
             schema: galleryExtractionSchema,
-            prompt: [
-                "Extract gallery information (name, about, address, timezone, contacts, socials, tags, weekly hours and exceptions if present) from the Markdown below.",
-                "Return a JSON object matching the gallery extraction schema.",
-                "Only include facts explicitly present in the content.",
-                "",
-                `URL: ${url}`,
-                "---",
-                md.slice(0, MAX_MD_LENGTH)
-            ].join("\n")
+            prompt: promptParts.join("\n")
         });
 
         return object;

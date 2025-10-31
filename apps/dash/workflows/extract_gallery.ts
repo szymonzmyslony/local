@@ -22,8 +22,8 @@ export class ExtractGallery extends WorkflowEntrypoint<Env, Params> {
 
         console.log(`[ExtractGallery] Starting - gallery ${galleryId}`);
 
-        // Idempotency check: Skip if already extracted
-        const existingGallery = await step.do("check-if-already-extracted", async (): Promise<{ gallery_info?: { about?: string | null; email?: string | null } | null } | null> => {
+        // Idempotency check: Skip if already extracted, but also get seeded address
+        const existingGallery = await step.do("check-if-already-extracted", async (): Promise<{ gallery_info?: { about?: string | null; email?: string | null; address?: string | null } | null } | null> => {
             const gallery = await getGalleryWithInfo(supabase, galleryId);
             // Return only the fields we need to check
             return gallery ? { gallery_info: gallery.gallery_info } : null;
@@ -41,7 +41,8 @@ export class ExtractGallery extends WorkflowEntrypoint<Env, Params> {
             return { ok: true as const, skipped: true };
         }
 
-        console.log(`[ExtractGallery] No existing extraction found, proceeding with extraction`);
+        const seededAddress = existingGallery?.gallery_info?.address ?? null;
+        console.log(`[ExtractGallery] No existing extraction found, proceeding with extraction. Seeded address: ${seededAddress ?? "none"}`);
 
         // 1) Load gallery pages (main, about)
         const pages = await step.do("load-gallery-pages", async () => {
@@ -110,7 +111,7 @@ export class ExtractGallery extends WorkflowEntrypoint<Env, Params> {
 
         // 3) Run gallery extractor
         const result = await step.do("extract-gallery", async () =>
-            extractGalleryInfoFromMarkdown(openai, combinedMd, primaryUrl)
+            extractGalleryInfoFromMarkdown(openai, combinedMd, primaryUrl, seededAddress)
         );
 
         console.log(`[ExtractGallery] Extracted gallery ${primaryUrl}: ${result.about ?? 'unnamed'}`);
@@ -121,13 +122,15 @@ export class ExtractGallery extends WorkflowEntrypoint<Env, Params> {
             const galleryInfoData: GalleryInfoInsert = {
                 gallery_id: galleryId,
                 about: result.about ?? null,
+                address: seededAddress ?? null, // Preserve seeded address
                 email: result.email ?? null,
                 phone: result.phone ?? null,
+                district: result.district ?? null,
                 tags: result.tags ?? null,
                 data: result,
                 updated_at: new Date().toISOString(),
             };
-            console.log(`[ExtractGallery] Saving gallery_info payload (email="${galleryInfoData.email}")`);
+            console.log(`[ExtractGallery] Saving gallery_info payload (email="${galleryInfoData.email}", district="${galleryInfoData.district}", address="${galleryInfoData.address}")`);
             await upsertGalleryInfo(supabase, galleryInfoData);
             console.log(`[ExtractGallery] Successfully saved gallery_info for gallery ${galleryId}`);
         });

@@ -1,7 +1,10 @@
 import { tool, type ToolSet } from "ai";
 import { z } from "zod/v3";
-import { createEmbedder, getServiceClient, toPgVector } from "@shared";
+import { getCurrentAgent } from "agents";
+import { Constants, createEmbedder, getServiceClient, toPgVector } from "@shared";
 import type { GalleryToolResult, EventToolResult, GalleryMatchItem, EventMatchItem } from "./types/tool-results";
+import type { ChatState, UserRequirements, GalleryDistrict, TimePreferences } from "./types/chat-state";
+import { createInitialChatState, createInitialUserRequirements, createInitialTimePreferences } from "./types/chat-state";
 
 const searchInputSchema = z.object({
   query: z.string().trim().min(2, "Query must be at least 2 characters"),
@@ -10,6 +13,27 @@ const searchInputSchema = z.object({
 });
 
 type RequiredEnv = Pick<Env, "OPENAI_API_KEY" | "SUPABASE_URL" | "SUPABASE_ANON_KEY">;
+
+const galleryDistrictValues = Constants.public.Enums.gallery_district;
+const galleryDistrictTuple = galleryDistrictValues as unknown as [GalleryDistrict, ...GalleryDistrict[]];
+const districtEnum = z.enum(galleryDistrictTuple);
+
+const timePreferencesSchema = z.object({
+  months: z.array(z.string().trim().min(1)).nullish(),
+  weeks: z.array(z.string().trim().min(1)).nullish(),
+  dayPeriods: z.array(z.enum(["morning", "noon", "afternoon", "evening", "night"] as const)).nullish(),
+  specificHours: z.array(z.string().trim().min(1)).nullish()
+});
+
+const districtInputSchema = z.union([districtEnum, z.string().trim().min(1)]).nullish();
+
+const updateRequirementsSchema = z.object({
+  district: districtInputSchema,
+  artists: z.array(z.string().trim().min(1)).nullish(),
+  aesthetics: z.array(z.string().trim().min(1)).nullish(),
+  mood: z.string().trim().min(1).nullish(),
+  time: timePreferencesSchema.nullish()
+});
 
 function enforceEnv(): RequiredEnv {
   const openaiKey = process.env.OPENAI_API_KEY;
@@ -213,9 +237,96 @@ const matchEvent = tool({
   }
 });
 
+const DISTRICT_KEYWORDS: Record<GalleryDistrict, string[]> = {
+  Ochota: ["ochota", "rakowiec", "szczesliwice", "szczęśliwice"],
+  Srodmiescie: ["srodmiescie", "środmieście", "centrum", "city center", "downtown", "hoza", "hoża", "nowy świat", "plac defilad", "powisle", "powiśle", "plac konstytucji"],
+  Wola: ["wola", "rondo daszynsk", "rondo daszyńsk", "mirów", "mlynarska", "przyokopowa"],
+  Bemowo: ["bemowo", "gorce", "jelonki", "fort blizne"],
+  Mokotow: ["mokotow", "mokotów", "sielce", "stegny", "sluzew", "służew", "kazimierzowska"],
+  Praga: ["praga", "saska kepa", "saska kępa", "kamionek", "zoliborz", "żoliborz"],
+  Zoliborz: ["zoliborz", "żoliborz", "marymont", "plac wilsona"]
+};
+
+function inferDistrict(value: string): GalleryDistrict | null {
+  const normalized = value.toLowerCase();
+  for (const [district, keywords] of Object.entries(DISTRICT_KEYWORDS) as [GalleryDistrict, string[]][]) {
+    if (keywords.some(keyword => normalized.includes(keyword))) {
+      return district;
+    }
+  }
+  return null;
+}
+
+const updateUserRequirements = tool({
+  description: "Update the user's current requirements such as preferred district in Warsaw, desired artists, aesthetics, mood, or time preferences (months, weeks, day periods like morning/evening, or specific hours).",
+  inputSchema: updateRequirementsSchema,
+  execute: async ({ district, artists, aesthetics, mood, time }) => {
+    const context = getCurrentAgent();
+    const agent = context?.agent as { state?: ChatState; initialState?: ChatState; setState: (state: ChatState) => void } | undefined;
+
+    if (!agent) {
+      throw new Error("Agent context is not available for updating requirements");
+    }
+
+    const currentState: ChatState = agent.state ?? createInitialChatState();
+    const currentRequirements: UserRequirements = currentState.userRequirements ?? createInitialUserRequirements();
+    const currentTime: TimePreferences = currentRequirements.time ?? createInitialTimePreferences();
+
+    const normalizedArtists = artists !== undefined
+      ? Array.from(new Set((artists ?? []).map((name) => name.trim()).filter((name): name is string => name.length > 0)))
+      : undefined;
+
+    const normalizedMood = mood !== undefined ? (mood?.trim() || null) : undefined;
+
+    const normalizedAesthetics = aesthetics !== undefined
+      ? Array.from(new Set((aesthetics ?? []).map((item) => item.trim()).filter((item): item is string => item.length > 0)))
+      : undefined;
+
+    const normalizedTime: TimePreferences | undefined = time
+      ? {
+          months: Array.from(new Set((time.months ?? []).map((value) => value.trim()).filter((value): value is string => value.length > 0))),
+          weeks: Array.from(new Set((time.weeks ?? []).map((value) => value.trim()).filter((value): value is string => value.length > 0))),
+          dayPeriods: Array.from(new Set((time.dayPeriods ?? []).filter((value): value is TimePreferences["dayPeriods"][number] => Boolean(value)))),
+          specificHours: Array.from(new Set((time.specificHours ?? []).map((value) => value.trim()).filter((value): value is string => value.length > 0)))
+        }
+      : undefined;
+
+    let inferredDistrict: GalleryDistrict | null | undefined;
+    if (district !== undefined) {
+      if (district === null) {
+        inferredDistrict = null;
+      } else if (typeof district === "string") {
+        const normalized = district.trim().toLowerCase();
+        inferredDistrict = galleryDistrictValues.find(value => value.toLowerCase() === normalized) ?? currentRequirements.district;
+      } else {
+        inferredDistrict = district;
+      }
+    }
+
+    const updatedRequirements: UserRequirements = {
+      district: inferredDistrict !== undefined ? inferredDistrict : currentRequirements.district,
+      artists: normalizedArtists !== undefined ? normalizedArtists : currentRequirements.artists,
+      aesthetics: normalizedAesthetics !== undefined ? normalizedAesthetics : currentRequirements.aesthetics,
+      mood: normalizedMood !== undefined ? normalizedMood : currentRequirements.mood,
+      time: normalizedTime !== undefined ? normalizedTime : currentTime
+    };
+
+    agent.setState({
+      ...currentState,
+      userRequirements: updatedRequirements
+    });
+
+    return {
+      success: true,
+      user_requirements: updatedRequirements
+    };
+  }
+});
+
 export const tools = {
   match_gallery: matchGallery,
-  match_event: matchEvent
+  match_event: matchEvent,
+  update_user_requirements: updateUserRequirements
 } satisfies ToolSet;
 
 export const executions = {} as const;

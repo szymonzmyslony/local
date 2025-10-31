@@ -16,15 +16,12 @@ import { openai } from "@ai-sdk/openai";
 import { processToolCalls, cleanupMessages } from "./utils";
 import { tools, executions } from "./tools";
 import type { ToolResultPayload } from "./types/tool-results";
+import type { ChatState } from "./types/chat-state";
+import { createInitialChatState } from "./types/chat-state";
 // import { AI_CONFIG } from "../../config/ai";
 // import { env } from "cloudflare:workers";
 
 const model = openai("gpt-5");
-
-type ChatState = {
-  userNeeds: string | null;
-  recommendation: ToolResultPayload | null;
-};
 
 function isToolResultPayload(value: unknown): value is ToolResultPayload {
   if (!value || typeof value !== "object" || !("type" in value)) {
@@ -35,10 +32,7 @@ function isToolResultPayload(value: unknown): value is ToolResultPayload {
 }
 
 export class Chat extends AIChatAgent<Env, ChatState> {
-  override initialState: ChatState = {
-    userNeeds: null,
-    recommendation: null
-  };
+  override initialState: ChatState = createInitialChatState();
 
   /**
    * Handles incoming chat messages and manages the response stream
@@ -74,8 +68,13 @@ export class Chat extends AIChatAgent<Env, ChatState> {
 
         this.updateUserNeedsFromMessages(processedMessages);
 
-        const result = streamText({
-          system: `You help people discover art galleries and events. When a user asks for recommendations or information, prefer calling the match_gallery or match_event tools to retrieve relevant results. Explain the findings clearly and keep replies concise.`,
+          const result = streamText({
+            system: `You are an art discovery assistant working strictly with venues and events in Warsaw, Poland. 
+
+- Whenever the user states or implies a preferred district (Ochota, Srodmiescie, Wola, Bemowo, Mokotow, Praga, or Zoliborz), specific artists, style/aesthetic descriptors, desired mood, or time preferences (month, week, day periods like morning/evening, or exact hours), call the update_user_requirements tool immediately to capture it.
+- Always interpret location references as Warsaw districts; never suggest places outside Warsaw.
+- When recommending options, prefer match_gallery or match_event to retrieve embeddings-based matches, then summarise the most relevant ones, referencing any stored preferences.
+- Keep replies concise, grounded in Warsaw, and acknowledge the stored preferences when applicable.`,
 
           messages: convertToModelMessages(processedMessages),
           model,
@@ -117,8 +116,9 @@ export class Chat extends AIChatAgent<Env, ChatState> {
     if (!isToolResultPayload(result)) {
       return;
     }
+    const currentState = this.state ?? createInitialChatState();
     this.setState({
-      ...this.state,
+      ...currentState,
       recommendation: result
     });
   }
@@ -131,8 +131,9 @@ export class Chat extends AIChatAgent<Env, ChatState> {
       }
       const textPart = message.parts?.find((part): part is { type: "text"; text: string } => part.type === "text");
       if (textPart) {
+        const currentState = this.state ?? createInitialChatState();
         this.setState({
-          ...this.state,
+          ...currentState,
           userNeeds: textPart.text.trim() || null
         });
         break;

@@ -221,6 +221,7 @@ export type Database = {
           about: string | null
           address: string | null
           data: Json
+          district: Database["public"]["Enums"]["gallery_district"] | null
           email: string | null
           embedding: string | null
           embedding_created_at: string | null
@@ -236,6 +237,7 @@ export type Database = {
           about?: string | null
           address?: string | null
           data?: Json
+          district?: Database["public"]["Enums"]["gallery_district"] | null
           email?: string | null
           embedding?: string | null
           embedding_created_at?: string | null
@@ -251,6 +253,7 @@ export type Database = {
           about?: string | null
           address?: string | null
           data?: Json
+          district?: Database["public"]["Enums"]["gallery_district"] | null
           email?: string | null
           embedding?: string | null
           embedding_created_at?: string | null
@@ -419,6 +422,14 @@ export type Database = {
         | "rescheduled"
         | "unknown"
       fetch_status: "never" | "queued" | "fetching" | "ok" | "error" | "skipped"
+      gallery_district:
+        | "Ochota"
+        | "Srodmiescie"
+        | "Wola"
+        | "Bemowo"
+        | "Mokotow"
+        | "Praga"
+        | "Zoliborz"
       page_kind:
         | "init"
         | "gallery_main"
@@ -562,6 +573,15 @@ export const Constants = {
         "unknown",
       ],
       fetch_status: ["never", "queued", "fetching", "ok", "error", "skipped"],
+      gallery_district: [
+        "Ochota",
+        "Srodmiescie",
+        "Wola",
+        "Bemowo",
+        "Mokotow",
+        "Praga",
+        "Zoliborz",
+      ],
       page_kind: [
         "init",
         "gallery_main",

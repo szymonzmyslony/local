@@ -1,11 +1,13 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAgent } from "agents/react";
 import { useAgentChat } from "agents/ai-react";
 import type { UIMessage } from "@ai-sdk/react";
 import { isToolUIPart } from "ai";
 import { Badge, Button, Card, CardBody, CardHeader, CardTitle, Markdown, Textarea } from "@shared/ui";
 import { renderToolResult } from "./tool-results";
-import type { EventToolResult, GalleryToolResult, ToolResultPayload } from "./types/tool-results";
+import { ToolResultCard } from "./tool-result-card";
+import type { ChatState } from "./types/chat-state";
+import { createInitialUserRequirements } from "./types/chat-state";
 
 type MessageMeta = { createdAt: string };
 
@@ -15,14 +17,19 @@ function formatTimestamp(value: string | Date | undefined): string {
 }
 
 export default function Chat() {
-  const agent = useAgent({ agent: "chat" });
+  const [agentState, setAgentState] = useState<ChatState | null>(null);
+
+  const agent = useAgent<ChatState>({
+    agent: "chat",
+    onStateUpdate: setAgentState
+  });
   const {
     messages,
     sendMessage,
     status,
     stop,
     clearHistory
-  } = useAgentChat<unknown, UIMessage<MessageMeta>>({ agent });
+  } = useAgentChat<ChatState, UIMessage<MessageMeta>>({ agent });
 
   const [inputValue, setInputValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -53,6 +60,15 @@ export default function Chat() {
                     </div>
                   );
                 }
+
+                if (isToolUIPart(part)) {
+                  return (
+                    <div key={`${message.id}-tool-${index}`} className="space-y-2">
+                      <ToolResultCard part={part} />
+                      <p className="text-xs text-slate-400">{timestamp}</p>
+                    </div>
+                  );
+                }
                 return null;
               })}
             </div>
@@ -62,47 +78,15 @@ export default function Chat() {
     [messages]
   );
 
-  const latestUserNeed = useMemo(() => {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index];
-      if (message.role !== "user") continue;
-      const textPart = message.parts?.find(part => part.type === "text");
-      if (textPart && "text" in textPart && typeof textPart.text === "string") {
-        return textPart.text.trim();
-      }
-    }
-    return "";
-  }, [messages]);
-
-  const latestGalleryAndEvent = useMemo(() => {
-    const summary: { gallery?: GalleryToolResult; event?: EventToolResult } = {};
-
-    function updateSummary(payload: ToolResultPayload) {
-      if (payload.type === "gallery-results") {
-        summary.gallery = payload;
-      } else if (payload.type === "event-results") {
-        summary.event = payload;
-      }
-    }
-
-    messages.forEach(message => {
-      message.parts?.forEach(part => {
-        if (isToolUIPart(part) && part.state === "output-available") {
-          const payload = part.output;
-          if (payload && typeof payload === "object" && "type" in (payload as Record<string, unknown>)) {
-            updateSummary(payload as ToolResultPayload);
-          }
-        }
-      });
-    });
-
-    return summary;
-  }, [messages]);
+  const userNeeds = agentState?.userNeeds?.trim() ?? "";
+  const userRequirements = agentState?.userRequirements ?? createInitialUserRequirements();
+  const requirementsTime = userRequirements.time ?? createInitialTimePreferences();
+  const recommendation = agentState?.recommendation ?? null;
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const content = inputValue.trim();
-    if (!content) {
+    if (!content || status === "submitted" || status === "streaming") {
       return;
     }
     setInputValue("");
@@ -143,6 +127,27 @@ export default function Chat() {
                   </div>
                 </div>
               )}
+              {status === "submitted" ? (
+                <div className="flex justify-start">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                    The assistant is reviewing your request…
+                  </div>
+                </div>
+              ) : null}
+              {status === "streaming" ? (
+                <div className="flex justify-start">
+                  <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+                    Generating a response…
+                  </div>
+                </div>
+              ) : null}
+              {status === "error" ? (
+                <div className="flex justify-start">
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    Something went wrong while contacting the assistant. Please try again.
+                  </div>
+                </div>
+              ) : null}
               <div ref={messagesEndRef} />
             </div>
             <div className="border-t border-slate-100 bg-slate-50/80 px-6 py-4">
@@ -152,6 +157,7 @@ export default function Chat() {
                   onChange={(event) => setInputValue(event.target.value)}
                   placeholder="Ask about galleries or events…"
                   rows={3}
+                  disabled={status === "submitted" || status === "streaming"}
                 />
                 <div className="flex items-center justify-end gap-3">
                   {status === "streaming" ? (
@@ -159,7 +165,7 @@ export default function Chat() {
                       Stop
                     </Button>
                   ) : null}
-                  <Button type="submit" disabled={!inputValue.trim()}>
+                  <Button type="submit" disabled={!inputValue.trim() || status === "submitted" || status === "streaming"}>
                     Send
                   </Button>
                 </div>
@@ -173,17 +179,76 @@ export default function Chat() {
             <CardHeader className="border-b border-slate-100">
               <CardTitle className="text-base font-semibold text-slate-800">Current focus</CardTitle>
             </CardHeader>
-            <CardBody className="space-y-3">
-              {latestUserNeed ? (
-                <div className="space-y-1">
-                  <span className="text-xs uppercase tracking-wide text-slate-500">User needs</span>
+            <CardBody className="space-y-4">
+              <div className="space-y-1">
+                <span className="text-xs uppercase tracking-wide text-slate-500">User needs</span>
+                {userNeeds ? (
                   <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                    {latestUserNeed}
+                    {userNeeds}
                   </p>
+                ) : (
+                  <p className="text-sm text-slate-500">Ask a question to capture your current goal.</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <span className="text-xs uppercase tracking-wide text-slate-500">Preferences</span>
+                <div className="space-y-3 rounded-lg border border-slate-200 bg-white/70 px-3 py-3">
+                  <div className="flex justify-between text-xs text-slate-600">
+                    <span className="font-medium text-slate-700">District</span>
+                    <span>{userRequirements.district ?? "Not specified"}</span>
+                  </div>
+                  {userRequirements.aesthetics.length > 0 ? (
+                    <div className="space-y-1 text-xs">
+                      <span className="font-medium text-slate-700">Style & aesthetics</span>
+                      <div className="flex flex-wrap gap-2">
+                        {userRequirements.aesthetics.map((tag) => (
+                          <Badge key={tag} variant="secondary" className="bg-purple-100 text-purple-700">
+                            {tag}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  {userRequirements.artists.length > 0 ? (
+                    <div className="space-y-1 text-xs">
+                      <span className="font-medium text-slate-700">Artists</span>
+                      <div className="flex flex-wrap gap-2">
+                        {userRequirements.artists.map((artist) => (
+                          <Badge key={artist} variant="secondary" className="bg-slate-100 text-slate-700">
+                            {artist}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="flex justify-between text-xs text-slate-600">
+                    <span className="font-medium text-slate-700">Mood</span>
+                    <span>{userRequirements.mood ?? "Not specified"}</span>
+                  </div>
+                  <div className="space-y-2 text-xs text-slate-600">
+                    <span className="font-medium text-slate-700">Time preferences</span>
+                    <div className="space-y-1">
+                      <div className="flex justify-between">
+                        <span>Months</span>
+                        <span>{userRequirements.time.months.length ? userRequirements.time.months.join(", ") : "Any"}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Weeks</span>
+                        <span>{userRequirements.time.weeks.length ? userRequirements.time.weeks.join(", ") : "Any"}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Day periods</span>
+                        <span>{userRequirements.time.dayPeriods.length ? userRequirements.time.dayPeriods.join(", ") : "Any"}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Specific hours</span>
+                        <span>{userRequirements.time.specificHours.length ? userRequirements.time.specificHours.join(", ") : "Any"}</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              ) : (
-                <p className="text-sm text-slate-500">Ask a question to capture your current goal.</p>
-              )}
+              </div>
             </CardBody>
           </Card>
 
@@ -192,20 +257,17 @@ export default function Chat() {
               <CardTitle className="text-base font-semibold text-slate-800">Latest matches</CardTitle>
             </CardHeader>
             <CardBody className="flex h-full flex-col overflow-hidden">
-              {latestGalleryAndEvent.gallery || latestGalleryAndEvent.event ? (
+              {recommendation ? (
                 <div className="space-y-4 overflow-y-auto pr-2">
-                  {latestGalleryAndEvent.gallery ? (
-                    <section className="space-y-2">
-                      <Badge variant="secondary" className="bg-slate-100 text-slate-700">Galleries</Badge>
-                      {renderToolResult(latestGalleryAndEvent.gallery)}
-                    </section>
-                  ) : null}
-                  {latestGalleryAndEvent.event ? (
-                    <section className="space-y-2">
-                      <Badge variant="secondary" className="bg-blue-100 text-blue-700">Events</Badge>
-                      {renderToolResult(latestGalleryAndEvent.event)}
-                    </section>
-                  ) : null}
+                  <section className="space-y-2">
+                    <Badge
+                      variant="secondary"
+                      className={recommendation.type === "gallery-results" ? "bg-slate-100 text-slate-700" : "bg-blue-100 text-blue-700"}
+                    >
+                      {recommendation.type === "gallery-results" ? "Galleries" : "Events"}
+                    </Badge>
+                    {renderToolResult(recommendation)}
+                  </section>
                 </div>
               ) : (
                 <p className="text-sm text-slate-500">Run a vector search to see matches here.</p>
