@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Badge, Button, Card, CardBody, CardSubtitle, CardTitle } from "@shared/ui";
 import { useGalleryRoute } from "./GalleryDetailLayout";
 import { fetchGalleryPages, getPageContent, type GalleryPage, type GalleryInfoPayload } from "../api";
