@@ -9,17 +9,37 @@ import {
   createUIMessageStream,
   convertToModelMessages,
   createUIMessageStreamResponse,
-  type ToolSet
+  type ToolSet,
+  type UIMessage
 } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { processToolCalls, cleanupMessages } from "./utils";
 import { tools, executions } from "./tools";
+import type { ToolResultPayload } from "./types/tool-results";
 // import { AI_CONFIG } from "../../config/ai";
 // import { env } from "cloudflare:workers";
 
 const model = openai("gpt-5");
 
-export class Chat extends AIChatAgent<Env> {
+type ChatState = {
+  userNeeds: string | null;
+  recommendation: ToolResultPayload | null;
+};
+
+function isToolResultPayload(value: unknown): value is ToolResultPayload {
+  if (!value || typeof value !== "object" || !("type" in value)) {
+    return false;
+  }
+  const type = (value as { type: unknown }).type;
+  return type === "gallery-results" || type === "event-results";
+}
+
+export class Chat extends AIChatAgent<Env, ChatState> {
+  override initialState: ChatState = {
+    userNeeds: null,
+    recommendation: null
+  };
+
   /**
    * Handles incoming chat messages and manages the response stream
    */
@@ -48,8 +68,11 @@ export class Chat extends AIChatAgent<Env> {
           messages: cleanedMessages,
           dataStream: writer,
           tools: allTools,
-          executions
+          executions,
+          onToolResult: result => this.handleToolResult(result)
         });
+
+        this.updateUserNeedsFromMessages(processedMessages);
 
         const result = streamText({
           system: `You help people discover art galleries and events. When a user asks for recommendations or information, prefer calling the match_gallery or match_event tools to retrieve relevant results. Explain the findings clearly and keep replies concise.`,
@@ -88,6 +111,33 @@ export class Chat extends AIChatAgent<Env> {
         }
       }
     ]);
+  }
+
+  private handleToolResult(result: unknown) {
+    if (!isToolResultPayload(result)) {
+      return;
+    }
+    this.setState({
+      ...this.state,
+      recommendation: result
+    });
+  }
+
+  private updateUserNeedsFromMessages(messages: UIMessage[]) {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message.role !== "user") {
+        continue;
+      }
+      const textPart = message.parts?.find((part): part is { type: "text"; text: string } => part.type === "text");
+      if (textPart) {
+        this.setState({
+          ...this.state,
+          userNeeds: textPart.text.trim() || null
+        });
+        break;
+      }
+    }
   }
 }
 

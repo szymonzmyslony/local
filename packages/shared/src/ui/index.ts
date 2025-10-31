@@ -11,3 +11,4 @@ export * from "./textarea";
 export * from "./tooltip";
 export * from "./collapsible";
 export * from "./navigation-menu";
+export * from "./markdown";

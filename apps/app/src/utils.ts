@@ -22,7 +22,8 @@ function isValidToolName<K extends PropertyKey, T extends object>(
 export async function processToolCalls<Tools extends ToolSet>({
   dataStream,
   messages,
-  executions
+  executions,
+  onToolResult
 }: {
   tools: Tools; // used for type inference
   dataStream: UIMessageStreamWriter;
@@ -32,6 +33,7 @@ export async function processToolCalls<Tools extends ToolSet>({
     // biome-ignore lint/suspicious/noExplicitAny: needs a better type
     (args: any, context: ToolCallOptions) => Promise<unknown>
   >;
+  onToolResult?: (result: unknown) => void;
 }): Promise<UIMessage[]> {
   // Process all messages, not just the last one
   const processedMessages = await Promise.all(
@@ -83,6 +85,8 @@ export async function processToolCalls<Tools extends ToolSet>({
             toolCallId: part.toolCallId,
             output: result
           });
+
+          onToolResult?.(result);
 
           // Return updated tool part with the actual result.
           return {

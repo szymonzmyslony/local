@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { Card, CardBody, CardSubtitle, CardTitle, Badge, Button } from "@shared/ui";
-import type { ToolResultPayload, GalleryToolResult, EventToolResult } from "../types/tool-results";
+import { Badge, Button, Card, CardBody, CardSubtitle, CardTitle } from "@shared/ui";
+import type { ToolResultPayload, GalleryToolResult, EventToolResult } from "./types/tool-results";
 
 function DetailRow({ label, value }: { label: string; value: string | null | undefined }) {
   if (!value) return null;

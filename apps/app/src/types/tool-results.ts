@@ -30,16 +30,16 @@ export type EventMatchItem = {
   similarity: number;
 };
 
-export type GalleryToolResult = {
+export interface GalleryToolResult {
   type: "gallery-results";
   query: string;
   items: GalleryMatchItem[];
-};
+}
 
-export type EventToolResult = {
+export interface EventToolResult {
   type: "event-results";
   query: string;
   items: EventMatchItem[];
-};
+}
 
 export type ToolResultPayload = GalleryToolResult | EventToolResult;
