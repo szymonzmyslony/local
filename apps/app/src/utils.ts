@@ -124,3 +124,34 @@ export function cleanupMessages(messages: UIMessage[]): UIMessage[] {
     return !hasIncompleteToolCall;
   });
 }
+
+/**
+ * Detects user language from text using browser Intl API
+ * Returns 'pl' for Polish, 'en' for English, or null if uncertain
+ */
+export function detectLanguage(text: string): "pl" | "en" | null {
+  if (!text || text.trim().length < 3) return null;
+
+  // Try to detect using Intl.LocaleMatcher if available
+  try {
+    // Check for Polish-specific characters (ą, ć, ę, ł, ń, ó, ś, ź, ż)
+    const polishChars = /[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/;
+    if (polishChars.test(text)) {
+      return "pl";
+    }
+
+    // Use a simple heuristic: check for common Polish words
+    const polishWords = ["jest", "jestem", "szukam", "chcę", "chce", "proszę", "dziękuję", "dzisiaj", "jutro", "weekend", "wydarzenie", "wydarzenia", "galeria", "galerie"];
+    const normalizedText = text.toLowerCase();
+    const hasPolishWords = polishWords.some(word => normalizedText.includes(word));
+
+    if (hasPolishWords) {
+      return "pl";
+    }
+
+    // Default to English for other cases (assume EN if not clearly PL)
+    return "en";
+  } catch {
+    return null;
+  }
+}

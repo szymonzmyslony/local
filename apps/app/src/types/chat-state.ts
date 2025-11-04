@@ -20,10 +20,49 @@ export interface UserRequirements {
   time: TimePreferences;
 }
 
+export type UserLanguage = "pl" | "en" | null;
+
+export interface SignalCheckResult {
+  hasTime: boolean;
+  hasLocation: boolean;
+  hasInterest: boolean;
+  signalCount: number;
+  missingSignals: string[];
+  suggestedQuestion: string | null;
+}
+
+export interface SavedEventCard {
+  eventId: string;
+  eventName: string;
+  eventImage: string | null;
+  savedAt: string; // ISO string
+  eventData: {
+    id: string;
+    title: string;
+    description: string | null;
+    startAt: string | null;
+    endAt: string | null;
+    gallery: {
+      id: string;
+      name: string | null;
+      mainUrl: string | null;
+    } | null;
+  };
+  preferences: {
+    district: GalleryDistrict | null;
+    mood: string | null;
+    aesthetics: string[];
+    artists: string[];
+    timeWindow: string | null;
+  };
+}
+
 export interface ChatState {
   userNeeds: string | null;
   userRequirements: UserRequirements;
   recommendation: ToolResultPayload | null;
+  userLanguage: UserLanguage;
+  savedCards: SavedEventCard[];
 }
 
 export function createInitialTimePreferences(): TimePreferences {
@@ -49,6 +88,8 @@ export function createInitialChatState(): ChatState {
   return {
     userNeeds: null,
     userRequirements: createInitialUserRequirements(),
-    recommendation: null
+    recommendation: null,
+    userLanguage: null,
+    savedCards: []
   };
 }
