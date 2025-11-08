@@ -221,19 +221,23 @@ Stay human, calm, and helpful. Your goal is to guide people to art experiences t
    * Save an event card to MY ZINE (stored in ChatState)
    */
   async saveEventToMyZine(eventData: SavedEventCard): Promise<void> {
-    const currentState = this.state ?? createInitialChatState();
-    const existingIndex = currentState.savedCards.findIndex(
+    const currentState = {
+      ...createInitialChatState(),
+      ...(this.state ?? {})
+    };
+    const savedCards = currentState.savedCards ?? [];
+    const existingIndex = savedCards.findIndex(
       (card) => card.eventId === eventData.eventId
     );
 
     let updatedCards: SavedEventCard[];
     if (existingIndex >= 0) {
       // Update existing card
-      updatedCards = [...currentState.savedCards];
+      updatedCards = [...savedCards];
       updatedCards[existingIndex] = eventData;
     } else {
       // Add new card
-      updatedCards = [...currentState.savedCards, eventData];
+      updatedCards = [...savedCards, eventData];
     }
 
     // Sort by savedAt (most recent first)
@@ -251,10 +255,13 @@ Stay human, calm, and helpful. Your goal is to guide people to art experiences t
    * Remove an event card from MY ZINE
    */
   async removeEventFromMyZine(eventId: string): Promise<void> {
-    const currentState = this.state ?? createInitialChatState();
+    const currentState = {
+      ...createInitialChatState(),
+      ...(this.state ?? {})
+    };
     this.setState({
       ...currentState,
-      savedCards: currentState.savedCards.filter(
+      savedCards: (currentState.savedCards ?? []).filter(
         (card) => card.eventId !== eventId
       )
     });
@@ -264,8 +271,11 @@ Stay human, calm, and helpful. Your goal is to guide people to art experiences t
    * Get all saved events from MY ZINE
    */
   async getMyZineEvents(): Promise<SavedEventCard[]> {
-    const currentState = this.state ?? createInitialChatState();
-    return currentState.savedCards;
+    const currentState = {
+      ...createInitialChatState(),
+      ...(this.state ?? {})
+    };
+    return currentState.savedCards ?? [];
   }
 }
 
