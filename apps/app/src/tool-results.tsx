@@ -1,16 +1,13 @@
 import type { ReactNode } from "react";
+import { useState } from "react";
 import {
   Badge,
   Button,
   Card,
   CardBody,
-  CardContent,
-  CardFooter,
-  CardHeader,
   CardSubtitle,
   CardTitle
 } from "@shared/ui";
-import { Calendar, MapPin } from "lucide-react";
 import type {
   ToolResultPayload,
   GalleryToolResult,
@@ -83,31 +80,6 @@ function GalleryResultCard({
   );
 }
 
-function formatEventDateTime(
-  dateString: string | null,
-  timezone?: string | null
-): string | null {
-  if (!dateString) return null;
-  try {
-    const date = new Date(dateString);
-    const datePart = new Intl.DateTimeFormat(undefined, {
-      month: "long",
-      day: "numeric",
-      year: "numeric",
-      timeZone: timezone ?? undefined
-    }).format(date);
-    const timePart = new Intl.DateTimeFormat(undefined, {
-      hour: "numeric",
-      minute: "2-digit",
-      timeZone: timezone ?? undefined,
-      timeZoneName: timezone ? "short" : undefined
-    }).format(date);
-    return `${datePart} · ${timePart}`;
-  } catch {
-    return dateString;
-  }
-}
-
 function EventResultCard({
   result,
   onSaveToMyZine
@@ -118,12 +90,7 @@ function EventResultCard({
     eventData: EventToolResult["items"][number]
   ) => void;
 }) {
-  const firstOccurrence = result.occurrences[0];
-  const startLabel = result.startAt ?? firstOccurrence?.start_at ?? null;
-  const endLabel = result.endAt ?? firstOccurrence?.end_at ?? null;
-  const hasMultipleOccurrences = result.occurrences.length > 1;
-  const timezone = firstOccurrence?.timezone ?? null;
-  const dateLabel = formatEventDateTime(startLabel, timezone);
+  const [isExpanded, setIsExpanded] = useState(false);
   const locationLabel =
     result.gallery?.name ??
     result.gallery?.normalizedMainUrl ??
@@ -133,78 +100,70 @@ function EventResultCard({
     result.description ?? "No description available for this event.";
   const primaryLink = result.gallery?.mainUrl ?? null;
 
+  // Check if description is long enough to need truncation
+  const needsTruncation = description.length > 200; // Rough estimate for 6 lines
+
   return (
-    <Card className="h-full w-full max-w-md border border-slate-200/50 bg-white text-slate-900 transition-all duration-200 hover:border-slate-200 dark:bg-slate-900 dark:text-slate-100">
-      <CardHeader className="flex flex-col items-start gap-1.5 border-none px-4 pb-2 pt-4">
-        <CardTitle className="text-xs font-semibold tracking-tight">
-          {result.title}
-        </CardTitle>
-        <CardSubtitle className="text-[10px] text-slate-500 line-clamp-3">
+    <div className="h-full w-full max-w-md rounded-2xl p-6 bg-gradient-to-br from-[#f8faff] to-[#ecefff] shadow-sm hover:shadow-md transition-all duration-200">
+      <h2 className="text-sm font-semibold text-gray-900">{result.title}</h2>
+
+      {locationLabel && (
+        <p className="text-xs text-gray-600 mt-1">{locationLabel}</p>
+      )}
+
+      <div className="mt-3">
+        <p
+          className={`text-xs text-gray-700 leading-relaxed ${
+            !isExpanded && needsTruncation ? "line-clamp-6" : ""
+          }`}
+        >
           {description}
-        </CardSubtitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-2 px-4 pb-3 pt-0 text-xs text-slate-600">
-        <div className="flex items-center gap-1.5">
-          <Calendar className="h-3 w-3 text-slate-500" />
-          <span>{dateLabel ?? "Date to be announced"}</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <MapPin className="h-3 w-3 text-slate-500" />
-          <span>{locationLabel ?? "Location to be announced"}</span>
-        </div>
-        {hasMultipleOccurrences ? (
-          <span className="text-[10px] text-slate-500">
-            {result.occurrences.length} dates available
-          </span>
-        ) : null}
-        {endLabel && startLabel && endLabel !== startLabel ? (
-          <span className="text-[10px] text-slate-500">
-            Ends {formatEventDateTime(endLabel, timezone) ?? "TBD"}
-          </span>
-        ) : null}
-      </CardContent>
-      <CardFooter className="flex-col gap-1.5 border-none px-4 pb-4 pt-0">
-        <div className="flex w-full flex-col gap-1.5 sm:flex-row sm:flex-wrap">
-          {primaryLink ? (
-            <Button
-              asChild
-              variant="outline"
-              size="sm"
-              className="h-7 w-full border-slate-200/50 px-2 text-[10px] dark:border-slate-700/50 sm:w-auto sm:flex-1"
-            >
-              <a href={primaryLink} target="_blank" rel="noreferrer">
-                See gallery
-              </a>
-            </Button>
-          ) : null}
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 w-full border-slate-200/50 px-2 text-[10px] dark:border-slate-700/50 sm:w-auto sm:flex-1"
-            onClick={() => {
-              if (onSaveToMyZine) {
-                onSaveToMyZine(result.id, result);
-              } else {
-                console.warn("Save to MY ZINE callback not available");
-              }
-            }}
-            disabled={!onSaveToMyZine}
+        </p>
+        {needsTruncation && (
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="text-xs text-gray-600 hover:text-gray-900 mt-1 font-medium"
           >
-            Save to MY ZINE
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 w-full border-slate-200/50 px-2 text-[10px] dark:border-slate-700/50 sm:w-auto sm:flex-1"
-            onClick={() => {
-              // TODO: Implement share as image functionality
+            {isExpanded ? "read less" : "read more"}
+          </button>
+        )}
+      </div>
+
+      <div className="flex gap-2 mt-4">
+        {primaryLink ? (
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              window.open(primaryLink!, "_blank", "noopener,noreferrer");
             }}
+            className="bg-white text-gray-900 px-3 py-1.5 rounded-xl hover:bg-gray-50 transition text-xs font-medium"
           >
-            Share
-          </Button>
-        </div>
-      </CardFooter>
-    </Card>
+            visit gallery
+          </button>
+        ) : null}
+        <button
+          onClick={() => {
+            if (onSaveToMyZine) {
+              onSaveToMyZine(result.id, result);
+            } else {
+              console.warn("Save to MY ZINE callback not available");
+            }
+          }}
+          disabled={!onSaveToMyZine}
+          className="bg-gradient-to-r from-[#ececff] to-[#e8eaff] text-gray-900 px-3 py-1.5 rounded-xl hover:scale-105 transition text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+        >
+          save to My Zine
+        </button>
+        <button
+          onClick={() => {
+            // TODO: Implement share as image functionality
+          }}
+          className="bg-white text-gray-900 px-3 py-1.5 rounded-xl hover:bg-gray-50 transition text-xs font-medium"
+        >
+          share
+        </button>
+      </div>
+    </div>
   );
 }
 

@@ -189,7 +189,7 @@ export default function Chat() {
               key={message.id}
               className={`flex ${isUser ? "justify-end" : "justify-start"}`}
             >
-              <div className="max-w-[85%] space-y-1.5">
+              <div className="max-w-[98%] space-y-1.5">
                 {message.parts?.map((part, index) => {
                   if (part.type === "text") {
                     const textLength = part.text?.length ?? 0;
