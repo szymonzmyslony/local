@@ -9,7 +9,8 @@ import {
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
-  Plus
+  Plus,
+  Send
 } from "lucide-react";
 import {
   Button,
@@ -102,6 +103,8 @@ export default function Chat() {
   const [inputValue, setInputValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatCardScrollRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLFormElement>(null);
+  const inputRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (messagesEndRef.current) {
@@ -632,6 +635,35 @@ export default function Chat() {
     }
   }, [status]);
 
+  const handleInputChange = useCallback(() => {
+    if (inputRef.current) {
+      const text = inputRef.current.textContent || "";
+      setInputValue(text);
+    }
+  }, []);
+
+  const handleKeyDown = useCallback(
+    async (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        const content = inputValue.trim();
+        if (content && status !== "submitted" && status !== "streaming") {
+          setInputValue("");
+          if (inputRef.current) {
+            inputRef.current.textContent = "";
+          }
+          updateLanguageIfNeeded(content);
+          await sendMessage({
+            role: "user",
+            parts: [{ type: "text", text: content }],
+            metadata: { createdAt: new Date().toISOString() }
+          });
+        }
+      }
+    },
+    [inputValue, status, sendMessage, updateLanguageIfNeeded]
+  );
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const content = inputValue.trim();
@@ -639,6 +671,9 @@ export default function Chat() {
       return;
     }
     setInputValue("");
+    if (inputRef.current) {
+      inputRef.current.textContent = "";
+    }
 
     updateLanguageIfNeeded(content);
 
@@ -937,61 +972,89 @@ export default function Chat() {
                     )}
                   </div>
                   {mainView.mode === "chat" ? (
-                    <div className="border-t border-slate-200/50 bg-slate-50/80 px-4 py-3 dark:border-slate-800/50 dark:bg-slate-900/80">
+                    <div className="border-t border-slate-200/50 bg-slate-50/80 px-3 py-2.5 dark:border-slate-800/50 dark:bg-slate-900/80">
                       <form
                         onSubmit={handleSubmit}
-                        className="flex flex-col gap-2"
+                        ref={composerRef}
+                        className="grid grid-cols-[auto_1fr_auto] gap-2 items-end rounded-[28px] bg-white dark:bg-slate-800 shadow-sm px-3 py-2 transition-all duration-200"
+                        style={{
+                          gridTemplateAreas: "'leading primary trailing'",
+                          viewTransitionName: "composer"
+                        }}
                       >
-                        <Textarea
-                          value={inputValue}
-                          onChange={(event) =>
-                            setInputValue(event.target.value)
-                          }
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" && !event.shiftKey) {
-                              event.preventDefault();
-                              if (
-                                inputValue.trim() &&
-                                status !== "submitted" &&
-                                status !== "streaming"
-                              ) {
-                                handleSubmit(
-                                  event as unknown as React.FormEvent<HTMLFormElement>
-                                );
-                              }
-                            }
-                          }}
-                          placeholder="What do you feel like finding today?"
-                          rows={3}
-                          disabled={
-                            status === "submitted" || status === "streaming"
-                          }
-                          className="text-xs border-slate-200/50 dark:border-slate-700/50"
-                        />
-                        <div className="flex items-center justify-end gap-2">
+                        {/* Leading section - empty for now, can add controls later */}
+                        <div
+                          style={{ gridArea: "leading" }}
+                          className="flex items-center"
+                        >
                           {status === "streaming" ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={stop}
+                            <button
                               type="button"
-                              className="h-7 px-2 text-xs"
+                              onClick={stop}
+                              className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 transition"
+                              aria-label="Stop"
                             >
-                              Stop
-                            </Button>
+                              <span className="text-[10px] font-medium">
+                                Stop
+                              </span>
+                            </button>
                           ) : null}
-                          <Button
+                        </div>
+
+                        {/* Primary input area */}
+                        <div
+                          style={{ gridArea: "primary" }}
+                          className="relative flex items-center min-h-[2rem] max-h-[13rem] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700"
+                        >
+                          <div
+                            ref={inputRef}
+                            contentEditable={
+                              status !== "submitted" && status !== "streaming"
+                            }
+                            onInput={handleInputChange}
+                            onKeyDown={handleKeyDown}
+                            suppressContentEditableWarning
+                            className="w-full text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none py-1.5 px-2 leading-relaxed"
+                            style={{
+                              minHeight: "1.5rem",
+                              maxHeight: "13rem",
+                              wordBreak: "break-word",
+                              whiteSpace: "pre-wrap"
+                            }}
+                            data-placeholder="What do you feel like finding today?"
+                            aria-label="Message input"
+                            role="textbox"
+                            aria-multiline="true"
+                          />
+                          <style>{`
+                            [contenteditable][data-placeholder]:empty:before {
+                              content: attr(data-placeholder);
+                              color: rgb(148 163 184);
+                              pointer-events: none;
+                            }
+                            [contenteditable]:focus {
+                              outline: none;
+                            }
+                          `}</style>
+                        </div>
+
+                        {/* Trailing section - Send button */}
+                        <div
+                          style={{ gridArea: "trailing" }}
+                          className="flex items-center"
+                        >
+                          <button
                             type="submit"
-                            size="sm"
-                            className="h-7 px-3 text-xs bg-[#D8D3FA] text-slate-900 hover:bg-[#D8D3FA]/80 dark:bg-[#D8D3FA] dark:text-slate-900 dark:hover:bg-[#D8D3FA]/80"
                             disabled={
                               !inputValue.trim() ||
                               status === "submitted" ||
                               status === "streaming"
                             }
+                            className="h-7 w-7 flex items-center justify-center rounded-full bg-[#D8D3FA] text-slate-900 hover:bg-[#D8D3FA]/80 dark:bg-[#D8D3FA] dark:text-slate-900 dark:hover:bg-[#D8D3FA]/80 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-[#D8D3FA]"
+                            aria-label="Send message"
                           >
-                            Send
-                          </Button>
+                            <Send className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                       </form>
                     </div>
