@@ -4,9 +4,13 @@ import {
   Button,
   Card,
   CardBody,
+  CardContent,
+  CardFooter,
+  CardHeader,
   CardSubtitle,
   CardTitle
 } from "@shared/ui";
+import { Calendar, MapPin } from "lucide-react";
 import type {
   ToolResultPayload,
   GalleryToolResult,
@@ -74,17 +78,26 @@ function GalleryResultCard({
   );
 }
 
-function formatDate(dateString: string | null): string {
-  if (!dateString) return "";
+function formatEventDateTime(
+  dateString: string | null,
+  timezone?: string | null
+): string | null {
+  if (!dateString) return null;
   try {
     const date = new Date(dateString);
-    return date.toLocaleDateString(undefined, {
-      weekday: "short",
-      month: "short",
+    const datePart = new Intl.DateTimeFormat(undefined, {
+      month: "long",
       day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit"
-    });
+      year: "numeric",
+      timeZone: timezone ?? undefined
+    }).format(date);
+    const timePart = new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: timezone ?? undefined,
+      timeZoneName: timezone ? "short" : undefined
+    }).format(date);
+    return `${datePart} · ${timePart}`;
   } catch {
     return dateString;
   }
@@ -104,97 +117,88 @@ function EventResultCard({
   const startLabel = result.startAt ?? firstOccurrence?.start_at ?? null;
   const endLabel = result.endAt ?? firstOccurrence?.end_at ?? null;
   const hasMultipleOccurrences = result.occurrences.length > 1;
+  const timezone = firstOccurrence?.timezone ?? null;
+  const dateLabel = formatEventDateTime(startLabel, timezone);
+  const locationLabel =
+    result.gallery?.name ??
+    result.gallery?.normalizedMainUrl ??
+    result.gallery?.mainUrl ??
+    null;
+  const description =
+    result.description ?? "No description available for this event.";
+  const primaryLink = result.gallery?.mainUrl ?? null;
 
   return (
-    <Card className="border-blue-100 bg-gradient-to-br from-white via-white to-blue-50/40 h-full flex flex-col">
-      <CardBody className="space-y-3 flex flex-col flex-1">
-        <div className="space-y-1">
-          <CardTitle className="text-base font-semibold text-slate-900 line-clamp-2">
-            {result.title}
-          </CardTitle>
-          {result.gallery ? (
-            <CardSubtitle className="text-xs text-slate-600">
-              {result.gallery.name ??
-                result.gallery.normalizedMainUrl ??
-                result.gallery.mainUrl ??
-                "Unknown gallery"}
-            </CardSubtitle>
+    <Card className="h-full w-full max-w-md border border-slate-200/70 bg-white text-slate-900 shadow-sm transition-all duration-200 hover:shadow-md">
+      <CardHeader className="flex flex-col items-start gap-2 border-none px-5 pb-3 pt-5">
+        <CardTitle className="text-lg font-semibold tracking-tight">
+          {result.title}
+        </CardTitle>
+        <CardSubtitle className="text-sm text-slate-500 line-clamp-3">
+          {description}
+        </CardSubtitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3 px-5 pb-4 pt-0 text-sm text-slate-600">
+        <div className="flex items-center gap-2">
+          <Calendar className="h-4 w-4 text-slate-500" />
+          <span>{dateLabel ?? "Date to be announced"}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <MapPin className="h-4 w-4 text-slate-500" />
+          <span>{locationLabel ?? "Location to be announced"}</span>
+        </div>
+        {hasMultipleOccurrences ? (
+          <span className="text-xs text-slate-500">
+            {result.occurrences.length} dates available
+          </span>
+        ) : null}
+        {endLabel && startLabel && endLabel !== startLabel ? (
+          <span className="text-xs text-slate-500">
+            Ends {formatEventDateTime(endLabel, timezone) ?? "TBD"}
+          </span>
+        ) : null}
+      </CardContent>
+      <CardFooter className="flex-col gap-2 border-none px-5 pb-5 pt-0">
+        <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap">
+          {primaryLink ? (
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="w-full sm:w-auto sm:flex-1"
+            >
+              <a href={primaryLink} target="_blank" rel="noreferrer">
+                See gallery
+              </a>
+            </Button>
           ) : null}
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full sm:w-auto sm:flex-1"
+            onClick={() => {
+              if (onSaveToMyZine) {
+                onSaveToMyZine(result.id, result);
+              } else {
+                console.warn("Save to MY ZINE callback not available");
+              }
+            }}
+            disabled={!onSaveToMyZine}
+          >
+            Save to MY ZINE
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full sm:w-auto sm:flex-1"
+            onClick={() => {
+              // TODO: Implement share as image functionality
+            }}
+          >
+            Share
+          </Button>
         </div>
-
-        <div className="space-y-2 rounded-lg border border-blue-100 bg-white/80 p-3 flex-1 flex flex-col">
-          <div className="space-y-1.5">
-            <div className="flex items-start gap-2">
-              <span className="text-xs font-medium text-slate-600 shrink-0">
-                When:
-              </span>
-              <div className="flex-1 min-w-0">
-                <span className="text-xs text-slate-700">
-                  {startLabel ? formatDate(startLabel) : "TBD"}
-                </span>
-                {hasMultipleOccurrences && (
-                  <span className="ml-1 text-xs text-slate-500">
-                    ({result.occurrences.length} times)
-                  </span>
-                )}
-              </div>
-            </div>
-            {result.gallery?.name && (
-              <div className="flex items-start gap-2">
-                <span className="text-xs font-medium text-slate-600 shrink-0">
-                  Where:
-                </span>
-                <span className="text-xs text-slate-700 truncate">
-                  {result.gallery.name}
-                </span>
-              </div>
-            )}
-          </div>
-
-          <p className="text-xs text-slate-600 leading-relaxed line-clamp-3 flex-shrink-0">
-            {result.description ?? "No description available for this event."}
-          </p>
-
-          <div className="flex gap-2 pt-2 mt-auto flex-wrap">
-            {result.gallery?.mainUrl ? (
-              <Button asChild variant="outline" size="sm" className="text-xs">
-                <a
-                  href={result.gallery.mainUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  See gallery
-                </a>
-              </Button>
-            ) : null}
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs"
-              onClick={() => {
-                if (onSaveToMyZine) {
-                  onSaveToMyZine(result.id, result);
-                } else {
-                  console.warn("Save to MY ZINE callback not available");
-                }
-              }}
-              disabled={!onSaveToMyZine}
-            >
-              Save to MY ZINE
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs"
-              onClick={() => {
-                // TODO: Implement share as image functionality
-              }}
-            >
-              Share
-            </Button>
-          </div>
-        </div>
-      </CardBody>
+      </CardFooter>
     </Card>
   );
 }
@@ -229,7 +233,7 @@ export function renderToolResult(
       <div className="w-full">
         <div className="flex gap-4 overflow-x-auto pb-4 -mx-6 px-6 items-stretch">
           {limitedItems.map((item) => (
-            <div key={item.id} className="flex-shrink-0 w-[320px]">
+            <div key={item.id} className="flex-shrink-0 w-[340px]">
               <EventResultCard result={item} onSaveToMyZine={onSaveToMyZine} />
             </div>
           ))}

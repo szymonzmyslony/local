@@ -281,10 +281,11 @@ export default function Chat() {
                   <div className="space-y-6 max-w-md">
                     <div className="space-y-2">
                       <p className="text-lg font-medium text-slate-900">
-                        What do you feel like finding today?
+                        What do you feel like doing?
                       </p>
                       <p className="text-sm text-slate-500">
-                        Choose a suggestion or type your own question
+                        Tell the agent your mood, aesthetic, or how you’d like
+                        the day to unfold — and it will find art that fits.
                       </p>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -292,7 +293,7 @@ export default function Chat() {
                         variant="outline"
                         onClick={() =>
                           handleSuggestionClick(
-                            "What's happening this weekend?"
+                            "Quiet exhibitions in Praga this weekend"
                           )
                         }
                         className="justify-start text-left h-auto py-3 px-4"
@@ -301,14 +302,14 @@ export default function Chat() {
                         }
                       >
                         <span className="text-sm">
-                          What's happening this weekend?
+                          Quiet exhibitions in Praga this weekend
                         </span>
                       </Button>
                       <Button
                         variant="outline"
                         onClick={() =>
                           handleSuggestionClick(
-                            "Show me contemporary art galleries"
+                            "Calm galleries to visit on Sunday"
                           )
                         }
                         className="justify-start text-left h-auto py-3 px-4"
@@ -317,32 +318,40 @@ export default function Chat() {
                         }
                       >
                         <span className="text-sm">
-                          Show me contemporary art galleries
+                          Calm galleries to visit on Sunday
                         </span>
                       </Button>
                       <Button
                         variant="outline"
                         onClick={() =>
-                          handleSuggestionClick("Events near Old Town?")
+                          handleSuggestionClick(
+                            "Playful art around Mokotów tonight"
+                          )
                         }
                         className="justify-start text-left h-auto py-3 px-4"
                         disabled={
                           status === "submitted" || status === "streaming"
                         }
                       >
-                        <span className="text-sm">Events near Old Town?</span>
+                        <span className="text-sm">
+                          Playful art around Mokotów tonight
+                        </span>
                       </Button>
                       <Button
                         variant="outline"
                         onClick={() =>
-                          handleSuggestionClick("What's happening today?")
+                          handleSuggestionClick(
+                            "Experimental installations near Old Town"
+                          )
                         }
                         className="justify-start text-left h-auto py-3 px-4"
                         disabled={
                           status === "submitted" || status === "streaming"
                         }
                       >
-                        <span className="text-sm">What's happening today?</span>
+                        <span className="text-sm">
+                          Experimental installations near Old Town
+                        </span>
                       </Button>
                     </div>
                   </div>

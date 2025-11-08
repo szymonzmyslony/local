@@ -87,7 +87,7 @@ function enforceEnv(): RequiredEnv {
 
 const matchGallery = tool({
   description:
-    "FALLBACK ONLY: Use this tool only when match_event returns no results or very few results. Find galleries similar to a query using vector search. Gallery results should be mentioned in your text response with explanations of why they might match the user's request (style, artists, location), but galleries should NOT be displayed as cards. Only events are shown as cards. When suggesting galleries, explain why they could be a good match based on the user's preferences (mood, aesthetics, location, time constraints).",
+    "Use this tool when the user wants additional gallery suggestions — either because match_event returned no events or they ask for more options without changing their preferences. Share 1–3 galleries in plain text with a short why-it-fits note. Galleries are never shown as cards.",
   inputSchema: searchInputSchema,
   execute: async ({
     query,
@@ -104,7 +104,7 @@ const matchGallery = tool({
     }
 
     const { data, error } = await supabase.rpc("match_galeries", {
-      match_count: matchCount ?? 8,
+      match_count: matchCount ?? 3,
       match_threshold: matchThreshold ?? 0.6,
       query_embedding: toPgVector(vector)
     });
@@ -165,17 +165,18 @@ const matchGallery = tool({
       });
     }
 
-    return {
+    const result = {
       type: "gallery-results",
       query,
       items
     } satisfies GalleryToolResult;
+    return result;
   }
 });
 
 const matchEvent = tool({
   description:
-    "Find events similar to a query using vector search over event descriptions and metadata. Before searching, ensure the user has provided at least TWO of: time window (today/weekend/month), location (district/area), or interest (mood/style/artist/type). If only one signal is provided, this tool will return guidance for a follow-up question. Call this tool immediately when ready to search - do not generate text before calling it. The tool results will be displayed as cards, and you should add only a brief closing message after cards are shown.",
+    "Find events similar to a query using vector search over event descriptions and metadata. Before searching, ensure the user has provided at least TWO of: time window (today/weekend/month), location (district/area), or interest (mood/style/artist/type). If only one signal is provided, this tool will return guidance for a follow-up question. Call this tool once per assistant turn as soon as you are ready to search. The tool results will be displayed as cards, and you should add only a brief closing message after cards are shown.",
   inputSchema: searchInputSchema,
   execute: async ({
     query,
@@ -217,7 +218,7 @@ const matchEvent = tool({
     }
 
     const { data, error } = await supabase.rpc("match_events", {
-      match_count: matchCount ?? 8,
+      match_count: matchCount ?? 5,
       match_threshold: matchThreshold ?? 0.6,
       query_embedding: toPgVector(vector)
     });
@@ -320,11 +321,12 @@ const matchEvent = tool({
       });
     }
 
-    return {
+    const result = {
       type: "event-results",
       query,
       items
-    };
+    } satisfies EventToolResult;
+    return result;
   }
 });
 

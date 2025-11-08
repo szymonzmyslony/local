@@ -37,3 +37,19 @@ export function CardTitle({ className, ...props }: HTMLAttributes<HTMLHeadingEle
 export function CardSubtitle({ className, ...props }: HTMLAttributes<HTMLParagraphElement>) {
   return <p className={cn("text-sm text-slate-500", className)} {...props} />;
 }
+
+export function CardContent({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn("px-6 py-4", className)} {...props} />;
+}
+
+export function CardFooter({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn(
+        "px-6 py-4 flex items-center gap-3 border-t border-slate-100",
+        className
+      )}
+      {...props}
+    />
+  );
+}
