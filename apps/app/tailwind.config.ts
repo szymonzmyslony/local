@@ -11,6 +11,13 @@ export default {
   presets: [sharedPreset],
   safelist: sharedPreset.safelist,
   theme: {
-    extend: {}
+    extend: {
+      colors: {
+        primary: {
+          DEFAULT: "#D8D3FA",
+          foreground: "#1e1b4b"
+        }
+      }
+    }
   }
 } satisfies Config;
