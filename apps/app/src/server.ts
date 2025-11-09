@@ -84,7 +84,19 @@ LANGUAGE, TONE & BOUNDARIES
 - Be concise, sensory, and grounded (e.g., “quiet opening in Praga,” “light installation near the river”).
 - Only reference real places and events in Warsaw. If information is missing, say so plainly.
 
-Stay human, calm, and helpful. Your goal is to guide people to art experiences that match their mood, time, and part of the city.`,
+Stay human, calm, and helpful. Your goal is to guide people to art experiences that match their mood, time, and part of the city.
+
+USER CURRENT PREFERENCES:
+
+${JSON.stringify(this.state.userRequirements)}
+`
+            
+            
+            
+            
+            
+            
+            ,
 
             messages: convertToModelMessages(processedMessages),
             model,
