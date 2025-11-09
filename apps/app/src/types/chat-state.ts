@@ -1,5 +1,5 @@
 import type { Database } from "@shared";
-import type { ToolResultPayload } from "./tool-results";
+import type { EventMatchItem, ToolResultPayload } from "./tool-results";
 
 export type GalleryDistrict = Database["public"]["Enums"]["gallery_district"];
 
@@ -31,37 +31,10 @@ export interface SignalCheckResult {
   suggestedQuestion: string | null;
 }
 
-export interface SavedEventCard {
-  eventId: string;
-  eventName: string;
-  eventImage: string | null;
-  savedAt: string; // ISO string
-  eventData: {
-    id: string;
-    title: string;
-    description: string | null;
-    startAt: string | null;
-    endAt: string | null;
-    gallery: {
-      id: string;
-      name: string | null;
-      mainUrl: string | null;
-    } | null;
-  };
-  preferences: {
-    district: GalleryDistrict | null;
-    mood: string | null;
-    aesthetics: string[];
-    artists: string[];
-    timeWindow: string | null;
-  };
-}
+export type SavedEventCard = EventMatchItem;
 
-export interface ChatState {
-  userNeeds: string | null;
+export interface ZineChatState {
   userRequirements: UserRequirements;
-  recommendation: ToolResultPayload | null;
-  userLanguage: UserLanguage;
   savedCards: SavedEventCard[];
 }
 
@@ -84,12 +57,9 @@ export function createInitialUserRequirements(): UserRequirements {
   };
 }
 
-export function createInitialChatState(): ChatState {
+export function createInitialChatState(): ZineChatState {
   return {
-    userNeeds: null,
     userRequirements: createInitialUserRequirements(),
-    recommendation: null,
-    userLanguage: null,
     savedCards: []
   };
 }

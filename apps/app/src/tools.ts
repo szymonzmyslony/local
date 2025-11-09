@@ -9,29 +9,17 @@ import {
 } from "@shared";
 import type {
   GalleryToolResult,
-  EventToolResult,
-  GalleryMatchItem,
-  EventMatchItem
+  EventToolResult
 } from "./types/tool-results";
 import type {
-  ChatState,
   UserRequirements,
-  GalleryDistrict,
-  TimePreferences,
-  SignalCheckResult
+  GalleryDistrict
 } from "./types/chat-state";
-import {
-  createInitialChatState,
-  createInitialUserRequirements,
-  createInitialTimePreferences
-} from "./types/chat-state";
-import type { SavedEventCard } from "./types/chat-state";
 import { Zine } from "./server";
 
 const searchInputSchema = z.object({
   query: z.string().trim().min(2, "Query must be at least 2 characters"),
   matchCount: z.number().int().min(1).max(20).optional(),
-  matchThreshold: z.number().min(-1).max(1).optional()
 });
 
 type RequiredEnv = Pick<
@@ -67,14 +55,12 @@ const matchGallery = tool({
   execute: async ({
     query,
     matchCount,
-    matchThreshold
   }): Promise<GalleryToolResult> => {
     console.log("[match_gallery] Function called");
     const startTime = performance.now();
     console.log("[match_gallery] Starting query:", {
       query,
       matchCount: matchCount ?? 3,
-      matchThreshold: matchThreshold ?? 0.6
     });
     const { agent } = getCurrentAgent<Zine>();
 
@@ -99,7 +85,7 @@ const matchGallery = tool({
     const dbStart = performance.now();
     const { data, error } = await supabase.rpc("match_gallery_with_data", {
       match_count: matchCount ?? 3,
-      match_threshold: matchThreshold ?? 0.6,
+      match_threshold: 0.2,
       query_embedding: toPgVector(vector)
     });
     const dbTime = performance.now() - dbStart;
@@ -133,7 +119,6 @@ const matchEvent = tool({
   execute: async ({
     query,
     matchCount,
-    matchThreshold
   }): Promise<
     | EventToolResult
     | { type: "guidance"; missingSignals: string[]; suggestedQuestion: string }
@@ -155,7 +140,6 @@ const matchEvent = tool({
     console.log("[match_event] Starting query:", {
       query,
       matchCount: matchCount ?? 5,
-      matchThreshold: matchThreshold ?? 0.6
     });
 
     const supabase = getServiceClient(env);
@@ -166,15 +150,12 @@ const matchEvent = tool({
     const embeddingTime = performance.now() - embeddingStart;
     console.log(`[match_event] Embedding generated in ${embeddingTime.toFixed(2)}ms`);
 
-    if (!vector.length) {
-      // If embedding fails but we have 2+ signals, still try to search with fallback
-      return { type: "event-results", query, items: [] };
-    }
+ 
 
     const dbStart = performance.now();
     const { data, error } = await supabase.rpc("match_events_with_data", {
       match_count: matchCount ?? 5,
-      match_threshold: matchThreshold ?? 0.6,
+      match_threshold: 0.2,
       query_embedding: toPgVector(vector)
     });
     const dbTime = performance.now() - dbStart;
@@ -212,224 +193,60 @@ const updateUserRequirements = tool({
   description:
     "Update the user's current requirements such as preferred district in Warsaw, desired artists, aesthetics, mood, or time preferences (months, weeks, day periods like morning/evening, or specific hours).",
   inputSchema: updateRequirementsSchema,
-  execute: async ({ district, artists, aesthetics, mood, time }) => {
-    const context = getCurrentAgent();
-    const agent = context?.agent as
-      | {
-        state?: ChatState;
-        initialState?: ChatState;
-        setState: (state: ChatState) => void;
-      }
-      | undefined;
+  execute: async ({ district, artists, aesthetics, mood }) => {
+    const { agent } = getCurrentAgent<Zine>();
 
     if (!agent) {
-      throw new Error(
-        "Agent context is not available for updating requirements"
+      console.error('[updateUserRequirements] Agent not available');
+      throw new Error("Agent not available");
+    }
+
+    // Build the partial requirements object with only provided fields
+    const updatedRequirements: Partial<UserRequirements> = {};
+
+    if (district !== undefined) {
+      if (district === null) {
+        updatedRequirements.district = null;
+      } else if (typeof district === "string") {
+        const normalized = district.trim().toLowerCase();
+        updatedRequirements.district =
+          galleryDistrictValues.find(
+            (value) => value.toLowerCase() === normalized
+          ) ?? null;
+      } else {
+        updatedRequirements.district = district;
+      }
+    }
+
+    if (artists !== undefined) {
+      updatedRequirements.artists = Array.from(
+        new Set(
+          (artists ?? [])
+            .map((name) => name.trim())
+            .filter((name): name is string => name.length > 0)
+        )
       );
     }
 
-    const currentState: ChatState = agent.state ?? createInitialChatState();
-    const currentRequirements: UserRequirements =
-      currentState.userRequirements ?? createInitialUserRequirements();
-    const currentTime: TimePreferences =
-      currentRequirements.time ?? createInitialTimePreferences();
-
-    const normalizedArtists =
-      artists !== undefined
-        ? Array.from(
-          new Set(
-            (artists ?? [])
-              .map((name) => name.trim())
-              .filter((name): name is string => name.length > 0)
-          )
+    if (aesthetics !== undefined) {
+      updatedRequirements.aesthetics = Array.from(
+        new Set(
+          (aesthetics ?? [])
+            .map((item) => item.trim())
+            .filter((item): item is string => item.length > 0)
         )
-        : undefined;
-
-    const normalizedMood =
-      mood !== undefined ? mood?.trim() || null : undefined;
-
-    const normalizedAesthetics =
-      aesthetics !== undefined
-        ? Array.from(
-          new Set(
-            (aesthetics ?? [])
-              .map((item) => item.trim())
-              .filter((item): item is string => item.length > 0)
-          )
-        )
-        : undefined;
-
-    const normalizedTime: TimePreferences | undefined = time
-      ? {
-        months: Array.from(
-          new Set(
-            (time.months ?? [])
-              .map((value) => value.trim())
-              .filter((value): value is string => value.length > 0)
-          )
-        ),
-        weeks: Array.from(
-          new Set(
-            (time.weeks ?? [])
-              .map((value) => value.trim())
-              .filter((value): value is string => value.length > 0)
-          )
-        ),
-        dayPeriods: Array.from(
-          new Set(
-            (time.dayPeriods ?? []).filter(
-              (value): value is TimePreferences["dayPeriods"][number] =>
-                Boolean(value)
-            )
-          )
-        ),
-        specificHours: Array.from(
-          new Set(
-            (time.specificHours ?? [])
-              .map((value) => value.trim())
-              .filter((value): value is string => value.length > 0)
-          )
-        )
-      }
-      : undefined;
-
-    let inferredDistrict: GalleryDistrict | null | undefined;
-    if (district !== undefined) {
-      if (district === null) {
-        inferredDistrict = null;
-      } else if (typeof district === "string") {
-        const normalized = district.trim().toLowerCase();
-        inferredDistrict =
-          galleryDistrictValues.find(
-            (value) => value.toLowerCase() === normalized
-          ) ?? currentRequirements.district;
-      } else {
-        inferredDistrict = district;
-      }
+      );
     }
 
-    const updatedRequirements: UserRequirements = {
-      district:
-        inferredDistrict !== undefined
-          ? inferredDistrict
-          : currentRequirements.district,
-      artists:
-        normalizedArtists !== undefined
-          ? normalizedArtists
-          : currentRequirements.artists,
-      aesthetics:
-        normalizedAesthetics !== undefined
-          ? normalizedAesthetics
-          : currentRequirements.aesthetics,
-      mood:
-        normalizedMood !== undefined
-          ? normalizedMood
-          : currentRequirements.mood,
-      time: normalizedTime !== undefined ? normalizedTime : currentTime
-    };
+    if (mood !== undefined) {
+      updatedRequirements.mood = mood?.trim() || null;
+    }
 
-    agent.setState({
-      ...currentState,
-      userRequirements: updatedRequirements
-    });
+    agent.updateUserRequirements(updatedRequirements);
 
     return {
       success: true,
-      user_requirements: updatedRequirements
-    };
-  }
-});
-
-const saveToMyZine = tool({
-  description:
-    "Save an event card to the user's MY ZINE collection for later reference. Use this when the user explicitly asks to save an event to MY ZINE. The user message may contain JSON with eventId and eventData fields - extract and use those directly.",
-  inputSchema: z.object({
-    eventId: z.string().min(1),
-    eventData: z.object({
-      id: z.string(),
-      title: z.string(),
-      status: z.string().nullable(),
-      startAt: z.string().nullable(),
-      endAt: z.string().nullable(),
-      description: z.string().nullable(),
-      occurrences: z.array(
-        z.object({
-          id: z.string(),
-          start_at: z.string().nullable(),
-          end_at: z.string().nullable(),
-          timezone: z.string().nullable()
-        })
-      ),
-      gallery: z
-        .object({
-          id: z.string(),
-          name: z.string().nullable(),
-          mainUrl: z.string().nullable(),
-          normalizedMainUrl: z.string().nullable()
-        })
-        .nullable(),
-      similarity: z.number()
-    })
-  }),
-  execute: async ({
-    eventId,
-    eventData
-  }): Promise<{ success: boolean; message: string }> => {
-    const context = getCurrentAgent();
-    const agent = context?.agent as
-      | {
-        state?: ChatState;
-        saveEventToMyZine?: (event: SavedEventCard) => Promise<void>;
-      }
-      | undefined;
-
-    if (!agent || !agent.saveEventToMyZine) {
-      throw new Error("MY ZINE storage is not available");
-    }
-
-    const currentState: ChatState = agent.state ?? createInitialChatState();
-    const requirements =
-      currentState.userRequirements ?? createInitialUserRequirements();
-
-    const eventItem = eventData as EventMatchItem;
-    const savedEvent: SavedEventCard = {
-      eventId,
-      eventName: eventItem.title,
-      eventImage: null, // TODO: Add image URL when available in event data
-      savedAt: new Date().toISOString(),
-      eventData: {
-        id: eventItem.id,
-        title: eventItem.title,
-        description: eventItem.description,
-        startAt: eventItem.startAt,
-        endAt: eventItem.endAt,
-        gallery: eventItem.gallery
-          ? {
-            id: eventItem.gallery.id,
-            name: eventItem.gallery.name,
-            mainUrl: eventItem.gallery.mainUrl
-          }
-          : null
-      },
-      preferences: {
-        district: requirements.district,
-        mood: requirements.mood,
-        aesthetics: requirements.aesthetics,
-        artists: requirements.artists,
-        timeWindow:
-          requirements.time.weeks.length > 0
-            ? requirements.time.weeks[0]
-            : requirements.time.months.length > 0
-              ? requirements.time.months[0]
-              : null
-      }
-    };
-
-    await agent.saveEventToMyZine(savedEvent);
-
-    return {
-      success: true,
-      message: `Event "${eventData.title}" saved to MY ZINE`
+      user_requirements: agent.state.userRequirements
     };
   }
 });
@@ -437,8 +254,7 @@ const saveToMyZine = tool({
 export const tools = {
   match_gallery: matchGallery,
   match_event: matchEvent,
-  update_user_requirements: updateUserRequirements,
-  save_to_my_zine: saveToMyZine
+  update_user_requirements: updateUserRequirements
 } satisfies ToolSet;
 
 export const executions = {} as const;

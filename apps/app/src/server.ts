@@ -1,4 +1,4 @@
-import { routeAgentRequest, type Schedule } from "agents";
+import { callable, routeAgentRequest, type Schedule } from "agents";
 
 import { AIChatAgent } from "agents/ai-chat-agent";
 import {
@@ -10,22 +10,20 @@ import {
   convertToModelMessages,
   createUIMessageStreamResponse,
   type ToolSet,
-  type UIMessage
 } from "ai";
-import { openai } from "@ai-sdk/openai";
+import { openai, OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { processToolCalls, cleanupMessages } from "./utils";
 import { tools, executions } from "./tools";
-import type { ToolResultPayload } from "./types/tool-results";
-import type { ChatState } from "./types/chat-state";
+import type { ZineChatState, UserRequirements } from "./types/chat-state";
 import { createInitialChatState } from "./types/chat-state";
-import type { SavedEventCard } from "./types/chat-state";
+import type { EventMatchItem } from "./types/tool-results";
 
 const model = openai("gpt-5");
 
 
 
-export class Zine extends AIChatAgent<Env, ChatState> {
-  override initialState: ChatState = createInitialChatState();
+export class Zine extends AIChatAgent<Env, ZineChatState> {
+  override initialState = createInitialChatState();
 
 
   public getEnv(): Env {
@@ -39,15 +37,7 @@ export class Zine extends AIChatAgent<Env, ChatState> {
     onFinish: StreamTextOnFinishCallback<ToolSet>,
     _options?: { abortSignal?: AbortSignal }
   ) {
-    // const mcpConnection = await this.mcp.connect(
-    //   "https://path-to-mcp-server/sse"
-    // );
 
-    // Collect all tools, including MCP tools
-    const allTools = {
-      ...tools,
-      ...this.mcp.getAITools()
-    };
 
     const stream = createUIMessageStream({
       execute: async ({ writer }) => {
@@ -60,7 +50,7 @@ export class Zine extends AIChatAgent<Env, ChatState> {
           const processedMessages = await processToolCalls({
             messages: cleanedMessages,
             dataStream: writer,
-            tools: allTools,
+            tools: tools,
             executions,
           });
 
@@ -71,8 +61,8 @@ export class Zine extends AIChatAgent<Env, ChatState> {
 CONVERSATION RHYTHM
 
 - Collect at least two signals (time window, location, interest) before searching. If only one signal is present, ask one short follow-up for the missing detail.
-- When you are ready to search, call match_event immediately (once per assistant turn) and write “Searching for events…” while the tool runs. Wait for the tool result before adding anything else.
-- Let the event cards display. Then add one short check-in question about the results (e.g., “Anything here catch your eye?” “Want me to tweak the vibe or district?”). Skip any extra narration.
+- When you are ready to search, call match_event immediately (once per assistant turn). The UI will show the tool execution automatically.
+- After event cards display, add one short check-in question about the results (e.g., "Anything here catch your eye?" "Want me to tweak the vibe or district?"). Skip any extra narration.
 - If match_event returns no events, or the user asks for additional ideas without changing their request, you may call match_gallery for 1–3 gallery suggestions. Mention galleries in text only — never as cards — and explain briefly why each fits the vibe.
 - If the user changes their signals (new mood, district, or timing), run match_event again with the new details before suggesting galleries.
 - Do not call match_event or match_gallery multiple times in the same turn unless the user provides new information.
@@ -87,10 +77,6 @@ FOLLOW-UPS
 - Ask for missing signals only when needed. If the user seems chatty or open-ended, you can ask a light follow-up to clarify preferences.
 - If match_event returns guidance, relay the suggested question and wait for the reply.
 
-EVENT CARDS & SAVING
-
-- Only events appear as cards. Each card should stand on its own (title, timing, location, brief description, source link).
-- If the user asks to save an event (or triggers the button), call save_to_my_zine with the provided data and confirm naturally (“Saved to your zine.”).
 
 LANGUAGE, TONE & BOUNDARIES
 
@@ -102,12 +88,18 @@ Stay human, calm, and helpful. Your goal is to guide people to art experiences t
 
             messages: convertToModelMessages(processedMessages),
             model,
-            tools: allTools,
+            tools: tools,
+            providerOptions: {
+              openai: {
+                reasoningEffort: "minimal"
+              } satisfies OpenAIResponsesProviderOptions
+            },
             // Type boundary: streamText expects specific tool types, but base class uses ToolSet
             // This is safe because our tools satisfy ToolSet interface (verified by 'satisfies' in tools.ts)
             onFinish: onFinish as unknown as StreamTextOnFinishCallback<
-              typeof allTools
-            >,
+              typeof tools
+              >,
+          
             stopWhen: stepCountIs(10)
           });
 
@@ -127,88 +119,66 @@ Stay human, calm, and helpful. Your goal is to guide people to art experiences t
 
     return createUIMessageStreamResponse({ stream });
   }
-  async executeTask(description: string, _task: Schedule<string>) {
-    await this.saveMessages([
-      ...this.messages,
-      {
-        id: generateId(),
-        role: "user",
-        parts: [
-          {
-            type: "text",
-            text: `Running scheduled task: ${description}`
-          }
-        ],
-        metadata: {
-          createdAt: new Date()
-        }
-      }
-    ]);
-  }
 
 
 
 
   /**
-   * Save an event card to MY ZINE (stored in ChatState)
+   * Save an EventMatchItem to MY ZINE (stored in ChatState)
    */
-  async saveEventToMyZine(eventData: SavedEventCard): Promise<void> {
-    const currentState = {
-      ...createInitialChatState(),
-      ...(this.state ?? {})
-    };
+  @callable({ description: "Save an event to MY ZINE" })
+  saveToZine(event: EventMatchItem): void {
+    const currentState = this.state ?? createInitialChatState();
     const savedCards = currentState.savedCards ?? [];
-    const existingIndex = savedCards.findIndex(
-      (card) => card.eventId === eventData.eventId
-    );
 
-    let updatedCards: SavedEventCard[];
+    // Check if event already exists
+    const existingIndex = savedCards.findIndex((card) => card.event_id === event.event_id);
+
     if (existingIndex >= 0) {
-      // Update existing card
-      updatedCards = [...savedCards];
-      updatedCards[existingIndex] = eventData;
+      // Update existing event
+      savedCards[existingIndex] = event;
     } else {
-      // Add new card
-      updatedCards = [...savedCards, eventData];
+      // Add new event to the array
+      savedCards.push(event);
     }
-
-    // Sort by savedAt (most recent first)
-    updatedCards.sort(
-      (a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
-    );
 
     this.setState({
       ...currentState,
-      savedCards: updatedCards
+      savedCards
+    });
+  }
+
+  /**
+   * Update user requirements
+   */
+  @callable({ description: "Update the user's requirements" })
+  updateUserRequirements(requirements: Partial<UserRequirements>): void {
+    const currentState = this.state ?? createInitialChatState();
+    const currentRequirements = currentState.userRequirements;
+
+    this.setState({
+      ...currentState,
+      userRequirements: {
+        ...currentRequirements,
+        ...requirements
+      }
     });
   }
 
   /**
    * Remove an event card from MY ZINE
    */
+  @callable({ description: "Remove an event from MY ZINE" })
   async removeEventFromMyZine(eventId: string): Promise<void> {
-    const currentState = {
-      ...createInitialChatState(),
-      ...(this.state ?? {})
-    };
     this.setState({
-      ...currentState,
-      savedCards: (currentState.savedCards ?? []).filter(
-        (card) => card.eventId !== eventId
+      ...this.state,
+      savedCards: (this.state.savedCards ?? []).filter(
+        (card) => card.event_id !== eventId
       )
     });
   }
 
-  /**
-   * Get all saved events from MY ZINE
-   */
-  async getMyZineEvents(): Promise<SavedEventCard[]> {
-    const currentState = {
-      ...createInitialChatState(),
-      ...(this.state ?? {})
-    };
-    return currentState.savedCards ?? [];
-  }
+
 }
 
 /**

@@ -12,3 +12,5 @@ export * from "./tooltip";
 export * from "./collapsible";
 export * from "./navigation-menu";
 export * from "./markdown";
+export * from "./sidebar";
+export * from "./popover";
