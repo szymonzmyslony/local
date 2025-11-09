@@ -1,34 +1,11 @@
-export type GalleryMatchItem = {
-  id: string;
-  name: string | null;
-  about: string | null;
-  mainUrl: string | null;
-  normalizedMainUrl: string | null;
-  eventsPage: string | null;
-  similarity: number;
-};
 
-export type EventMatchItem = {
-  id: string;
-  title: string;
-  status: string | null;
-  startAt: string | null;
-  endAt: string | null;
-  description: string | null;
-  occurrences: Array<{
-    id: string;
-    start_at: string | null;
-    end_at: string | null;
-    timezone: string | null;
-  }>;
-  gallery: {
-    id: string;
-    name: string | null;
-    mainUrl: string | null;
-    normalizedMainUrl: string | null;
-  } | null;
-  similarity: number;
-};
+import type { Database } from "@shared";
+
+export type GalleryMatchItem =
+  Database["public"]["Functions"]["match_gallery_with_data"]["Returns"][number];
+
+export type EventMatchItem =
+  Database["public"]["Functions"]["match_events_with_data"]["Returns"][number];
 
 export interface GalleryToolResult {
   type: "gallery-results";

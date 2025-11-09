@@ -26,6 +26,7 @@ import {
   createInitialTimePreferences
 } from "./types/chat-state";
 import type { SavedEventCard } from "./types/chat-state";
+import { Zine } from "./server";
 
 const searchInputSchema = z.object({
   query: z.string().trim().min(2, "Query must be at least 2 characters"),
@@ -45,16 +46,6 @@ const galleryDistrictTuple = galleryDistrictValues as unknown as [
 ];
 const districtEnum = z.enum(galleryDistrictTuple);
 
-const timePreferencesSchema = z.object({
-  months: z.array(z.string().trim().min(1)).nullish(),
-  weeks: z.array(z.string().trim().min(1)).nullish(),
-  dayPeriods: z
-    .array(
-      z.enum(["morning", "noon", "afternoon", "evening", "night"] as const)
-    )
-    .nullish(),
-  specificHours: z.array(z.string().trim().min(1)).nullish()
-});
 
 const districtInputSchema = z
   .union([districtEnum, z.string().trim().min(1)])
@@ -65,25 +56,9 @@ const updateRequirementsSchema = z.object({
   artists: z.array(z.string().trim().min(1)).nullish(),
   aesthetics: z.array(z.string().trim().min(1)).nullish(),
   mood: z.string().trim().min(1).nullish(),
-  time: timePreferencesSchema.nullish()
 });
 
-function enforceEnv(): RequiredEnv {
-  const openaiKey = process.env.OPENAI_API_KEY;
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
-  if (!openaiKey) {
-    throw new Error("OPENAI_API_KEY is missing");
-  }
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error("Supabase configuration is missing");
-  }
-  return {
-    OPENAI_API_KEY: openaiKey,
-    SUPABASE_URL: supabaseUrl,
-    SUPABASE_ANON_KEY: supabaseAnonKey
-  };
-}
+
 
 const matchGallery = tool({
   description:
@@ -94,81 +69,58 @@ const matchGallery = tool({
     matchCount,
     matchThreshold
   }): Promise<GalleryToolResult> => {
-    const env = enforceEnv();
+    console.log("[match_gallery] Function called");
+    const startTime = performance.now();
+    console.log("[match_gallery] Starting query:", {
+      query,
+      matchCount: matchCount ?? 3,
+      matchThreshold: matchThreshold ?? 0.6
+    });
+    const { agent } = getCurrentAgent<Zine>();
+
+    if (!agent) {
+      console.error('[match_gallery] Agent not available');
+      throw new Error("Agent not available");
+    }
+
+    const env = agent.getEnv();
     const supabase = getServiceClient(env);
     const embedder = createEmbedder(env.OPENAI_API_KEY);
+
+    const embeddingStart = performance.now();
     const vector = await embedder(query);
+    const embeddingTime = performance.now() - embeddingStart;
+    console.log(`[match_gallery] Embedding generated in ${embeddingTime.toFixed(2)}ms`);
 
     if (!vector.length) {
       return { type: "gallery-results", query, items: [] };
     }
 
-    const { data, error } = await supabase.rpc("match_galeries", {
+    const dbStart = performance.now();
+    const { data, error } = await supabase.rpc("match_gallery_with_data", {
       match_count: matchCount ?? 3,
       match_threshold: matchThreshold ?? 0.6,
       query_embedding: toPgVector(vector)
     });
+    const dbTime = performance.now() - dbStart;
 
     if (error) {
-      throw new Error(`[match_gallery] ${error.message}`);
+      console.error("[match_gallery] Full error:", JSON.stringify(error, null, 2));
+      throw new Error(`[match_gallery] ${error.message} | Details: ${error.details} | Hint: ${error.hint} | Code: ${error.code}`);
     }
 
-    const matches = (data ?? [])
-      .map((row) => {
-        const galleryId =
-          (row as { gallery_id?: string; id?: string }).gallery_id ??
-          (row as { id?: string }).id;
-        return {
-          id: galleryId as string,
-          similarity: (row as { similarity?: number }).similarity ?? 0
-        };
-      })
-      .filter((item) => typeof item.id === "string");
 
-    if (!matches.length) {
-      return { type: "gallery-results", query, items: [] };
-    }
-
-    const galleryIds = matches.map((item) => item.id);
-
-    const { data: galleryRows, error: galleryError } = await supabase
-      .from("galleries")
-      .select(
-        "id, main_url, normalized_main_url, events_page, gallery_info(name, about)"
-      )
-      .in("id", galleryIds);
-
-    if (galleryError) {
-      throw new Error(
-        `[match_gallery] fetch galleries failed: ${galleryError.message}`
-      );
-    }
-
-    const galleryMap = new Map((galleryRows ?? []).map((row) => [row.id, row]));
-
-    const items: GalleryMatchItem[] = [];
-    for (const match of matches) {
-      const row = galleryMap.get(match.id);
-      if (!row) continue;
-      const info = (row.gallery_info ?? {}) as {
-        name?: string | null;
-        about?: string | null;
-      };
-      items.push({
-        id: row.id,
-        name: info.name ?? null,
-        about: info.about ?? null,
-        mainUrl: row.main_url ?? null,
-        normalizedMainUrl: row.normalized_main_url ?? null,
-        eventsPage: row.events_page ?? null,
-        similarity: match.similarity
-      });
-    }
+    const totalTime = performance.now() - startTime;
+    console.log(`[match_gallery] Query completed in ${totalTime.toFixed(2)}ms (DB: ${dbTime.toFixed(2)}ms, Embedding: ${embeddingTime.toFixed(2)}ms)`);
+    console.log(`[match_gallery] Found ${data.length} galleries:`, data.map(g => ({
+      name: g.name,
+      similarity: g.similarity.toFixed(3)
+    })));
 
     const result = {
       type: "gallery-results",
       query,
-      items
+      items: data,
     } satisfies GalleryToolResult;
     return result;
   }
@@ -186,258 +138,75 @@ const matchEvent = tool({
     | EventToolResult
     | { type: "guidance"; missingSignals: string[]; suggestedQuestion: string }
   > => {
-    // Check signals if agent context is available
-    let signalCheck: SignalCheckResult | null = null;
-    try {
-      const context = getCurrentAgent();
-      const agent = context?.agent as { state?: ChatState } | undefined;
-      if (agent?.state?.userRequirements) {
-        signalCheck = checkSearchSignals(agent.state.userRequirements);
-        if (signalCheck.signalCount < 2) {
-          return {
-            type: "guidance",
-            missingSignals: signalCheck.missingSignals,
-            suggestedQuestion:
-              signalCheck.suggestedQuestion ??
-              "Please provide more details about when, where, or what kind of experience you're looking for."
-          };
-        }
-      }
-    } catch {
-      // Continue without validation if context unavailable
+    console.log("[match_event] Function called");
+
+    const { agent } = getCurrentAgent<Zine>();
+    if (!agent) {
+      console.error('[executeJudgeConcept] Agent not available');
+      throw new Error("Agent not available");
     }
 
-    const env = enforceEnv();
+
+    const env = agent.getEnv();
+
+
+
+    const startTime = performance.now();
+    console.log("[match_event] Starting query:", {
+      query,
+      matchCount: matchCount ?? 5,
+      matchThreshold: matchThreshold ?? 0.6
+    });
+
     const supabase = getServiceClient(env);
     const embedder = createEmbedder(env.OPENAI_API_KEY);
+
+    const embeddingStart = performance.now();
     const vector = await embedder(query);
+    const embeddingTime = performance.now() - embeddingStart;
+    console.log(`[match_event] Embedding generated in ${embeddingTime.toFixed(2)}ms`);
 
     if (!vector.length) {
       // If embedding fails but we have 2+ signals, still try to search with fallback
       return { type: "event-results", query, items: [] };
     }
 
-    const { data, error } = await supabase.rpc("match_events", {
+    const dbStart = performance.now();
+    const { data, error } = await supabase.rpc("match_events_with_data", {
       match_count: matchCount ?? 5,
       match_threshold: matchThreshold ?? 0.6,
       query_embedding: toPgVector(vector)
     });
+    const dbTime = performance.now() - dbStart;
 
     if (error) {
-      throw new Error(`[match_event] ${error.message}`);
+      console.error("[match_event] Full error:", JSON.stringify(error, null, 2));
+      throw new Error(`[match_event] ${error.message} | Details: ${error.details} | Hint: ${error.hint} | Code: ${error.code}`);
     }
 
-    const matches = (data ?? [])
-      .map((row) => {
-        const eventId =
-          (row as { event_id?: string; id?: string }).event_id ??
-          (row as { id?: string }).id;
-        return {
-          id: eventId as string,
-          similarity: (row as { similarity?: number }).similarity ?? 0
-        };
-      })
-      .filter((item) => typeof item.id === "string");
 
-    if (!matches.length) {
-      return { type: "event-results", query, items: [] };
-    }
 
-    const eventIds = matches.map((item) => item.id);
-
-    const { data: eventsData, error: eventsError } = await supabase
-      .from("events")
-      .select(
-        "id, title, status, start_at, end_at, gallery_id, event_info(description), event_occurrences(id, start_at, end_at, timezone)"
-      )
-      .in("id", eventIds);
-
-    if (eventsError) {
-      throw new Error(
-        `[match_event] fetch events failed: ${eventsError.message}`
-      );
-    }
-
-    const galleryIds = Array.from(
-      new Set(
-        (eventsData ?? [])
-          .map((event) => event.gallery_id)
-          .filter((value): value is string => typeof value === "string")
-      )
-    );
-
-    const { data: galleriesData, error: galleriesError } = await supabase
-      .from("galleries")
-      .select("id, main_url, normalized_main_url, gallery_info(name)")
-      .in("id", galleryIds);
-
-    if (galleriesError) {
-      throw new Error(
-        `[match_event] fetch galleries failed: ${galleriesError.message}`
-      );
-    }
-
-    const galleryMap = new Map(
-      (galleriesData ?? []).map((row) => [row.id, row])
-    );
-
-    const eventMap = new Map((eventsData ?? []).map((row) => [row.id, row]));
-
-    const items: EventMatchItem[] = [];
-    for (const match of matches) {
-      const event = eventMap.get(match.id);
-      if (!event) continue;
-      const info = (event.event_info ?? {}) as { description?: string | null };
-      const occurrences = Array.isArray(event.event_occurrences)
-        ? event.event_occurrences.map((occ) => ({
-            id: String(occ.id ?? `${event.id}-${occ.start_at ?? "occ"}`),
-            start_at: occ.start_at ?? null,
-            end_at: occ.end_at ?? null,
-            timezone: occ.timezone ?? null
-          }))
-        : [];
-      const gallery = event.gallery_id
-        ? galleryMap.get(event.gallery_id)
-        : undefined;
-      items.push({
-        id: event.id,
-        title: event.title ?? "Untitled event",
-        status: (event.status as string | null) ?? null,
-        startAt: event.start_at ?? null,
-        endAt: event.end_at ?? null,
-        description: info.description ?? null,
-        occurrences,
-        gallery: gallery
-          ? {
-              id: gallery.id,
-              name:
-                ((gallery.gallery_info ?? {}) as { name?: string | null })
-                  .name ?? null,
-              mainUrl: gallery.main_url ?? null,
-              normalizedMainUrl: gallery.normalized_main_url ?? null
-            }
-          : null,
-        similarity: match.similarity
-      });
-    }
+    const totalTime = performance.now() - startTime;
+    console.log(`[match_event] Query completed in ${totalTime.toFixed(2)}ms (DB: ${dbTime.toFixed(2)}ms, Embedding: ${embeddingTime.toFixed(2)}ms)`);
+    console.log(`[match_event] Found ${data.length} events:`, data.map(e => ({
+      title: e.title,
+      gallery: e.gallery?.name,
+      occurrences: e.occurrences.length,
+      similarity: e.similarity.toFixed(3)
+    })));
 
     const result = {
       type: "event-results",
       query,
-      items
+      items: data,
     } satisfies EventToolResult;
     return result;
   }
 });
 
-const DISTRICT_KEYWORDS: Record<GalleryDistrict, string[]> = {
-  Ochota: ["ochota", "rakowiec", "szczesliwice", "szczęśliwice"],
-  Srodmiescie: [
-    "srodmiescie",
-    "środmieście",
-    "centrum",
-    "city center",
-    "downtown",
-    "hoza",
-    "hoża",
-    "nowy świat",
-    "plac defilad",
-    "powisle",
-    "powiśle",
-    "plac konstytucji"
-  ],
-  Wola: [
-    "wola",
-    "rondo daszynsk",
-    "rondo daszyńsk",
-    "mirów",
-    "mlynarska",
-    "przyokopowa"
-  ],
-  Bemowo: ["bemowo", "gorce", "jelonki", "fort blizne"],
-  Mokotow: [
-    "mokotow",
-    "mokotów",
-    "sielce",
-    "stegny",
-    "sluzew",
-    "służew",
-    "kazimierzowska"
-  ],
-  Praga: [
-    "praga",
-    "saska kepa",
-    "saska kępa",
-    "kamionek",
-    "zoliborz",
-    "żoliborz"
-  ],
-  Zoliborz: ["zoliborz", "żoliborz", "marymont", "plac wilsona"]
-};
 
-function inferDistrict(value: string): GalleryDistrict | null {
-  const normalized = value.toLowerCase();
-  for (const [district, keywords] of Object.entries(DISTRICT_KEYWORDS) as [
-    GalleryDistrict,
-    string[]
-  ][]) {
-    if (keywords.some((keyword) => normalized.includes(keyword))) {
-      return district;
-    }
-  }
-  return null;
-}
 
-/**
- * Checks if user has provided sufficient signals (2 of 3: time, location, interest)
- * for a reliable event search. Returns guidance if signals are insufficient.
- */
-function checkSearchSignals(requirements: UserRequirements): SignalCheckResult {
-  const hasTime =
-    requirements.time.months.length > 0 ||
-    requirements.time.weeks.length > 0 ||
-    requirements.time.dayPeriods.length > 0 ||
-    requirements.time.specificHours.length > 0;
 
-  const hasLocation = requirements.district !== null;
-
-  const hasInterest =
-    requirements.mood !== null ||
-    requirements.aesthetics.length > 0 ||
-    requirements.artists.length > 0;
-
-  const signalCount = [hasTime, hasLocation, hasInterest].filter(
-    Boolean
-  ).length;
-  const missingSignals: string[] = [];
-  let suggestedQuestion: string | null = null;
-
-  if (!hasTime) missingSignals.push("time");
-  if (!hasLocation) missingSignals.push("location");
-  if (!hasInterest) missingSignals.push("interest");
-
-  // Prioritize follow-up question based on what's missing
-  if (!hasTime && signalCount === 1) {
-    suggestedQuestion = "When—today, this weekend, or later this month?";
-  } else if (!hasLocation && signalCount === 1) {
-    suggestedQuestion = "Where should I look—near you or any district?";
-  } else if (!hasInterest && signalCount === 1) {
-    suggestedQuestion =
-      "What vibe—cheerful, quiet, experimental? Or a style you like?";
-  } else if (signalCount === 0) {
-    suggestedQuestion =
-      "Tell me when and where, or what kind of experience you're looking for.";
-  }
-
-  return {
-    hasTime,
-    hasLocation,
-    hasInterest,
-    signalCount,
-    missingSignals,
-    suggestedQuestion
-  };
-}
 
 const updateUserRequirements = tool({
   description:
@@ -447,10 +216,10 @@ const updateUserRequirements = tool({
     const context = getCurrentAgent();
     const agent = context?.agent as
       | {
-          state?: ChatState;
-          initialState?: ChatState;
-          setState: (state: ChatState) => void;
-        }
+        state?: ChatState;
+        initialState?: ChatState;
+        setState: (state: ChatState) => void;
+      }
       | undefined;
 
     if (!agent) {
@@ -468,12 +237,12 @@ const updateUserRequirements = tool({
     const normalizedArtists =
       artists !== undefined
         ? Array.from(
-            new Set(
-              (artists ?? [])
-                .map((name) => name.trim())
-                .filter((name): name is string => name.length > 0)
-            )
+          new Set(
+            (artists ?? [])
+              .map((name) => name.trim())
+              .filter((name): name is string => name.length > 0)
           )
+        )
         : undefined;
 
     const normalizedMood =
@@ -482,46 +251,46 @@ const updateUserRequirements = tool({
     const normalizedAesthetics =
       aesthetics !== undefined
         ? Array.from(
-            new Set(
-              (aesthetics ?? [])
-                .map((item) => item.trim())
-                .filter((item): item is string => item.length > 0)
-            )
+          new Set(
+            (aesthetics ?? [])
+              .map((item) => item.trim())
+              .filter((item): item is string => item.length > 0)
           )
+        )
         : undefined;
 
     const normalizedTime: TimePreferences | undefined = time
       ? {
-          months: Array.from(
-            new Set(
-              (time.months ?? [])
-                .map((value) => value.trim())
-                .filter((value): value is string => value.length > 0)
-            )
-          ),
-          weeks: Array.from(
-            new Set(
-              (time.weeks ?? [])
-                .map((value) => value.trim())
-                .filter((value): value is string => value.length > 0)
-            )
-          ),
-          dayPeriods: Array.from(
-            new Set(
-              (time.dayPeriods ?? []).filter(
-                (value): value is TimePreferences["dayPeriods"][number] =>
-                  Boolean(value)
-              )
-            )
-          ),
-          specificHours: Array.from(
-            new Set(
-              (time.specificHours ?? [])
-                .map((value) => value.trim())
-                .filter((value): value is string => value.length > 0)
+        months: Array.from(
+          new Set(
+            (time.months ?? [])
+              .map((value) => value.trim())
+              .filter((value): value is string => value.length > 0)
+          )
+        ),
+        weeks: Array.from(
+          new Set(
+            (time.weeks ?? [])
+              .map((value) => value.trim())
+              .filter((value): value is string => value.length > 0)
+          )
+        ),
+        dayPeriods: Array.from(
+          new Set(
+            (time.dayPeriods ?? []).filter(
+              (value): value is TimePreferences["dayPeriods"][number] =>
+                Boolean(value)
             )
           )
-        }
+        ),
+        specificHours: Array.from(
+          new Set(
+            (time.specificHours ?? [])
+              .map((value) => value.trim())
+              .filter((value): value is string => value.length > 0)
+          )
+        )
+      }
       : undefined;
 
     let inferredDistrict: GalleryDistrict | null | undefined;
@@ -609,9 +378,9 @@ const saveToMyZine = tool({
     const context = getCurrentAgent();
     const agent = context?.agent as
       | {
-          state?: ChatState;
-          saveEventToMyZine?: (event: SavedEventCard) => Promise<void>;
-        }
+        state?: ChatState;
+        saveEventToMyZine?: (event: SavedEventCard) => Promise<void>;
+      }
       | undefined;
 
     if (!agent || !agent.saveEventToMyZine) {
@@ -636,10 +405,10 @@ const saveToMyZine = tool({
         endAt: eventItem.endAt,
         gallery: eventItem.gallery
           ? {
-              id: eventItem.gallery.id,
-              name: eventItem.gallery.name,
-              mainUrl: eventItem.gallery.mainUrl
-            }
+            id: eventItem.gallery.id,
+            name: eventItem.gallery.name,
+            mainUrl: eventItem.gallery.mainUrl
+          }
           : null
       },
       preferences: {

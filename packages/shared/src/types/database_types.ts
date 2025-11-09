@@ -76,6 +76,7 @@ export type Database = {
           end_at: string | null
           event_id: string
           id: string
+          present: boolean
           start_at: string
           timezone: string | null
         }
@@ -83,6 +84,7 @@ export type Database = {
           end_at?: string | null
           event_id: string
           id?: string
+          present?: boolean
           start_at: string
           timezone?: string | null
         }
@@ -90,6 +92,7 @@ export type Database = {
           end_at?: string | null
           event_id?: string
           id?: string
+          present?: boolean
           start_at?: string
           timezone?: string | null
         }
@@ -400,6 +403,28 @@ export type Database = {
           similarity: number
         }[]
       }
+      match_events_with_data: {
+        Args: {
+          match_count?: number
+          match_threshold?: number
+          query_embedding: string
+        }
+        Returns: {
+          artists: string[]
+          description: string
+          end_at: string
+          event_id: string
+          gallery: Database["public"]["CompositeTypes"]["gallery_result"]
+          images: string[]
+          occurrences: Database["public"]["CompositeTypes"]["event_occurrence_result"][]
+          similarity: number
+          start_at: string
+          status: string
+          tags: string[]
+          ticket_url: string
+          title: string
+        }[]
+      }
       match_galeries: {
         Args: {
           match_count: number
@@ -411,6 +436,29 @@ export type Database = {
           id: string
           name: string
           similarity: number
+        }[]
+      }
+      match_gallery_with_data: {
+        Args: {
+          match_count?: number
+          match_threshold?: number
+          query_embedding: string
+        }
+        Returns: {
+          about: string
+          about_url: string
+          address: string
+          district: string
+          email: string
+          events_page: string
+          id: string
+          instagram: string
+          main_url: string
+          name: string
+          normalized_main_url: string
+          phone: string
+          similarity: number
+          tags: string[]
         }[]
       }
     }
@@ -440,7 +488,18 @@ export type Database = {
       parse_status: "never" | "queued" | "ok" | "error"
     }
     CompositeTypes: {
-      [_ in never]: never
+      event_occurrence_result: {
+        id: string | null
+        start_at: string | null
+        end_at: string | null
+        timezone: string | null
+      }
+      gallery_result: {
+        id: string | null
+        name: string | null
+        main_url: string | null
+        normalized_main_url: string | null
+      }
     }
   }
 }

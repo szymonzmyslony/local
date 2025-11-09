@@ -22,16 +22,15 @@ import type { SavedEventCard } from "./types/chat-state";
 
 const model = openai("gpt-5");
 
-function isToolResultPayload(value: unknown): value is ToolResultPayload {
-  if (!value || typeof value !== "object" || !("type" in value)) {
-    return false;
-  }
-  const type = (value as { type: unknown }).type;
-  return type === "gallery-results" || type === "event-results";
-}
 
-export class Chat extends AIChatAgent<Env, ChatState> {
+
+export class Zine extends AIChatAgent<Env, ChatState> {
   override initialState: ChatState = createInitialChatState();
+
+
+  public getEnv(): Env {
+    return this.env;
+  }
 
   /**
    * Handles incoming chat messages and manages the response stream
@@ -63,10 +62,8 @@ export class Chat extends AIChatAgent<Env, ChatState> {
             dataStream: writer,
             tools: allTools,
             executions,
-            onToolResult: (result) => this.handleToolResult(result)
           });
 
-          this.updateUserNeedsFromMessages(processedMessages);
 
           const result = streamText({
             system: `You are a calm, knowledgeable local guide helping people discover authentic art events in Warsaw, Poland. Speak naturally, with warmth and confidence — never salesy, never poetic. Think of yourself as a local who knows the city’s rhythm and recommends what genuinely fits.
@@ -149,73 +146,8 @@ Stay human, calm, and helpful. Your goal is to guide people to art experiences t
     ]);
   }
 
-  private handleToolResult(result: unknown) {
-    // Handle guidance responses from match_event (they're not ToolResultPayload)
-    if (
-      result &&
-      typeof result === "object" &&
-      "type" in result &&
-      result.type === "guidance"
-    ) {
-      // Guidance responses are handled by the assistant in its response text
-      // No need to store them as recommendations
-      return;
-    }
 
-    // Handle save_to_my_zine results - they update savedCards but aren't ToolResultPayload
-    if (
-      result &&
-      typeof result === "object" &&
-      "success" in result &&
-      (result as { success?: boolean }).success === true &&
-      "message" in result
-    ) {
-      // save_to_my_zine returns { success: true, message: string }
-      // The card is already saved via agent.saveEventToMyZine in the tool execute
-      // State is already updated, so we just return
-      return;
-    }
 
-    // Handle regular tool results (event or gallery results)
-    if (!isToolResultPayload(result)) {
-      return;
-    }
-
-    // Only store event results in state - galleries are text-only fallbacks
-    if (result.type === "gallery-results") {
-      // Gallery results should not be stored in state or displayed as cards
-      // They are only mentioned in the agent's text response
-      return;
-    }
-
-    const currentState = this.state ?? createInitialChatState();
-
-    // Store event results
-    this.setState({
-      ...currentState,
-      recommendation: result
-    });
-  }
-
-  private updateUserNeedsFromMessages(messages: UIMessage[]) {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index];
-      if (message.role !== "user") {
-        continue;
-      }
-      const textPart = message.parts?.find(
-        (part): part is { type: "text"; text: string } => part.type === "text"
-      );
-      if (textPart) {
-        const currentState = this.state ?? createInitialChatState();
-        this.setState({
-          ...currentState,
-          userNeeds: textPart.text.trim() || null
-        });
-        break;
-      }
-    }
-  }
 
   /**
    * Save an event card to MY ZINE (stored in ChatState)
