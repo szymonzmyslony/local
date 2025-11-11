@@ -24,15 +24,21 @@ export default function App() {
 
   const handleSaveToZine = useCallback(
     async (event: EventMatchItem) => {
-      if (agent) {
-        try {
-          await agent.call("saveToZine", [event]);
-        } catch (error) {
-          console.error("Failed to save event:", error);
-        }
-      }
+      if (!agentState) return;
+
+      const savedCards = agentState.savedCards ?? [];
+      const existingIndex = savedCards.findIndex((card) => card.event_id === event.event_id);
+
+      const newSavedCards = existingIndex >= 0
+        ? savedCards.map((card, i) => i === existingIndex ? event : card)
+        : [...savedCards, event];
+
+      agent.setState({
+        ...agentState,
+        savedCards: newSavedCards
+      });
     },
-    [agent]
+    [agent, agentState]
   );
 
   const savedEvents = agentState?.savedCards ?? [];

@@ -1,4 +1,4 @@
-import { callable, routeAgentRequest, type Schedule } from "agents";
+import { routeAgentRequest, type Schedule } from "agents";
 
 import { AIChatAgent } from "agents/ai-chat-agent";
 import {
@@ -131,39 +131,9 @@ ${JSON.stringify(this.state.userRequirements)}
 
     return createUIMessageStreamResponse({ stream });
   }
-
-
-
-
   /**
-   * Save an EventMatchItem to MY ZINE (stored in ChatState)
+   * Update user requirements - called by the update_user_requirements tool
    */
-  @callable({ description: "Save an event to MY ZINE" })
-  saveToZine(event: EventMatchItem): void {
-    const currentState = this.state ?? createInitialChatState();
-    const savedCards = currentState.savedCards ?? [];
-
-    // Check if event already exists
-    const existingIndex = savedCards.findIndex((card) => card.event_id === event.event_id);
-
-    if (existingIndex >= 0) {
-      // Update existing event
-      savedCards[existingIndex] = event;
-    } else {
-      // Add new event to the array
-      savedCards.push(event);
-    }
-
-    this.setState({
-      ...currentState,
-      savedCards
-    });
-  }
-
-  /**
-   * Update user requirements
-   */
-  @callable({ description: "Update the user's requirements" })
   updateUserRequirements(requirements: Partial<UserRequirements>): void {
     const currentState = this.state ?? createInitialChatState();
     const currentRequirements = currentState.userRequirements;
@@ -174,19 +144,6 @@ ${JSON.stringify(this.state.userRequirements)}
         ...currentRequirements,
         ...requirements
       }
-    });
-  }
-
-  /**
-   * Remove an event card from MY ZINE
-   */
-  @callable({ description: "Remove an event from MY ZINE" })
-  async removeEventFromMyZine(eventId: string): Promise<void> {
-    this.setState({
-      ...this.state,
-      savedCards: (this.state.savedCards ?? []).filter(
-        (card) => card.event_id !== eventId
-      )
     });
   }
 
