@@ -55,18 +55,13 @@ export function SidebarLayout({ children, savedEvents }: SidebarLayoutProps) {
               <div className="space-y-1">
                 {savedEvents.map((event) => (
                   <EventDetailPopover key={event.event_id} event={event}>
-                    <button className="w-full text-left rounded-lg px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors">
-                      <div className="text-sm font-medium text-slate-900 dark:text-slate-100 line-clamp-2">
+                    <button className="w-full text-left rounded-lg px-2 py-2 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors">
+                      <div className="text-xs font-medium text-slate-900 dark:text-slate-100 line-clamp-2">
                         {event.title}
                       </div>
                       {event.gallery?.name && (
                         <div className="text-xs text-slate-600 dark:text-slate-400 mt-1 truncate">
                           {event.gallery.name}
-                        </div>
-                      )}
-                      {event.start_at && (
-                        <div className="text-xs text-slate-500 dark:text-slate-500 mt-1">
-                          {formatDate(event.start_at)}
                         </div>
                       )}
                     </button>
