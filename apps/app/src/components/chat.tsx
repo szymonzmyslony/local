@@ -30,6 +30,7 @@ export function Chat({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLFormElement>(null);
   const inputRef = useRef<HTMLDivElement>(null);
+  const desktopInputRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (messagesEndRef.current) {
@@ -39,23 +40,22 @@ export function Chat({
 
   const hasMessages = messages.some((msg) => !msg.metadata?.internal);
 
-  const handleInputChange = useCallback(() => {
-    if (inputRef.current) {
-      const text = inputRef.current.textContent || "";
+  const handleInputChange = useCallback(
+    (e: React.FormEvent<HTMLDivElement>) => {
+      const text = e.currentTarget.textContent || "";
       setInputValue(text);
-    }
-  }, []);
+    },
+    []
+  );
 
   const handleKeyDown = useCallback(
     async (e: React.KeyboardEvent<HTMLDivElement>) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        const content = inputValue.trim();
+        const content = e.currentTarget.textContent?.trim() || "";
         if (content && status !== "submitted" && status !== "streaming") {
           setInputValue("");
-          if (inputRef.current) {
-            inputRef.current.textContent = "";
-          }
+          e.currentTarget.textContent = "";
           await sendMessage({
             role: "user",
             parts: [{ type: "text", text: content }],
@@ -64,18 +64,27 @@ export function Chat({
         }
       }
     },
-    [inputValue, status, sendMessage]
+    [status, sendMessage]
   );
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const content = inputValue.trim();
+    // Get content from the active input refs or fallback to state
+    const desktopContent = desktopInputRef.current?.textContent?.trim() || "";
+    const bottomContent = inputRef.current?.textContent?.trim() || "";
+    const content = desktopContent || bottomContent || inputValue.trim();
+
     if (!content || status === "submitted" || status === "streaming") {
       return;
     }
+
     setInputValue("");
+    // Clear both inputs
     if (inputRef.current) {
       inputRef.current.textContent = "";
+    }
+    if (desktopInputRef.current) {
+      desktopInputRef.current.textContent = "";
     }
 
     await sendMessage({
@@ -93,39 +102,6 @@ export function Chat({
       metadata: { createdAt: new Date().toISOString() }
     });
   }
-
-  const InputForm = () => (
-    <form ref={composerRef} onSubmit={handleSubmit}>
-      <div className="relative flex items-center">
-        <div
-          ref={inputRef}
-          contentEditable
-          onInput={handleInputChange}
-          onKeyDown={handleKeyDown}
-          className="min-h-[40px] max-h-[120px] text-start flex-1 overflow-y-auto rounded-[28px] border border-slate-200 bg-white px-4 pr-14 py-3 text-xs leading-normal text-slate-900 outline-none focus:border-slate-300 empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-slate-600 dark:empty:before:text-slate-500"
-          role="textbox"
-          aria-label="Message"
-          data-placeholder="Add your mood, time and place, I will take care of the rest..."
-        />
-        <button
-          type="submit"
-          disabled={
-            !inputValue.trim() ||
-            status === "submitted" ||
-            status === "streaming"
-          }
-          className="absolute right-2 flex h-8 w-8 items-center justify-center rounded-full bg-[#D8D3FA] text-slate-900 transition hover:bg-[#C8C3EA] disabled:opacity-50 disabled:cursor-not-allowed dark:bg-[#D8D3FA] dark:text-slate-900 dark:hover:bg-[#C8C3EA]"
-          aria-label="Send message"
-        >
-          {status === "submitted" || status === "streaming" ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <ArrowUp className="h-4 w-4" />
-          )}
-        </button>
-      </div>
-    </form>
-  );
 
   return (
     <div className="flex h-screen w-full flex-col">
@@ -184,7 +160,37 @@ export function Chat({
               </div>
               {/* Input form - shown on desktop when no messages */}
               <div className="hidden md:block mt-8">
-                <InputForm />
+                <form onSubmit={handleSubmit}>
+                  <div className="relative flex items-center">
+                    <div
+                      ref={desktopInputRef}
+                      contentEditable
+                      onInput={handleInputChange}
+                      onKeyDown={handleKeyDown}
+                      className="min-h-[40px] max-h-[120px] text-start flex-1 overflow-y-auto rounded-[28px] border border-slate-200 bg-white px-4 pr-14 py-3 text-xs leading-normal text-slate-900 outline-none focus:border-slate-300 empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-slate-600 dark:empty:before:text-slate-500"
+                      role="textbox"
+                      aria-label="Message"
+                      data-placeholder="Add your mood, time and place, I will take care of the rest..."
+                      suppressContentEditableWarning
+                    />
+                    <button
+                      type="submit"
+                      disabled={
+                        !inputValue.trim() ||
+                        status === "submitted" ||
+                        status === "streaming"
+                      }
+                      className="absolute right-2 flex h-8 w-8 items-center justify-center rounded-full bg-[#D8D3FA] text-slate-900 transition hover:bg-[#C8C3EA] disabled:opacity-50 disabled:cursor-not-allowed dark:bg-[#D8D3FA] dark:text-slate-900 dark:hover:bg-[#C8C3EA]"
+                      aria-label="Send message"
+                    >
+                      {status === "submitted" || status === "streaming" ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <ArrowUp className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                </form>
               </div>
             </div>
           )}
@@ -196,7 +202,37 @@ export function Chat({
         className={`border-slate-200 bg-transparent px-6 py-4 dark:border-slate-800 dark:bg-slate-950 ${!hasMessages ? "md:hidden" : ""}`}
       >
         <div className="mx-auto w-full md:max-w-2xl xxl:max-w-3xl">
-          <InputForm />
+          <form ref={composerRef} onSubmit={handleSubmit}>
+            <div className="relative flex items-center">
+              <div
+                ref={inputRef}
+                contentEditable
+                onInput={handleInputChange}
+                onKeyDown={handleKeyDown}
+                className="min-h-[40px] max-h-[120px] text-start flex-1 overflow-y-auto rounded-[28px] border border-slate-200 bg-white px-4 pr-14 py-3 text-xs leading-normal text-slate-900 outline-none focus:border-slate-300 empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-slate-600 dark:empty:before:text-slate-500"
+                role="textbox"
+                aria-label="Message"
+                data-placeholder="Add your mood, time and place, I will take care of the rest..."
+                suppressContentEditableWarning
+              />
+              <button
+                type="submit"
+                disabled={
+                  !inputValue.trim() ||
+                  status === "submitted" ||
+                  status === "streaming"
+                }
+                className="absolute right-2 flex h-8 w-8 items-center justify-center rounded-full bg-[#D8D3FA] text-slate-900 transition hover:bg-[#C8C3EA] disabled:opacity-50 disabled:cursor-not-allowed dark:bg-[#D8D3FA] dark:text-slate-900 dark:hover:bg-[#C8C3EA]"
+                aria-label="Send message"
+              >
+                {status === "submitted" || status === "streaming" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ArrowUp className="h-4 w-4" />
+                )}
+              </button>
+            </div>
+          </form>
         </div>
       </div>
     </div>

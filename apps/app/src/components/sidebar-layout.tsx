@@ -74,8 +74,10 @@ export function SidebarLayout({ children, savedEvents }: SidebarLayoutProps) {
                 ))}
               </div>
             ) : (
-              <div className="p-2 text-left text-xs text-slate-500 dark:text-slate-400">
-                Events you save will appear here
+              <div className="flex h-full items-center justify-center p-4">
+                <p className="text-center text-xs text-slate-500 dark:text-slate-400">
+                  Events you save will appear here
+                </p>
               </div>
             )}
           </div>
