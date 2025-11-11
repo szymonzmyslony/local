@@ -102,7 +102,7 @@ export function Chat({
           contentEditable
           onInput={handleInputChange}
           onKeyDown={handleKeyDown}
-          className="min-h-[40px] max-h-[120px] flex-1 overflow-y-auto rounded-[28px] border border-slate-200 bg-white px-4 pr-14 py-2 text-sm text-slate-900 outline-none focus:border-slate-300 empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-slate-600 dark:empty:before:text-slate-500"
+          className="min-h-[40px] max-h-[120px] text-start flex-1 overflow-y-auto rounded-[28px] border border-slate-200 bg-white px-4 pr-14 py-2 text-sm text-slate-900 outline-none focus:border-slate-300 empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-slate-600 dark:empty:before:text-slate-500"
           role="textbox"
           aria-label="Message"
           data-placeholder="Add your mood, time and place, I will take care of the rest..."
