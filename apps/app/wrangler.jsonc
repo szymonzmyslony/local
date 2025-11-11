@@ -4,7 +4,7 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "app",
+	"name": "zine",
 	"main": "src/server.ts",
 	"compatibility_date": "2025-08-03",
 	"compatibility_flags": [
