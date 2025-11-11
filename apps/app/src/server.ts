@@ -49,11 +49,9 @@ export class Zine extends AIChatAgent<Env, ZineChatState> {
           // This handles human-in-the-loop confirmations for tools
           const processedMessages = await processToolCalls({
             messages: cleanedMessages,
-            dataStream: writer,
             tools: tools,
             executions,
           });
-
 
           const result = streamText({
             system: `You are a calm, knowledgeable local guide helping people discover authentic art events in Warsaw, Poland. Speak naturally, with warmth and confidence — never salesy, never poetic. Think of yourself as a local who knows the city’s rhythm and recommends what genuinely fits.
@@ -90,12 +88,12 @@ USER CURRENT PREFERENCES:
 
 ${JSON.stringify(this.state.userRequirements)}
 `
-            
-            
-            
-            
-            
-            
+
+
+
+
+
+
             ,
 
             messages: convertToModelMessages(processedMessages),
@@ -110,21 +108,16 @@ ${JSON.stringify(this.state.userRequirements)}
             // This is safe because our tools satisfy ToolSet interface (verified by 'satisfies' in tools.ts)
             onFinish: onFinish as unknown as StreamTextOnFinishCallback<
               typeof tools
-              >,
-          
+            >,
+
             stopWhen: stepCountIs(10)
           });
 
           writer.merge(result.toUIMessageStream());
         } catch (error) {
           console.error("[onChatMessage] Error in stream execution:", error);
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
-          writer.write({
-            type: "text-delta",
-            delta: `Error: ${errorMessage}`,
-            id: generateId()
-          });
+          // Don't write to the stream after an error - just throw to let the stream handle it
+          throw error;
         }
       }
     });

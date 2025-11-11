@@ -2,7 +2,6 @@
 
 import type {
   UIMessage,
-  UIMessageStreamWriter,
   ToolSet,
   ToolCallOptions
 } from "ai";
@@ -24,20 +23,16 @@ function isValidToolName<K extends PropertyKey, T extends object>(
  * Processes tool invocations where human input is required, executing tools when authorized.
  */
 export async function processToolCalls<Tools extends ToolSet>({
-  dataStream,
   messages,
-  executions,
-  onToolResult
+  executions
 }: {
   tools: Tools; // used for type inference
-  dataStream: UIMessageStreamWriter;
   messages: UIMessage[];
   executions: Record<
     string,
     // biome-ignore lint/suspicious/noExplicitAny: needs a better type
     (args: any, context: ToolCallOptions) => Promise<unknown>
   >;
-  onToolResult?: (result: unknown) => void;
 }): Promise<UIMessage[]> {
   // Process all messages, not just the last one
   const processedMessages = await Promise.all(
@@ -82,15 +77,6 @@ export async function processToolCalls<Tools extends ToolSet>({
             // If no approval input yet, leave the part as-is for user interaction
             return part;
           }
-
-          // Forward updated tool result to the client.
-          dataStream.write({
-            type: "tool-output-available",
-            toolCallId: part.toolCallId,
-            output: result
-          });
-
-          onToolResult?.(result);
 
           // Return updated tool part with the actual result.
           return {

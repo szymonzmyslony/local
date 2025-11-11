@@ -20,7 +20,10 @@ export default function App() {
   const { messages, sendMessage, status } = useAgentChat<
     ZineChatState,
     UIMessage<MessageMeta>
-  >({ agent });
+  >({
+    agent,
+    experimental_automaticToolResolution: true
+  });
 
   const handleSaveToZine = useCallback(
     async (event: EventMatchItem) => {
