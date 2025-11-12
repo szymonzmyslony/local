@@ -26,3 +26,4 @@ export * from "./data/pages";
 export * from "./data/events";
 export * from "./utils/cn";
 export * from "./utils/normalizeUrl";
+export * from "./design-system";
