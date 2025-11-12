@@ -8,16 +8,17 @@ interface ToolMessageProps {
   part: ToolUIPart;
   timestamp: string;
   onSaveToZine?: (event: EventMatchItem) => void;
+  debugMode: boolean;
 }
 
-export function ToolMessage({ part, timestamp, onSaveToZine }: ToolMessageProps) {
+export function ToolMessage({ part, timestamp, onSaveToZine, debugMode }: ToolMessageProps) {
   const toolName = getToolName(part);
 
   return (
     <div className="space-y-1.5">
       <ToolCallDisplay part={part} toolName={toolName} />
 
-      <ToolResult part={part} onSaveToZine={onSaveToZine} />
+      <ToolResult part={part} onSaveToZine={onSaveToZine} debugMode={debugMode} />
 
       <p className="text-[10px] text-slate-400">{timestamp}</p>
     </div>

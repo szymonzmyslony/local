@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useAgent } from "agents/react";
 import { useAgentChat } from "agents/ai-react";
 import type { UIMessage } from "@ai-sdk/react";
@@ -10,8 +10,36 @@ import type { EventMatchItem } from "./types/tool-results";
 
 type MessageMeta = { createdAt: string; internal?: boolean };
 
+const DEBUG_MODE_KEY = "zine-debug-mode";
+
 export default function App() {
   const [agentState, setAgentState] = useState<ZineChatState | null>(null);
+  const [debugMode, setDebugMode] = useState<boolean>(() => {
+    // Initialize from localStorage
+    const stored = localStorage.getItem(DEBUG_MODE_KEY);
+    return stored === "true";
+  });
+
+  // Toggle debug mode and persist to localStorage
+  const toggleDebugMode = useCallback(() => {
+    setDebugMode((prev) => {
+      const newValue = !prev;
+      localStorage.setItem(DEBUG_MODE_KEY, String(newValue));
+      return newValue;
+    });
+  }, []);
+
+  // Keyboard shortcut: Ctrl+D / Cmd+D
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "d") {
+        e.preventDefault();
+        toggleDebugMode();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [toggleDebugMode]);
 
   const agent = useAgent<ZineChatState>({
     agent: "zine",
@@ -49,31 +77,26 @@ export default function App() {
 
   return (
     <>
-      {/* Debug State Display */}
-      <div className="fixed top-0 left-0 right-0 z-50 p-4 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
-        <div className="max-w-7xl mx-auto">
-          <JsonDisplay
-            data={{
-              userRequirements: agentState?.userRequirements,
-              lastSearchResults: agentState?.lastSearchResults,
-              savedCardsCount: savedEvents.length
-            }}
-            title="Agent State (Debug)"
-            defaultExpanded={false}
-          />
-        </div>
-      </div>
-      <div className="pt-20">
-        <SidebarLayout savedEvents={savedEvents}>
-          <Chat
-            title="Assistant"
-            messages={messages}
-            sendMessage={sendMessage}
-            status={status}
-            onSaveToZine={handleSaveToZine}
-          />
-        </SidebarLayout>
-      </div>
+      {/* Debug Toggle Button */}
+      <button
+        onClick={toggleDebugMode}
+        className="fixed bottom-4 right-4 z-50 px-3 py-2 text-xs font-medium rounded-lg shadow-lg transition-all hover:scale-105 bg-slate-800 text-slate-100 hover:bg-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600"
+        title="Toggle debug mode (Ctrl/Cmd+D)"
+      >
+        Debug: {debugMode ? "ON" : "OFF"}
+      </button>
+
+      <SidebarLayout savedEvents={savedEvents}>
+        <Chat
+          title="Assistant"
+          messages={messages}
+          sendMessage={sendMessage}
+          status={status}
+          onSaveToZine={handleSaveToZine}
+          debugMode={debugMode}
+          agentState={agentState}
+        />
+      </SidebarLayout>
     </>
   );
 }

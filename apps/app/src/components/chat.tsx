@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import type { UIMessage } from "@ai-sdk/react";
 import { ArrowUp, Loader2 } from "lucide-react";
 import { Messages } from "./messages";
+import { JsonDisplay } from "./messages/json-display";
 import type { EventMatchItem } from "../types/tool-results";
+import type { ZineChatState } from "../types/chat-state";
 import { ChatStatus } from "ai";
 
 type MessageMeta = { createdAt: string; internal?: boolean };
@@ -17,6 +19,8 @@ interface ChatProps {
   }) => Promise<void>;
   status: ChatStatus;
   onSaveToZine: (event: EventMatchItem) => Promise<void>;
+  debugMode: boolean;
+  agentState: ZineChatState | null;
 }
 
 export function Chat({
@@ -24,7 +28,9 @@ export function Chat({
   messages,
   sendMessage,
   status,
-  onSaveToZine
+  onSaveToZine,
+  debugMode,
+  agentState
 }: ChatProps) {
   const [inputValue, setInputValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -105,6 +111,23 @@ export function Chat({
 
   return (
     <div className="flex h-screen w-full flex-col">
+      {/* Debug State Display - Sticky at top */}
+      {debugMode && (
+        <div className="sticky top-0 z-40 px-6 pt-4 pb-2 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
+          <div className="mx-auto w-full md:max-w-2xl xxl:max-w-3xl">
+            <JsonDisplay
+              data={{
+                userRequirements: agentState?.userRequirements,
+                lastSearchResults: agentState?.lastSearchResults,
+                savedCardsCount: agentState?.savedCards?.length || 0
+              }}
+              title="Agent State"
+              defaultExpanded={false}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Messages area */}
       <div
         className={`flex-1 bg-slate-50 dark:bg-slate-900 ${hasMessages ? "overflow-y-auto px-6 py-6" : "flex items-center justify-center px-6 py-6"}`}
@@ -118,6 +141,7 @@ export function Chat({
                 messages={messages}
                 status={status}
                 onSaveToZine={onSaveToZine}
+                debugMode={debugMode}
               />
               {status === "error" && (
                 <div className="flex justify-start mt-3">

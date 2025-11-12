@@ -1,4 +1,6 @@
 import { useState } from "react";
+import JsonView from "react18-json-view";
+import "react18-json-view/src/style.css";
 
 interface JsonDisplayProps {
   data: unknown;
@@ -24,9 +26,15 @@ export function JsonDisplay({ data, title, defaultExpanded = false }: JsonDispla
       </button>
       {isExpanded && (
         <div className="px-3 pb-2 border-t border-slate-200 dark:border-slate-700">
-          <pre className="text-xs text-slate-600 dark:text-slate-400 overflow-x-auto mt-2">
-            {JSON.stringify(data, null, 2)}
-          </pre>
+          <div className="mt-2 text-xs">
+            <JsonView
+              src={data}
+              collapsed={1}
+              theme="default"
+              enableClipboard={true}
+              collapseStringsAfterLength={80}
+            />
+          </div>
         </div>
       )}
     </div>

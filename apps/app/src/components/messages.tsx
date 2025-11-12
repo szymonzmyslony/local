@@ -12,6 +12,7 @@ interface MessagesProps {
   messages: UIMessage<MessageMeta>[];
   status: ChatStatus;
   onSaveToZine?: (event: EventMatchItem) => void;
+  debugMode: boolean;
 }
 
 function formatTimestamp(value: string | Date | undefined): string {
@@ -20,7 +21,7 @@ function formatTimestamp(value: string | Date | undefined): string {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-export function Messages({ messages, status, onSaveToZine }: MessagesProps) {
+export function Messages({ messages, status, onSaveToZine, debugMode }: MessagesProps) {
   const visibleMessages = useMemo(
     () => messages.filter((msg) => !msg.metadata?.internal),
     [messages]
@@ -61,6 +62,7 @@ export function Messages({ messages, status, onSaveToZine }: MessagesProps) {
                     part={part}
                     timestamp={timestamp}
                     onSaveToZine={onSaveToZine}
+                    debugMode={debugMode}
                   />
                 );
               }
