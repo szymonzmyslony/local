@@ -2,7 +2,8 @@ import type { ToolUIPart } from "ai";
 import { getToolName } from "ai";
 import { EventCards } from "./event-cards";
 import { GalleryCards } from "./gallery-cards";
-import type { EventMatchItem, EventToolResult, GalleryToolResult } from "../../types/tool-results";
+import { JsonDisplay } from "./json-display";
+import type { EventMatchItem, EventToolResult, GalleryToolResult, CombinedToolResult } from "../../types/tool-results";
 
 interface ToolResultProps {
   part: ToolUIPart;
@@ -17,6 +18,34 @@ export function ToolResult({ part, onSaveToZine }: ToolResultProps) {
 
   const toolName = getToolName(part);
   const output = part.output;
+
+  // Handle combined results (both events and galleries)
+  if (output && typeof output === "object" && "type" in output && output.type === "combined-results") {
+    const combinedResult = output as CombinedToolResult;
+    const eventCount = combinedResult.events.length;
+    const galleryCount = combinedResult.galleries.length;
+
+    return (
+      <div className="mt-2 space-y-4">
+        {eventCount > 0 && (
+          <div>
+            <p className="text-xs text-slate-600 dark:text-slate-400 mb-2">
+              Found {eventCount} event{eventCount === 1 ? "" : "s"}
+            </p>
+            <EventCards events={combinedResult.events} onSaveToZine={onSaveToZine} />
+          </div>
+        )}
+        {galleryCount > 0 && (
+          <div>
+            <p className="text-xs text-slate-600 dark:text-slate-400 mb-2">
+              Found {galleryCount} {galleryCount === 1 ? "gallery" : "galleries"}
+            </p>
+            <GalleryCards galleries={combinedResult.galleries} />
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // Handle match_event results
   if (output && typeof output === "object" && "type" in output && output.type === "event-results") {
@@ -96,6 +125,10 @@ export function ToolResult({ part, onSaveToZine }: ToolResultProps) {
     );
   }
 
-  // Default: no visual result for other tools
+  // Default: display JSON output for other tools (search results, etc.)
+  if (output && typeof output === "object") {
+    return <JsonDisplay data={output} title={toolName} defaultExpanded={false} />;
+  }
+
   return null;
 }

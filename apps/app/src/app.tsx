@@ -4,6 +4,7 @@ import { useAgentChat } from "agents/ai-react";
 import type { UIMessage } from "@ai-sdk/react";
 import { SidebarLayout } from "./components/sidebar-layout";
 import { Chat } from "./components/chat";
+import { JsonDisplay } from "./components/messages/json-display";
 import type { ZineChatState } from "./types/chat-state";
 import type { EventMatchItem } from "./types/tool-results";
 
@@ -47,14 +48,32 @@ export default function App() {
   const savedEvents = agentState?.savedCards ?? [];
 
   return (
-    <SidebarLayout savedEvents={savedEvents}>
-      <Chat
-        title="Assistant"
-        messages={messages}
-        sendMessage={sendMessage}
-        status={status}
-        onSaveToZine={handleSaveToZine}
-      />
-    </SidebarLayout>
+    <>
+      {/* Debug State Display */}
+      <div className="fixed top-0 left-0 right-0 z-50 p-4 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
+        <div className="max-w-7xl mx-auto">
+          <JsonDisplay
+            data={{
+              userRequirements: agentState?.userRequirements,
+              lastSearchResults: agentState?.lastSearchResults,
+              savedCardsCount: savedEvents.length
+            }}
+            title="Agent State (Debug)"
+            defaultExpanded={false}
+          />
+        </div>
+      </div>
+      <div className="pt-20">
+        <SidebarLayout savedEvents={savedEvents}>
+          <Chat
+            title="Assistant"
+            messages={messages}
+            sendMessage={sendMessage}
+            status={status}
+            onSaveToZine={handleSaveToZine}
+          />
+        </SidebarLayout>
+      </div>
+    </>
   );
 }

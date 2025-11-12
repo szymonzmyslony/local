@@ -19,4 +19,11 @@ export interface EventToolResult {
   items: EventMatchItem[];
 }
 
-export type ToolResultPayload = GalleryToolResult | EventToolResult;
+export interface CombinedToolResult {
+  type: "combined-results";
+  query: string;
+  events: EventMatchItem[];
+  galleries: GalleryMatchItem[];
+}
+
+export type ToolResultPayload = GalleryToolResult | EventToolResult | CombinedToolResult;

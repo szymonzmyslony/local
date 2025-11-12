@@ -461,6 +461,45 @@ export type Database = {
           tags: string[]
         }[]
       }
+      text_search_events: {
+        Args: { search_limit?: number; search_query?: string }
+        Returns: {
+          artists: string[]
+          description: string
+          end_at: string
+          event_id: string
+          gallery: Json
+          images: string[]
+          occurrences: Json
+          start_at: string
+          status: string
+          tags: string[]
+          ticket_url: string
+          title: string
+        }[]
+      }
+      text_search_galleries: {
+        Args: {
+          filter_district?: string
+          search_limit?: number
+          search_query?: string
+        }
+        Returns: {
+          about: string
+          about_url: string
+          address: string
+          district: string
+          email: string
+          events_page: string
+          id: string
+          instagram: string
+          main_url: string
+          name: string
+          normalized_main_url: string
+          phone: string
+          tags: string[]
+        }[]
+      }
     }
     Enums: {
       event_status:
