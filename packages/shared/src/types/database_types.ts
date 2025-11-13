@@ -391,6 +391,23 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_gallery_events: {
+        Args: { event_limit?: number; gallery_uuid: string }
+        Returns: {
+          artists: string[]
+          description: string
+          end_at: string
+          event_id: string
+          gallery: Json
+          images: string[]
+          occurrences: Json
+          start_at: string
+          status: string
+          tags: string[]
+          ticket_url: string
+          title: string
+        }[]
+      }
       match_events: {
         Args: {
           match_count: number

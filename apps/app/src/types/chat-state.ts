@@ -3,21 +3,11 @@ import type { EventMatchItem, GalleryMatchItem, ToolResultPayload } from "./tool
 
 export type GalleryDistrict = Database["public"]["Enums"]["gallery_district"];
 
-export type DayPeriod = "morning" | "noon" | "afternoon" | "evening" | "night";
-
-export interface TimePreferences {
-  months: string[];
-  weeks: string[];
-  dayPeriods: DayPeriod[];
-  specificHours: string[];
-}
-
 export interface UserRequirements {
   district: GalleryDistrict | null;
   artists: string[];
   aesthetics: string[];
   mood: string | null;
-  time: TimePreferences;
 }
 
 export type UserLanguage = "pl" | "en" | null;
@@ -42,22 +32,12 @@ export interface ZineChatState {
   } | null;
 }
 
-export function createInitialTimePreferences(): TimePreferences {
-  return {
-    months: [],
-    weeks: [],
-    dayPeriods: [],
-    specificHours: []
-  };
-}
-
 export function createInitialUserRequirements(): UserRequirements {
   return {
     district: null,
     artists: [],
     aesthetics: [],
-    mood: null,
-    time: createInitialTimePreferences()
+    mood: null
   };
 }
 

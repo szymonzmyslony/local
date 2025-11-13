@@ -18,12 +18,19 @@ import type {
   GalleryDistrict
 } from "./types/chat-state";
 import { Zine } from "./server";
+import {
+  formatDatabaseError,
+  performSemanticSearch,
+  formatToolResults,
+  normalizeDistrict
+} from "./tools-utils";
 
 // Use Supabase types as source of truth
 type EventFromEmbedding = Database["public"]["Functions"]["match_events_with_data"]["Returns"][number];
 type EventFromText = Database["public"]["Functions"]["text_search_events"]["Returns"][number];
 type GalleryFromEmbedding = Database["public"]["Functions"]["match_gallery_with_data"]["Returns"][number];
 type GalleryFromText = Database["public"]["Functions"]["text_search_galleries"]["Returns"][number];
+type EventFromGallery = Database["public"]["Functions"]["get_gallery_events"]["Returns"][number];
 
 const searchInputSchema = z.object({
   query: z.string().trim().min(2, "Query must be at least 2 characters"),
@@ -60,18 +67,11 @@ const matchGallery = tool({
   description:
     "Find galleries using semantic/vector search. Returns summary list for AI analysis. Stores results in state for show_recommendations to display as cards.",
   inputSchema: searchInputSchema,
-  execute: async ({
-    query,
-    matchCount,
-  }) => {
+  execute: async ({ query, matchCount }) => {
     console.log("[match_gallery] Function called");
-    const startTime = performance.now();
-    console.log("[match_gallery] Starting query:", {
-      query,
-      matchCount: matchCount ?? 10,
-    });
-    const { agent } = getCurrentAgent<Zine>();
+    console.log("[match_gallery] Starting query:", { query, matchCount: matchCount ?? 10 });
 
+    const { agent } = getCurrentAgent<Zine>();
     if (!agent) {
       console.error('[match_gallery] Agent not available');
       throw new Error("Agent not available");
@@ -81,50 +81,55 @@ const matchGallery = tool({
     const supabase = getServiceClient(env);
     const embedder = createEmbedder(env.OPENAI_API_KEY);
 
-    const embeddingStart = performance.now();
-    const vector = await embedder(query);
-    const embeddingTime = performance.now() - embeddingStart;
-    console.log(`[match_gallery] Embedding generated in ${embeddingTime.toFixed(2)}ms`);
+    // Perform semantic search
+    const { data, error } = await performSemanticSearch({
+      query,
+      supabase,
+      embedder,
+      toPgVector,
+      rpcFunction: "match_gallery_with_data",
+      matchCount: matchCount ?? 10,
+      matchThreshold: 0.2,
+      toolName: "match_gallery"
+    });
 
-    if (!vector.length) {
+    // Handle empty vector case
+    if (data === null && error.message.includes("Empty embedding")) {
       agent.storeSearchResults([], []);
       return { found: 0, galleries: [] };
     }
 
-    const dbStart = performance.now();
-    const { data, error } = await supabase.rpc("match_gallery_with_data", {
-      match_count: matchCount ?? 10,
-      match_threshold: 0.2,
-      query_embedding: toPgVector(vector)
-    });
-    const dbTime = performance.now() - dbStart;
-
+    // Handle database errors
     if (error) {
-      console.error("[match_gallery] Full error:", JSON.stringify(error, null, 2));
-      throw new Error(`[match_gallery] ${error.message} | Details: ${error.details} | Hint: ${error.hint} | Code: ${error.code}`);
+      return formatDatabaseError(error, "match_gallery");
     }
 
-    const totalTime = performance.now() - startTime;
-    console.log(`[match_gallery] Query completed in ${totalTime.toFixed(2)}ms (DB: ${dbTime.toFixed(2)}ms, Embedding: ${embeddingTime.toFixed(2)}ms)`);
     console.log(`[match_gallery] Found ${data.length} galleries:`,
       data.map((g, i) => `[${i}] ${g.name} in ${g.district} (sim: ${g.similarity.toFixed(3)})`));
 
-    // Store results with similarity from database
+    // Store results
     agent.storeSearchResults([], data);
     const currentState = agent.getSearchResults();
     console.log(`[match_gallery] State after storing: ${currentState?.events.length || 0} events, ${currentState?.galleries.length || 0} galleries`);
 
-    // Return simple summary for AI
-    return {
-      found: data.length,
-      galleries: data.map((g, i) => ({
-        index: i,
+    // Format and return results
+    const formatted = formatToolResults({
+      data,
+      currentStateLength: currentState?.galleries.length || 0,
+      mapFn: (g, index) => ({
+        index,
+        id: g.id,
         name: g.name,
         district: g.district,
         about: g.about || "",
         tags: g.tags || [],
         similarity: Number(g.similarity.toFixed(3))
-      }))
+      })
+    });
+
+    return {
+      found: formatted.found,
+      galleries: formatted.items
     };
   }
 });
@@ -133,11 +138,9 @@ const matchEvent = tool({
   description:
     "Find events using semantic/vector search. Returns summary list for AI analysis. Stores results in state for show_recommendations to display as cards.",
   inputSchema: searchInputSchema,
-  execute: async ({
-    query,
-    matchCount,
-  }) => {
+  execute: async ({ query, matchCount }) => {
     console.log("[match_event] Function called");
+    console.log("[match_event] Starting query:", { query, matchCount: matchCount ?? 10 });
 
     const { agent } = getCurrentAgent<Zine>();
     if (!agent) {
@@ -146,48 +149,40 @@ const matchEvent = tool({
     }
 
     const env = agent.getEnv();
-    const startTime = performance.now();
-    console.log("[match_event] Starting query:", {
-      query,
-      matchCount: matchCount ?? 10,
-    });
-
     const supabase = getServiceClient(env);
     const embedder = createEmbedder(env.OPENAI_API_KEY);
 
-    const embeddingStart = performance.now();
-    const vector = await embedder(query);
-    const embeddingTime = performance.now() - embeddingStart;
-    console.log(`[match_event] Embedding generated in ${embeddingTime.toFixed(2)}ms`);
-
-    const dbStart = performance.now();
-    const { data, error } = await supabase.rpc("match_events_with_data", {
-      match_count: matchCount ?? 10,
-      match_threshold: 0.2,
-      query_embedding: toPgVector(vector)
+    // Perform semantic search
+    const { data, error } = await performSemanticSearch({
+      query,
+      supabase,
+      embedder,
+      toPgVector,
+      rpcFunction: "match_events_with_data",
+      matchCount: matchCount ?? 10,
+      matchThreshold: 0.2,
+      toolName: "match_event"
     });
-    const dbTime = performance.now() - dbStart;
 
+    // Handle database errors
     if (error) {
-      console.error("[match_event] Full error:", JSON.stringify(error, null, 2));
-      throw new Error(`[match_event] ${error.message} | Details: ${error.details} | Hint: ${error.hint} | Code: ${error.code}`);
+      return formatDatabaseError(error, "match_event");
     }
 
-    const totalTime = performance.now() - startTime;
-    console.log(`[match_event] Query completed in ${totalTime.toFixed(2)}ms (DB: ${dbTime.toFixed(2)}ms, Embedding: ${embeddingTime.toFixed(2)}ms)`);
     console.log(`[match_event] Found ${data.length} events:`,
       data.map((e, i) => `[${i}] ${e.title} at ${e.gallery?.name} (sim: ${e.similarity.toFixed(3)})`));
 
-    // Store results with similarity from database
+    // Store results
     agent.storeSearchResults(data, []);
     const currentState = agent.getSearchResults();
     console.log(`[match_event] State after storing: ${currentState?.events.length || 0} events, ${currentState?.galleries.length || 0} galleries`);
 
-    // Return simple summary for AI
-    return {
-      found: data.length,
-      events: data.map((e, i) => ({
-        index: i,
+    // Format and return results
+    const formatted = formatToolResults({
+      data,
+      currentStateLength: currentState?.events.length || 0,
+      mapFn: (e, index) => ({
+        index,
         title: e.title,
         description: e.description || "",
         gallery: e.gallery?.name || "Unknown",
@@ -196,7 +191,12 @@ const matchEvent = tool({
         start_at: e.start_at || "",
         end_at: e.end_at || "",
         similarity: Number(e.similarity.toFixed(3))
-      }))
+      })
+    });
+
+    return {
+      found: formatted.found,
+      events: formatted.items
     };
   }
 });
@@ -221,17 +221,9 @@ const updateUserRequirements = tool({
     const updatedRequirements: Partial<UserRequirements> = {};
 
     if (district !== undefined) {
-      if (district === null) {
-        updatedRequirements.district = null;
-      } else if (typeof district === "string") {
-        const normalized = district.trim().toLowerCase();
-        updatedRequirements.district =
-          galleryDistrictValues.find(
-            (value) => value.toLowerCase() === normalized
-          ) ?? null;
-      } else {
-        updatedRequirements.district = district;
-      }
+      updatedRequirements.district = typeof district === "string"
+        ? normalizeDistrict(district)
+        : district;
     }
 
     if (artists !== undefined) {
@@ -304,8 +296,7 @@ const searchEventsByText = tool({
     const dbTime = performance.now() - dbStart;
 
     if (error) {
-      console.error("[search_events_by_text] Full error:", JSON.stringify(error, null, 2));
-      throw new Error(`[search_events_by_text] ${error.message} | Details: ${error.details} | Hint: ${error.hint} | Code: ${error.code}`);
+      return formatDatabaseError(error, "search_events_by_text");
     }
 
     const totalTime = performance.now() - startTime;
@@ -325,18 +316,24 @@ const searchEventsByText = tool({
     const currentState = agent.getSearchResults();
     console.log(`[search_events_by_text] State after storing: ${currentState?.events.length || 0} events, ${currentState?.galleries.length || 0} galleries`);
 
-    // Return simple summary for AI
-    return {
-      found: data.length,
-      events: data.map((e, i) => ({
-        index: i,
+    // Format and return results
+    const formatted = formatToolResults({
+      data,
+      currentStateLength: currentState?.events.length || 0,
+      mapFn: (e, index) => ({
+        index,
         title: e.title,
         description: e.description || "",
         artists: e.artists || [],
         tags: e.tags || [],
         start_at: e.start_at || "",
         end_at: e.end_at || ""
-      }))
+      })
+    });
+
+    return {
+      found: formatted.found,
+      events: formatted.items
     };
   }
 });
@@ -374,14 +371,7 @@ const searchGalleriesByText = tool({
     const supabase = getServiceClient(env);
 
     // Normalize district if provided
-    let normalizedDistrict: string | null = null;
-    if (filterDistrict) {
-      const normalized = filterDistrict.trim().toLowerCase();
-      normalizedDistrict =
-        galleryDistrictValues.find(
-          (value) => value.toLowerCase() === normalized
-        ) ?? null;
-    }
+    const normalizedDistrict = normalizeDistrict(filterDistrict);
 
     const dbStart = performance.now();
     const { data, error } = await supabase.rpc("text_search_galleries", {
@@ -392,8 +382,7 @@ const searchGalleriesByText = tool({
     const dbTime = performance.now() - dbStart;
 
     if (error) {
-      console.error("[search_galleries_by_text] Full error:", JSON.stringify(error, null, 2));
-      throw new Error(`[search_galleries_by_text] ${error.message} | Details: ${error.details} | Hint: ${error.hint} | Code: ${error.code}`);
+      return formatDatabaseError(error, "search_galleries_by_text");
     }
 
     const totalTime = performance.now() - startTime;
@@ -411,17 +400,92 @@ const searchGalleriesByText = tool({
     const currentState = agent.getSearchResults();
     console.log(`[search_galleries_by_text] State after storing: ${currentState?.events.length || 0} events, ${currentState?.galleries.length || 0} galleries`);
 
-    // Return simple summary for AI
-    return {
-      found: data.length,
-      galleries: data.map((g, i) => ({
-        index: i,
+    // Format and return results
+    const formatted = formatToolResults({
+      data,
+      currentStateLength: currentState?.galleries.length || 0,
+      mapFn: (g, index) => ({
+        index,
+        id: g.id,
         name: g.name,
         about: g.about || "",
         district: g.district,
         address: g.address || "",
         tags: g.tags || []
-      }))
+      })
+    });
+
+    return {
+      found: formatted.found,
+      galleries: formatted.items
+    };
+  }
+});
+
+const getGalleryEventsSchema = z.object({
+  galleryId: z.string().uuid().describe("The UUID of the gallery (use the 'id' field from search results, NOT the name)"),
+  limit: z.number().int().min(1).max(50).optional().describe("Maximum number of events to return (default: 20)"),
+});
+
+const getGalleryEvents = tool({
+  description:
+    "Fetch all events for a specific gallery by its UUID. IMPORTANT: Use the 'id' field from gallery search results, NOT the gallery name. Use this after finding interesting galleries to explore their current and upcoming exhibitions. Stores results in state for show_recommendations.",
+  inputSchema: getGalleryEventsSchema,
+  execute: async ({ galleryId, limit }) => {
+    console.log("[get_gallery_events] Function called");
+    console.log("[get_gallery_events] Input:", { galleryId, limit: limit ?? 20 });
+
+    const { agent } = getCurrentAgent<Zine>();
+    if (!agent) {
+      console.error('[get_gallery_events] Agent not available');
+      throw new Error("Agent not available");
+    }
+
+    const env = agent.getEnv();
+    const startTime = performance.now();
+
+    const supabase = getServiceClient(env);
+
+    const { data, error } = await supabase.rpc("get_gallery_events", {
+      gallery_uuid: galleryId,
+      event_limit: limit ?? 20
+    });
+
+    if (error) {
+      return formatDatabaseError(error, "get_gallery_events");
+    }
+
+    const totalTime = performance.now() - startTime;
+    console.log(`[get_gallery_events] Query completed in ${totalTime.toFixed(2)}ms`);
+    console.log(`[get_gallery_events] Found ${data.length} events:`,
+      data.map((e, i) => `[${i}] ${e.title}`));
+
+    // Store results - these are from a gallery, no similarity scores
+    const eventsWithSimilarity = data.map(e => ({ ...e, similarity: 1.0 }));
+    agent.storeSearchResults(eventsWithSimilarity, []);
+
+    const currentState = agent.getSearchResults();
+    console.log(`[get_gallery_events] State after storing: ${currentState?.events.length || 0} events, ${currentState?.galleries.length || 0} galleries`);
+
+    // Format and return results
+    const formatted = formatToolResults({
+      data,
+      currentStateLength: currentState?.events.length || 0,
+      mapFn: (e, index) => ({
+        index,
+        title: e.title,
+        description: e.description || "",
+        artists: e.artists || [],
+        tags: e.tags || [],
+        start_at: e.start_at || "",
+        end_at: e.end_at || ""
+      })
+    });
+
+    return {
+      found: formatted.found,
+      galleryId,
+      events: formatted.items
     };
   }
 });
@@ -539,6 +603,7 @@ export const tools = {
   match_event: matchEvent,
   search_events_by_text: searchEventsByText,
   search_galleries_by_text: searchGalleriesByText,
+  get_gallery_events: getGalleryEvents,
   show_recommendations: showRecommendations,
   update_user_requirements: updateUserRequirements
 } satisfies ToolSet;

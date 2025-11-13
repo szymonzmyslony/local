@@ -20,8 +20,11 @@ export function ToolResult({ part, onSaveToZine, debugMode }: ToolResultProps) {
   const toolName = getToolName(part);
   const output = part.output;
 
-  // Short mode when debug is OFF: just show tool name collapsed
-  if (!debugMode) {
+  // ALWAYS show show_recommendations results (they are the final user-facing output)
+  const isRecommendationTool = toolName === "show_recommendations";
+
+  // For non-recommendation tools: show compact indicator when debug is OFF
+  if (!debugMode && !isRecommendationTool) {
     return (
       <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800">
         <p className="text-xs text-slate-600 dark:text-slate-400">

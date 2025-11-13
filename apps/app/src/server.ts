@@ -157,17 +157,35 @@ ${JSON.stringify(this.state.userRequirements)}
   }
 
   /**
-   * Store search results in state - MERGES with existing results instead of overwriting
+   * Store search results in state - MERGES with existing results with deduplication and limits
+   * Events are deduplicated by event_id, galleries by gallery id
+   * Limits: 100 events, 50 galleries to prevent unbounded growth
    */
   storeSearchResults(events: EventMatchItem[], galleries: GalleryMatchItem[]): void {
     const currentState = this.state ?? createInitialChatState();
     const existing = currentState.lastSearchResults || { events: [], galleries: [] };
 
+    // Deduplicate events by event_id
+    const existingEventIds = new Set(existing.events.map(e => e.event_id));
+    const newUniqueEvents = events.filter(e => !existingEventIds.has(e.event_id));
+    const mergedEvents = [...existing.events, ...newUniqueEvents];
+
+    // Keep only the most recent 100 events (newer ones at the end)
+    const limitedEvents = mergedEvents.slice(-100);
+
+    // Deduplicate galleries by id
+    const existingGalleryIds = new Set(existing.galleries.map(g => g.id));
+    const newUniqueGalleries = galleries.filter(g => !existingGalleryIds.has(g.id));
+    const mergedGalleries = [...existing.galleries, ...newUniqueGalleries];
+
+    // Keep only the most recent 50 galleries
+    const limitedGalleries = mergedGalleries.slice(-50);
+
     this.setState({
       ...currentState,
       lastSearchResults: {
-        events: [...existing.events, ...events],
-        galleries: [...existing.galleries, ...galleries]
+        events: limitedEvents,
+        galleries: limitedGalleries
       }
     });
   }
