@@ -35,7 +35,7 @@
 }
 
 [data-slot="button"][data-variant="primary"]:hover {
-  background-color: color-mix(in oklch, var(--color-primary) 90%, var(--color-white, #fff) 10%);
+  background-color: var(--color-primary-dark);
 }
 
 [data-slot="button"][data-variant="secondary"] {

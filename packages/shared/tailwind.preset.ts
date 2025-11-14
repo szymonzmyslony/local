@@ -84,19 +84,46 @@ const sharedPreset = {
   theme: {
     extend: {
       colors: {
+        // Design System Colors
+        primary: {
+          DEFAULT: "var(--color-primary)",
+          dark: "var(--color-primary-dark)",
+          foreground: "var(--color-primary-foreground)"
+        },
+        secondary: {
+          DEFAULT: "var(--color-secondary)",
+          dark: "var(--color-secondary-dark)",
+          foreground: "var(--color-secondary-foreground)"
+        },
+        // Neutral Grays
+        neutral: {
+          50: "var(--color-neutral-50)",
+          100: "var(--color-neutral-100)",
+          200: "var(--color-neutral-200)",
+          300: "var(--color-neutral-300)",
+          400: "var(--color-neutral-400)",
+          500: "var(--color-neutral-500)",
+          600: "var(--color-neutral-600)",
+          700: "var(--color-neutral-700)",
+          800: "var(--color-neutral-800)",
+          900: "var(--color-neutral-900)"
+        },
+        // Text Colors
+        text: {
+          primary: "var(--color-text-primary)",
+          secondary: "var(--color-text-secondary)",
+          tertiary: "var(--color-text-tertiary)"
+        },
+        // Background Colors
+        background: {
+          DEFAULT: "var(--color-background)",
+          muted: "var(--color-background-muted)"
+        },
+        // Legacy colors for compatibility
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
-        background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
-        primary: {
-          DEFAULT: "hsl(var(--primary))",
-          foreground: "hsl(var(--primary-foreground))"
-        },
-        secondary: {
-          DEFAULT: "hsl(var(--secondary))",
-          foreground: "hsl(var(--secondary-foreground))"
-        },
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))"
@@ -119,13 +146,17 @@ const sharedPreset = {
         }
       },
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)"
+        sm: "var(--radius-sm)", // 4px
+        md: "var(--radius-md)", // 8px
+        lg: "var(--radius-lg)", // 16px
+        xl: "var(--radius-xl)", // 24px
+        "2xl": "var(--radius-2xl)" // 32px
       },
       fontFamily: {
-        sans: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
-        mono: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "monospace"]
+        body: ["var(--font-body)", "ui-sans-serif", "system-ui", "sans-serif"],
+        heading: ["var(--font-heading)", "ui-monospace", "monospace"],
+        sans: ["var(--font-body)", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ["var(--font-heading)", "ui-monospace", "SFMono-Regular", "monospace"]
       },
       keyframes: {
         "accordion-down": {

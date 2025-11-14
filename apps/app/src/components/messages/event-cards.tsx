@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@shared/ui";
-import type { SavedEventCard } from "../../types/chat-state"; // was SavedEventCard from "../../types/tool-results";
+import { ArrowUpRight } from "lucide-react";
+import { SavedEventCard } from "@/types/chat-state";
 
 interface EventCardsProps {
   events: SavedEventCard[];
@@ -58,62 +59,66 @@ function EventCard({ event, onSaveToZine }: EventCardProps) {
   const needsTruncation = description.length > 200;
 
   return (
-    <div className="flex-shrink-0 w-[340px] h-full rounded-2xl p-6 bg-gradient-to-br from-[#f8faff] to-[#ecefff] shadow-sm hover:shadow-md transition-all duration-200">
-      <h2 className="text-sm font-semibold text-gray-900">{event.title}</h2>
+    <div className="flex-shrink-0 w-[340px] h-[360px] flex flex-col rounded-xl p-6 bg-gradient-to-br from-[#f8faff] to-[#ecefff] shadow-sm hover:shadow-md transition-all duration-200">
+      <div className="flex-1">
+        <h2 className="text-lg font-semibold text-primary font-heading">
+          {event.title}
+        </h2>
 
-      {locationLabel && (
-        <p className="text-xs text-gray-600 mt-1">{locationLabel}</p>
-      )}
-
-      <div className="mt-3">
-        <p
-          className={`text-xs text-gray-700 leading-relaxed ${
-            !isExpanded && needsTruncation ? "line-clamp-6" : ""
-          }`}
-        >
-          {description}
-        </p>
-        {needsTruncation && (
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="text-xs text-gray-600 hover:text-gray-900 mt-1 font-medium"
+        {locationLabel && primaryLink && (
+          <a
+            href={primaryLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary mt-1 transition"
           >
-            {isExpanded ? "read less" : "read more"}
-          </button>
+            {locationLabel}
+            <ArrowUpRight className="w-3.5 h-3.5" />
+          </a>
         )}
+
+        <div className="mt-3">
+          <p
+            className={`text-xs text-text-secondary leading-relaxed ${!isExpanded && needsTruncation ? "line-clamp-6" : ""
+              }`}
+          >
+            {description}
+          </p>
+          {needsTruncation && (
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="text-xs text-text-tertiary hover:text-text-primary mt-1 font-medium"
+            >
+              {isExpanded ? "read less" : "read more"}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex gap-2 mt-4">
-        {primaryLink && (
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              window.open(primaryLink, "_blank", "noopener,noreferrer");
-            }}
-            className="bg-white text-gray-900 px-3 py-1.5 rounded-xl hover:bg-gray-50 transition text-xs font-medium"
-          >
-            visit gallery
-          </button>
-        )}
-        <button
+        <Button
           onClick={() => {
             if (onSaveToZine) {
               onSaveToZine(event);
             }
           }}
           disabled={!onSaveToZine}
-          className="bg-gradient-to-r from-[#ececff] to-[#e8eaff] text-gray-900 px-3 py-1.5 rounded-xl hover:scale-105 transition text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+          variant="outline"
+          size="sm"
+          className="px-3 py-1 text-xs font-medium border-primary text-primary rounded-md hover:bg-primary/10 transition disabled:opacity-50"
         >
-          save to My Zine
-        </button>
-        <button
+          Save
+        </Button>
+        <Button
           onClick={() => {
             // TODO: Implement share as image functionality
           }}
-          className="bg-white text-gray-900 px-3 py-1.5 rounded-xl hover:bg-gray-50 transition text-xs font-medium"
+          variant="primary"
+          size="sm"
+          className="px-3 py-1 text-xs font-medium bg-primary text-primary-foreground rounded-md hover:bg-primary-dark transition"
         >
-          share
-        </button>
+          Share
+        </Button>
       </div>
     </div>
   );
