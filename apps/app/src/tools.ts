@@ -5,6 +5,7 @@ import { Constants, getServiceClient, type Database } from "@shared";
 import type { GalleryDistrict, GalleryRequirements } from "./types/chat-state";
 import { Zine } from "./server";
 import { searchGalleries, getGalleriesByIds, type GallerySearchResult } from "./services/gallery-search";
+import { searchEvents, type EventSearchResult } from "./services/event-search";
 
 const galleryDistrictValues = Constants.public.Enums.gallery_district as readonly GalleryDistrict[];
 const galleryDistrictTuple = galleryDistrictValues as unknown as [GalleryDistrict, ...GalleryDistrict[]];
@@ -230,11 +231,93 @@ const getGalleryEvents = tool({
   },
 });
 
+/**
+ * Tool 5: Search events
+ * Find events using semantic search with date and artist filters
+ */
+const searchEventsT = tool({
+  description: `
+    Search for art events using semantic search and filters.
+    Returns ALL matching events with complete details for LLM analysis.
+
+    Events are automatically filtered to only show FUTURE events (after 2025-10-14).
+
+    You MUST provide at least ONE of: searchQuery or artists.
+
+    After receiving results, analyze and present relevant events to the user.
+  `,
+  inputSchema: z.object({
+    searchQuery: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe(
+        "OPTIONAL: Natural language query (e.g., 'photography exhibitions', 'contemporary sculpture')"
+      ),
+    artists: z
+      .array(z.string().trim().min(1))
+      .optional()
+      .describe(
+        "OPTIONAL: Array of artist names. Matches events featuring ANY of these artists."
+      ),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(50)
+      .optional()
+      .describe("OPTIONAL: Max results (default: 20)"),
+  })
+  .refine(
+    (data) => data.searchQuery || (data.artists && data.artists.length > 0),
+    {
+      message: "Must provide at least one of: searchQuery or artists"
+    }
+  ),
+  execute: async (params) => {
+    console.log("[search_events] Called with params:", params);
+
+    const { agent } = getCurrentAgent<Zine>();
+    if (!agent) throw new Error("Agent not available");
+
+    const env = agent.getEnv();
+    const supabase = getServiceClient(env);
+    const { data, error } = await searchEvents(supabase, params, env.OPENAI_API_KEY);
+
+    if (error) {
+      return `Database error: ${error.message}`;
+    }
+
+    return {
+      found: data.length,
+      events: data.map((e) => ({
+        event_id: e.event_id,
+        title: e.title,
+        description: e.description,
+        start_at: e.start_at,
+        end_at: e.end_at,
+        artists: e.artists,
+        tags: e.tags,
+        images: e.images,
+        gallery: {
+          id: e.gallery_id,
+          name: e.gallery_name,
+          url: e.gallery_main_url,
+          district: e.gallery_district,
+          address: e.gallery_address,
+        },
+      })),
+    };
+  },
+});
+
 export const tools = {
   retrieve_galleries: retrieveGalleries,
   show_recommendations: showRecommendations,
   update_gallery_requirements: updateGalleryRequirements,
   get_gallery_events: getGalleryEvents,
+  search_events: searchEventsT,
 } satisfies ToolSet;
 
 export const executions = {} as const;

@@ -427,6 +427,33 @@ export type Database = {
           tags: string[]
         }[]
       }
+      search_events_filtered: {
+        Args: {
+          filter_artists?: string[]
+          filter_start_after?: string
+          match_count?: number
+          match_threshold?: number
+          query_embedding: string
+        }
+        Returns: {
+          artists: string[]
+          description: string
+          end_at: string
+          event_id: string
+          gallery_address: string
+          gallery_district: string
+          gallery_id: string
+          gallery_main_url: string
+          gallery_name: string
+          images: string[]
+          start_at: string
+          status: string
+          tags: string[]
+          ticket_url: string
+          timezone: string
+          title: string
+        }[]
+      }
       search_galleries_filtered: {
         Args: {
           filter_district?: string
