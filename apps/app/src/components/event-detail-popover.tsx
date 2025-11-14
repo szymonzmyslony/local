@@ -38,6 +38,9 @@ function formatDateRange(
 }
 
 export function EventDetailPopover({ event, children }: EventDetailPopoverProps) {
+  // Cast gallery from Json to proper type
+  const gallery = event.gallery as unknown as { name?: string; main_url?: string } | null;
+
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -62,18 +65,18 @@ export function EventDetailPopover({ event, children }: EventDetailPopoverProps)
               </span>{" "}
               {formatDateRange(event.start_at, event.end_at)}
             </p>
-            {event.gallery?.name && (
+            {gallery?.name && (
               <p>
                 <span className="font-semibold text-slate-800 dark:text-slate-100">
                   Gallery:
                 </span>{" "}
-                {event.gallery.name}
+                {gallery.name}
               </p>
             )}
-            {event.gallery?.main_url && (
+            {gallery?.main_url && (
               <p>
                 <a
-                  href={event.gallery.main_url}
+                  href={gallery.main_url}
                   target="_blank"
                   rel="noreferrer"
                   className="font-medium text-[#D8D3FA] hover:underline dark:text-[#D8D3FA]"

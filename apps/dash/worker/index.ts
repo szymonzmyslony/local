@@ -8,7 +8,6 @@ import {
   listRecentGalleries,
   getEventWithRelations,
   openingHoursItemSchema,
-  replaceEventOccurrences,
   replaceGalleryHours,
   saveEventInfo,
   saveGalleryInfo,
@@ -68,11 +67,27 @@ function withPageStatus(page: PageWithRelations, eventsByPageId: Map<string, str
 
 const SeedGalleryBodySchema = z.object({
   mainUrl: z.string().trim().url(),
-  aboutUrl: z.string().trim().url().nullable().optional(),
-  eventsUrl: z.string().trim().url().nullable().optional(),
+  aboutUrl: z
+    .string()
+    .trim()
+    .transform(val => (val === '-' || val === '' ? null : val))
+    .pipe(z.string().url().nullable())
+    .optional(),
+  eventsUrl: z
+    .string()
+    .trim()
+    .transform(val => (val === '-' || val === '' ? null : val))
+    .pipe(z.string().url().nullable())
+    .optional(),
   name: z.string().trim().min(1).nullable().optional(),
   address: z.string().trim().min(1).nullable().optional(),
   instagram: z.string().trim().min(1).nullable().optional(),
+  googleMapsUrl: z
+    .string()
+    .trim()
+    .transform(val => (val === '-' || val === '' ? null : val))
+    .pipe(z.string().url().nullable())
+    .optional(),
   openingHours: z.string().trim().min(1).nullable().optional()
 });
 
@@ -135,8 +150,9 @@ const GalleryHoursPayloadSchema = z.object({
 const EventBasePayloadSchema = z.object({
   title: z.string().trim().min(1),
   status: eventStatusEnum,
-  start_at: z.string().nullable(),
+  start_at: z.string(), // Required now
   end_at: z.string().nullable(),
+  timezone: z.string().nullable().default('Europe/Warsaw'),
   ticket_url: z.string().trim().url().nullable()
 });
 
@@ -146,17 +162,9 @@ const EventInfoPayloadSchema = z.object({
   artists: z.array(z.string()).nullable()
 });
 
-const EventOccurrencePayloadSchema = z.object({
-  id: z.string().uuid().optional(),
-  start_at: z.string(),
-  end_at: z.string().nullable(),
-  timezone: z.string().nullable()
-});
-
 const EventStructuredPayloadSchema = z.object({
   event: EventBasePayloadSchema,
-  info: EventInfoPayloadSchema,
-  occurrences: z.array(EventOccurrencePayloadSchema)
+  info: EventInfoPayloadSchema
 });
 // Re-export workflow entrypoints so the runtime can find them by class_name
 export { DiscoverLinks } from "../workflows/discover_links";
@@ -183,9 +191,10 @@ export default {
       const name = body.name ?? null;
       const address = body.address ?? null;
       const instagram = body.instagram ?? null;
+      const googleMapsUrl = body.googleMapsUrl ?? null;
       const openingHours = body.openingHours ?? null;
-      console.log("[dash-worker] Starting SeedAndStartupGallery workflow (via seed endpoint)", { mainUrl, aboutUrl, eventsUrl, name, address, instagram, openingHours });
-      const run = await env.SEED_AND_STARTUP_GALLERY.create({ params: { mainUrl, aboutUrl, eventsUrl, name, address, instagram, openingHours } });
+      console.log("[dash-worker] Starting SeedAndStartupGallery workflow (via seed endpoint)", { mainUrl, aboutUrl, eventsUrl, name, address, instagram, googleMapsUrl, openingHours });
+      const run = await env.SEED_AND_STARTUP_GALLERY.create({ params: { mainUrl, aboutUrl, eventsUrl, name, address, instagram, googleMapsUrl, openingHours } });
       const workflowId = run.id ?? run;
 
       return Response.json({ id: workflowId });
@@ -200,9 +209,10 @@ export default {
       const name = body.name ?? null;
       const address = body.address ?? null;
       const instagram = body.instagram ?? null;
+      const googleMapsUrl = body.googleMapsUrl ?? null;
       const openingHours = body.openingHours ?? null;
-      console.log("[dash-worker] Starting SeedAndStartupGallery workflow (explicit endpoint)", { mainUrl, aboutUrl, eventsUrl, name, address, instagram, openingHours });
-      const run = await env.SEED_AND_STARTUP_GALLERY.create({ params: { mainUrl, aboutUrl, eventsUrl, name, address, instagram, openingHours } });
+      console.log("[dash-worker] Starting SeedAndStartupGallery workflow (explicit endpoint)", { mainUrl, aboutUrl, eventsUrl, name, address, instagram, googleMapsUrl, openingHours });
+      const run = await env.SEED_AND_STARTUP_GALLERY.create({ params: { mainUrl, aboutUrl, eventsUrl, name, address, instagram, googleMapsUrl, openingHours } });
       const workflowId = run.id ?? run;
 
       return Response.json({ id: workflowId });
@@ -286,7 +296,7 @@ export default {
 
         let query = supabase
           .from("events")
-          .select("*, event_info(*), event_occurrences(*), gallery:galleries(id, main_url, normalized_main_url, gallery_info(name))")
+          .select("*, event_info(*), gallery:galleries(id, main_url, normalized_main_url, gallery_info(name))")
           .order("start_at", { ascending })
           .limit(limit);
 
@@ -315,7 +325,6 @@ export default {
         const payload = (data ?? []).map(event => ({
           ...event,
           event_info: event.event_info ?? null,
-          event_occurrences: event.event_occurrences ?? [],
           gallery: event.gallery ?? null
         }));
 
@@ -423,19 +432,12 @@ export default {
         try {
           const body = EventStructuredPayloadSchema.parse(await request.json());
           const timestamp = new Date().toISOString();
+          // Update event fields including timing (now stored directly on events table)
           await updateEventFields(supabase, eventId, {
             ...body.event,
             updated_at: timestamp
           });
           await saveEventInfo(supabase, eventId, body.info);
-          const occurrenceRows = body.occurrences.map(item => ({
-            id: item.id ?? crypto.randomUUID(),
-            event_id: eventId,
-            start_at: item.start_at,
-            end_at: item.end_at,
-            timezone: item.timezone
-          }));
-          await replaceEventOccurrences(supabase, occurrenceRows, eventId);
           const updated = await getEventWithRelations(supabase, eventId);
           if (!updated) {
             return new Response("Not found", { status: 404 });

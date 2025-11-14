@@ -22,7 +22,6 @@ export type DashboardPage = PageWithRelations & {
 
 type EventRow = Database["public"]["Tables"]["events"]["Row"];
 type EventInfoRow = Database["public"]["Tables"]["event_info"]["Row"];
-type EventOccurrenceRow = Database["public"]["Tables"]["event_occurrences"]["Row"];
 type GalleryInfoRow = Database["public"]["Tables"]["gallery_info"]["Row"];
 
 export type GalleryDetail = GalleryWithRelations;
@@ -54,14 +53,10 @@ export type GalleryHoursPayload = {
 
 export type EventBasePayload = Pick<EventRow, "title" | "status" | "start_at" | "end_at" | "ticket_url">;
 export type EventInfoPayload = Pick<EventInfoRow, "description" | "tags" | "artists">;
-export type EventOccurrencePayload = Pick<EventOccurrenceRow, "id" | "start_at" | "end_at" | "timezone"> & {
-  id?: string | null;
-};
 
 export type EventStructuredPayload = {
   event: EventBasePayload;
   info: EventInfoPayload;
-  occurrences: EventOccurrencePayload[];
 };
 
 export type { GalleryListItem } from "@shared";

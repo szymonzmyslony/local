@@ -12,7 +12,6 @@ import {
   findEventIdByPage,
   upsertEvent,
   upsertEventInfo,
-  replaceEventOccurrences,
   pageExtractionSchema
 } from "@shared";
 import type {
@@ -20,7 +19,6 @@ import type {
   PageUpdate,
   EventInsert,
   EventInfoInsert,
-  EventOccurrenceInsert,
   PageSummary
 } from "@shared";
 import type { EventExtraction } from "@shared";
@@ -166,12 +164,24 @@ export class ExtractEventPages extends WorkflowEntrypoint<Env, Params> {
                 const existingId = await findEventIdByPage(supabase, page.id);
                 const payload = extraction.payload;
 
+                // Simplified schema: timing goes directly on event
+                // If AI extracted occurrences, use the first one; otherwise use direct start_at/end_at
+                const firstOccurrence = payload.occurrences?.[0];
+                const start_at = firstOccurrence?.start_at ?? payload.start_at;
+                const end_at = firstOccurrence?.end_at ?? payload.end_at ?? null;
+                const timezone = firstOccurrence?.timezone ?? 'Europe/Warsaw';
+
+                if (!start_at) {
+                    console.warn(`[ExtractEventPages] Event "${payload.title}" has no start_at, using current timestamp`);
+                }
+
                 const eventRecord: EventInsert = {
                     gallery_id: page.gallery_id!,
                     page_id: page.id,
                     title: payload.title,
-                    start_at: payload.start_at ?? null,
-                    end_at: payload.end_at ?? null,
+                    start_at: start_at ?? new Date().toISOString(),
+                    end_at,
+                    timezone,
                     status: payload.status ?? "unknown",
                     ticket_url: payload.ticket_url ?? null
                 };
@@ -190,15 +200,6 @@ export class ExtractEventPages extends WorkflowEntrypoint<Env, Params> {
                 };
 
                 await upsertEventInfo(supabase, eventInfo);
-
-                const occurrences: EventOccurrenceInsert[] = (payload.occurrences ?? []).map(occ => ({
-                    event_id: updatedEventId,
-                    start_at: occ.start_at,
-                    end_at: occ.end_at ?? null,
-                    timezone: occ.timezone ?? null
-                }));
-
-                await replaceEventOccurrences(supabase, occurrences, updatedEventId);
 
                 console.log(
                     `[ExtractEventPages] Processed event "${payload.title}" for page ${page.id} (event ${updatedEventId})`

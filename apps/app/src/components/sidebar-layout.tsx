@@ -53,20 +53,23 @@ export function SidebarLayout({ children, savedEvents }: SidebarLayoutProps) {
             </div>
             {savedEvents.length > 0 ? (
               <div className="space-y-1">
-                {savedEvents.map((event) => (
-                  <EventDetailPopover key={event.event_id} event={event}>
-                    <button className="w-full text-left rounded-lg px-2 py-2 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors">
-                      <div className="text-xs font-medium text-slate-900 dark:text-slate-100 line-clamp-2">
-                        {event.title}
-                      </div>
-                      {event.gallery?.name && (
-                        <div className="text-xs text-slate-600 dark:text-slate-400 mt-1 truncate">
-                          {event.gallery.name}
+                {savedEvents.map((event) => {
+                  const gallery = event.gallery as unknown as { name?: string } | null;
+                  return (
+                    <EventDetailPopover key={event.event_id} event={event}>
+                      <button className="w-full text-left rounded-lg px-2 py-2 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors">
+                        <div className="text-xs font-medium text-slate-900 dark:text-slate-100 line-clamp-2">
+                          {event.title}
                         </div>
-                      )}
-                    </button>
-                  </EventDetailPopover>
-                ))}
+                        {gallery?.name && (
+                          <div className="text-xs text-slate-600 dark:text-slate-400 mt-1 truncate">
+                            {gallery.name}
+                          </div>
+                        )}
+                      </button>
+                    </EventDetailPopover>
+                  );
+                })}
               </div>
             ) : (
               <div className="flex h-full items-center justify-center p-4">

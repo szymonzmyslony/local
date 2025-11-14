@@ -1,611 +1,240 @@
 import { tool, type ToolSet } from "ai";
 import { z } from "zod/v3";
 import { getCurrentAgent } from "agents";
-import {
-  Constants,
-  createEmbedder,
-  getServiceClient,
-  toPgVector,
-  type Database
-} from "@shared";
-import type {
-  GalleryToolResult,
-  EventToolResult,
-  CombinedToolResult
-} from "./types/tool-results";
-import type {
-  UserRequirements,
-  GalleryDistrict
-} from "./types/chat-state";
+import { Constants, getServiceClient, type Database } from "@shared";
+import type { GalleryDistrict, GalleryRequirements } from "./types/chat-state";
 import { Zine } from "./server";
-import {
-  formatDatabaseError,
-  performSemanticSearch,
-  formatToolResults,
-  normalizeDistrict
-} from "./tools-utils";
+import { searchGalleries, getGalleriesByIds, type GallerySearchResult } from "./services/gallery-search";
 
-// Use Supabase types as source of truth
-type EventFromEmbedding = Database["public"]["Functions"]["match_events_with_data"]["Returns"][number];
-type EventFromText = Database["public"]["Functions"]["text_search_events"]["Returns"][number];
-type GalleryFromEmbedding = Database["public"]["Functions"]["match_gallery_with_data"]["Returns"][number];
-type GalleryFromText = Database["public"]["Functions"]["text_search_galleries"]["Returns"][number];
-type EventFromGallery = Database["public"]["Functions"]["get_gallery_events"]["Returns"][number];
-
-const searchInputSchema = z.object({
-  query: z.string().trim().min(2, "Query must be at least 2 characters"),
-  matchCount: z.number().int().min(1).max(20).optional(),
-});
-
-type RequiredEnv = Pick<
-  Env,
-  "OPENAI_API_KEY" | "SUPABASE_URL" | "SUPABASE_ANON_KEY"
->;
-
-const galleryDistrictValues = Constants.public.Enums.gallery_district;
-const galleryDistrictTuple = galleryDistrictValues as unknown as [
-  GalleryDistrict,
-  ...GalleryDistrict[]
-];
+const galleryDistrictValues = Constants.public.Enums.gallery_district as readonly GalleryDistrict[];
+const galleryDistrictTuple = galleryDistrictValues as unknown as [GalleryDistrict, ...GalleryDistrict[]];
 const districtEnum = z.enum(galleryDistrictTuple);
 
+/**
+ * Tool 1: Retrieve galleries matching search criteria
+ * Returns ALL matching galleries with complete details for LLM analysis
+ */
+const retrieveGalleries = tool({
+  description: `
+    Retrieve galleries matching search criteria using semantic search and filters.
+    Returns ALL matching galleries with complete details (id, name, about, tags, district).
 
-const districtInputSchema = z
-  .union([districtEnum, z.string().trim().min(1)])
-  .nullish();
+    You MUST provide at least ONE of: searchQuery, district, or openAt.
 
-const updateRequirementsSchema = z.object({
-  district: districtInputSchema,
-  artists: z.array(z.string().trim().min(1)).nullish(),
-  aesthetics: z.array(z.string().trim().min(1)).nullish(),
-  mood: z.string().trim().min(1).nullish(),
-});
-
-
-
-const matchGallery = tool({
-  description:
-    "Find galleries using semantic/vector search. Returns summary list for AI analysis. Stores results in state for show_recommendations to display as cards.",
-  inputSchema: searchInputSchema,
-  execute: async ({ query, matchCount }) => {
-    console.log("[match_gallery] Function called");
-    console.log("[match_gallery] Starting query:", { query, matchCount: matchCount ?? 10 });
+    After receiving results:
+    1. Read each gallery's name, about, and tags carefully
+    2. Decide which galleries best match user preferences
+    3. Call show_recommendations with the gallery IDs you chose
+  `,
+  inputSchema: z.object({
+    searchQuery: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe(
+        "OPTIONAL: Natural language query using semantic understanding (e.g., 'calm minimalist spaces', 'energetic contemporary art')"
+      ),
+    district: districtEnum.optional().describe("OPTIONAL: Filter by Warsaw district"),
+    openAt: z
+      .object({
+        weekday: z
+          .number()
+          .int()
+          .min(0)
+          .max(6)
+          .describe("0=Sunday, 1=Monday, ..., 6=Saturday. Focus on weekday."),
+        timeMinutes: z
+          .number()
+          .int()
+          .min(0)
+          .max(1439)
+          .optional()
+          .describe("OPTIONAL: Minutes since midnight (e.g., 840 = 2pm). Only include if user mentions specific time."),
+      })
+      .optional()
+      .describe("OPTIONAL: Filter by day/time. Weekday is primary, timeMinutes only if user specifies exact time."),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(30)
+      .optional()
+      .describe("OPTIONAL: Max results (default: 20)"),
+  })
+  .refine(
+    (data) => data.searchQuery || data.district || data.openAt,
+    {
+      message: "Must provide at least one of: searchQuery, district, or openAt"
+    }
+  ),
+  execute: async (params) => {
+    console.log("[retrieve_galleries] Called with params:", params);
 
     const { agent } = getCurrentAgent<Zine>();
-    if (!agent) {
-      console.error('[match_gallery] Agent not available');
-      throw new Error("Agent not available");
-    }
+    if (!agent) throw new Error("Agent not available");
 
     const env = agent.getEnv();
     const supabase = getServiceClient(env);
-    const embedder = createEmbedder(env.OPENAI_API_KEY);
+    const { data, error } = await searchGalleries(supabase, params, env.OPENAI_API_KEY);
 
-    // Perform semantic search
-    const { data, error } = await performSemanticSearch({
-      query,
-      supabase,
-      embedder,
-      toPgVector,
-      rpcFunction: "match_gallery_with_data",
-      matchCount: matchCount ?? 10,
-      matchThreshold: 0.2,
-      toolName: "match_gallery"
-    });
-
-    // Handle empty vector case
-    if (data === null && error.message.includes("Empty embedding")) {
-      agent.storeSearchResults([], []);
-      return { found: 0, galleries: [] };
-    }
-
-    // Handle database errors
     if (error) {
-      return formatDatabaseError(error, "match_gallery");
+      return `Database error: ${error.message}`;
     }
 
-    console.log(`[match_gallery] Found ${data.length} galleries:`,
-      data.map((g, i) => `[${i}] ${g.name} in ${g.district} (sim: ${g.similarity.toFixed(3)})`));
-
-    // Store results
-    agent.storeSearchResults([], data);
-    const currentState = agent.getSearchResults();
-    console.log(`[match_gallery] State after storing: ${currentState?.events.length || 0} events, ${currentState?.galleries.length || 0} galleries`);
-
-    // Format and return results
-    const formatted = formatToolResults({
-      data,
-      currentStateLength: currentState?.galleries.length || 0,
-      mapFn: (g, index) => ({
-        index,
+    // Return full data for LLM analysis
+    return {
+      found: data.length,
+      galleries: data.map((g) => ({
         id: g.id,
         name: g.name,
+        about: g.about,
         district: g.district,
-        about: g.about || "",
-        tags: g.tags || [],
-        similarity: Number(g.similarity.toFixed(3))
-      })
-    });
-
-    return {
-      found: formatted.found,
-      galleries: formatted.items
+        address: g.address,
+        tags: g.tags,
+        instagram: g.instagram,
+        main_url: g.main_url,
+      })),
     };
-  }
+  },
 });
 
-const matchEvent = tool({
-  description:
-    "Find events using semantic/vector search. Returns summary list for AI analysis. Stores results in state for show_recommendations to display as cards.",
-  inputSchema: searchInputSchema,
-  execute: async ({ query, matchCount }) => {
-    console.log("[match_event] Function called");
-    console.log("[match_event] Starting query:", { query, matchCount: matchCount ?? 10 });
+/**
+ * Tool 2: Show gallery recommendations
+ * Refetches galleries by IDs and displays as cards
+ */
+const showRecommendations = tool({
+  description: `
+    Display your selected galleries as recommendation cards.
+
+    Provide the gallery IDs (from retrieve_galleries results) that you want to show.
+    This will fetch fresh data and display cards to the user.
+
+    IMPORTANT: After calling this, explain WHY you chose these galleries.
+  `,
+  inputSchema: z.object({
+    galleryIds: z
+      .array(z.string().uuid())
+      .min(1)
+      .max(10)
+      .describe("Array of gallery IDs to display"),
+  }),
+  execute: async ({ galleryIds }) => {
+    console.log("[show_recommendations] Called with IDs:", galleryIds);
 
     const { agent } = getCurrentAgent<Zine>();
-    if (!agent) {
-      console.error('[match_event] Agent not available');
-      throw new Error("Agent not available");
-    }
+    if (!agent) throw new Error("Agent not available");
 
-    const env = agent.getEnv();
-    const supabase = getServiceClient(env);
-    const embedder = createEmbedder(env.OPENAI_API_KEY);
+    const supabase = getServiceClient(agent.getEnv());
 
-    // Perform semantic search
-    const { data, error } = await performSemanticSearch({
-      query,
-      supabase,
-      embedder,
-      toPgVector,
-      rpcFunction: "match_events_with_data",
-      matchCount: matchCount ?? 10,
-      matchThreshold: 0.2,
-      toolName: "match_event"
-    });
-
-    // Handle database errors
-    if (error) {
-      return formatDatabaseError(error, "match_event");
-    }
-
-    console.log(`[match_event] Found ${data.length} events:`,
-      data.map((e, i) => `[${i}] ${e.title} at ${e.gallery?.name} (sim: ${e.similarity.toFixed(3)})`));
-
-    // Store results
-    agent.storeSearchResults(data, []);
-    const currentState = agent.getSearchResults();
-    console.log(`[match_event] State after storing: ${currentState?.events.length || 0} events, ${currentState?.galleries.length || 0} galleries`);
-
-    // Format and return results
-    const formatted = formatToolResults({
-      data,
-      currentStateLength: currentState?.events.length || 0,
-      mapFn: (e, index) => ({
-        index,
-        title: e.title,
-        description: e.description || "",
-        gallery: e.gallery?.name || "Unknown",
-        artists: e.artists || [],
-        tags: e.tags || [],
-        start_at: e.start_at || "",
-        end_at: e.end_at || "",
-        similarity: Number(e.similarity.toFixed(3))
-      })
-    });
-
-    return {
-      found: formatted.found,
-      events: formatted.items
-    };
-  }
-});
-
-
-
-
-
-const updateUserRequirements = tool({
-  description:
-    "Update the user's current requirements such as preferred district in Warsaw, desired artists, aesthetics, mood, or time preferences (months, weeks, day periods like morning/evening, or specific hours).",
-  inputSchema: updateRequirementsSchema,
-  execute: async ({ district, artists, aesthetics, mood }) => {
-    const { agent } = getCurrentAgent<Zine>();
-
-    if (!agent) {
-      console.error('[updateUserRequirements] Agent not available');
-      throw new Error("Agent not available");
-    }
-
-    // Build the partial requirements object with only provided fields
-    const updatedRequirements: Partial<UserRequirements> = {};
-
-    if (district !== undefined) {
-      updatedRequirements.district = typeof district === "string"
-        ? normalizeDistrict(district)
-        : district;
-    }
-
-    if (artists !== undefined) {
-      updatedRequirements.artists = Array.from(
-        new Set(
-          (artists ?? [])
-            .map((name) => name.trim())
-            .filter((name): name is string => name.length > 0)
-        )
-      );
-    }
-
-    if (aesthetics !== undefined) {
-      updatedRequirements.aesthetics = Array.from(
-        new Set(
-          (aesthetics ?? [])
-            .map((item) => item.trim())
-            .filter((item): item is string => item.length > 0)
-        )
-      );
-    }
-
-    if (mood !== undefined) {
-      updatedRequirements.mood = mood?.trim() || null;
-    }
-
-    agent.updateUserRequirements(updatedRequirements);
-
-    return {
-      success: true,
-      user_requirements: agent.state.userRequirements
-    };
-  }
-});
-
-const textSearchEventsSchema = z.object({
-  searchQuery: z.string().trim().optional(),
-  searchLimit: z.number().int().min(1).max(20).optional(),
-});
-
-const searchEventsByText = tool({
-  description:
-    "Search for events by title or artist name using full-text search. Returns summary list for AI analysis. Stores results in state for show_recommendations to display as cards.",
-  inputSchema: textSearchEventsSchema,
-  execute: async ({
-    searchQuery,
-    searchLimit,
-  }) => {
-    console.log("[search_events_by_text] Function called");
-    const startTime = performance.now();
-    console.log("[search_events_by_text] Starting query:", {
-      searchQuery,
-      searchLimit: searchLimit ?? 10,
-    });
-
-    const { agent } = getCurrentAgent<Zine>();
-    if (!agent) {
-      console.error('[search_events_by_text] Agent not available');
-      throw new Error("Agent not available");
-    }
-
-    const env = agent.getEnv();
-    const supabase = getServiceClient(env);
-
-    const dbStart = performance.now();
-    const { data, error } = await supabase.rpc("text_search_events", {
-      search_query: searchQuery || null,
-      search_limit: searchLimit ?? 10,
-    });
-    const dbTime = performance.now() - dbStart;
+    // Refetch galleries by IDs
+    const { data, error } = await getGalleriesByIds(supabase, galleryIds);
 
     if (error) {
-      return formatDatabaseError(error, "search_events_by_text");
+      return `Error fetching galleries: ${error.message}`;
     }
 
-    const totalTime = performance.now() - startTime;
-    console.log(`[search_events_by_text] Query completed in ${totalTime.toFixed(2)}ms (DB: ${dbTime.toFixed(2)}ms)`);
-    console.log(`[search_events_by_text] Found ${data.length} events:`,
-      data.map((e, i) => `[${i}] ${e.title}${e.artists?.length ? ` - ${e.artists.join(', ')}` : ''}`));
+    console.log(`[show_recommendations] Displaying ${data.length} galleries`);
 
-    // Convert to EventMatchItem format with similarity
-    const eventsWithSimilarity = data.map(item => ({
-      ...item,
-      gallery: item.gallery as any, // Json type from DB
-      occurrences: item.occurrences as any, // Json type from DB
-      similarity: 1.0, // Text search doesn't have similarity scores
-    }));
-
-    agent.storeSearchResults(eventsWithSimilarity, []);
-    const currentState = agent.getSearchResults();
-    console.log(`[search_events_by_text] State after storing: ${currentState?.events.length || 0} events, ${currentState?.galleries.length || 0} galleries`);
-
-    // Format and return results
-    const formatted = formatToolResults({
-      data,
-      currentStateLength: currentState?.events.length || 0,
-      mapFn: (e, index) => ({
-        index,
-        title: e.title,
-        description: e.description || "",
-        artists: e.artists || [],
-        tags: e.tags || [],
-        start_at: e.start_at || "",
-        end_at: e.end_at || ""
-      })
-    });
-
+    // Return in format expected by UI
     return {
-      found: formatted.found,
-      events: formatted.items
+      type: "gallery-results" as const,
+      items: data,
     };
-  }
+  },
 });
 
-const textSearchGalleriesSchema = z.object({
-  searchQuery: z.string().trim().optional(),
-  filterDistrict: districtInputSchema,
-  searchLimit: z.number().int().min(1).max(20).optional(),
-});
-
-const searchGalleriesByText = tool({
-  description:
-    "Search for galleries by name or filter by district using full-text search. Returns summary list for AI analysis. Stores results in state for show_recommendations to display as cards.",
-  inputSchema: textSearchGalleriesSchema,
-  execute: async ({
-    searchQuery,
-    filterDistrict,
-    searchLimit,
-  }) => {
-    console.log("[search_galleries_by_text] Function called");
-    const startTime = performance.now();
-    console.log("[search_galleries_by_text] Starting query:", {
-      searchQuery,
-      filterDistrict,
-      searchLimit: searchLimit ?? 10,
-    });
-
+/**
+ * Tool 3: Update gallery requirements
+ * Silently updates user's gallery preferences
+ */
+const updateGalleryRequirements = tool({
+  description: `
+    Silently update user's gallery preferences. Never announce this action.
+    Call when user mentions district, aesthetics, mood, or time preferences.
+  `,
+  inputSchema: z.object({
+    district: districtEnum.optional(),
+    aesthetics: z
+      .array(z.string().trim().min(1))
+      .optional()
+      .describe("Aesthetic keywords: minimalist, contemporary, experimental, etc."),
+    mood: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe("Mood/vibe: calm, energetic, contemplative, playful, etc."),
+    preferredTime: z
+      .object({
+        weekday: z.number().int().min(0).max(6),
+        timeMinutes: z.number().int().min(0).max(1439),
+      })
+      .optional()
+      .describe("Preferred visiting time"),
+  }),
+  execute: async (params) => {
     const { agent } = getCurrentAgent<Zine>();
-    if (!agent) {
-      console.error('[search_galleries_by_text] Agent not available');
-      throw new Error("Agent not available");
-    }
+    if (!agent) throw new Error("Agent not available");
 
-    const env = agent.getEnv();
-    const supabase = getServiceClient(env);
+    agent.updateGalleryRequirements(params);
 
-    // Normalize district if provided
-    const normalizedDistrict = normalizeDistrict(filterDistrict);
-
-    const dbStart = performance.now();
-    const { data, error } = await supabase.rpc("text_search_galleries", {
-      search_query: searchQuery || null,
-      filter_district: normalizedDistrict,
-      search_limit: searchLimit ?? 10,
-    });
-    const dbTime = performance.now() - dbStart;
-
-    if (error) {
-      return formatDatabaseError(error, "search_galleries_by_text");
-    }
-
-    const totalTime = performance.now() - startTime;
-    console.log(`[search_galleries_by_text] Query completed in ${totalTime.toFixed(2)}ms (DB: ${dbTime.toFixed(2)}ms)`);
-    console.log(`[search_galleries_by_text] Found ${data.length} galleries:`,
-      data.map((g, i) => `[${i}] ${g.name} in ${g.district}`));
-
-    // Convert to GalleryMatchItem format with similarity
-    const galleriesWithSimilarity = data.map(item => ({
-      ...item,
-      similarity: 1.0, // Text search doesn't have similarity scores
-    }));
-
-    agent.storeSearchResults([], galleriesWithSimilarity);
-    const currentState = agent.getSearchResults();
-    console.log(`[search_galleries_by_text] State after storing: ${currentState?.events.length || 0} events, ${currentState?.galleries.length || 0} galleries`);
-
-    // Format and return results
-    const formatted = formatToolResults({
-      data,
-      currentStateLength: currentState?.galleries.length || 0,
-      mapFn: (g, index) => ({
-        index,
-        id: g.id,
-        name: g.name,
-        about: g.about || "",
-        district: g.district,
-        address: g.address || "",
-        tags: g.tags || []
-      })
-    });
-
-    return {
-      found: formatted.found,
-      galleries: formatted.items
-    };
-  }
+    return { success: true };
+  },
 });
 
-const getGalleryEventsSchema = z.object({
-  galleryId: z.string().uuid().describe("The UUID of the gallery (use the 'id' field from search results, NOT the name)"),
-  limit: z.number().int().min(1).max(50).optional().describe("Maximum number of events to return (default: 20)"),
-});
-
+/**
+ * Tool 4: Get gallery events
+ * Fetch events for a specific gallery
+ */
 const getGalleryEvents = tool({
-  description:
-    "Fetch all events for a specific gallery by its UUID. IMPORTANT: Use the 'id' field from gallery search results, NOT the gallery name. Use this after finding interesting galleries to explore their current and upcoming exhibitions. Stores results in state for show_recommendations.",
-  inputSchema: getGalleryEventsSchema,
+  description: `
+    Fetch events for a specific gallery.
+    Use this after showing gallery recommendations when user wants details.
+  `,
+  inputSchema: z.object({
+    galleryId: z
+      .string()
+      .uuid()
+      .describe("Gallery ID (from retrieve_galleries or show_recommendations)"),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(50)
+      .optional()
+      .describe("Maximum number of events to return (default: 20)"),
+  }),
   execute: async ({ galleryId, limit }) => {
-    console.log("[get_gallery_events] Function called");
-    console.log("[get_gallery_events] Input:", { galleryId, limit: limit ?? 20 });
+    console.log("[get_gallery_events] Called for gallery:", galleryId);
 
     const { agent } = getCurrentAgent<Zine>();
-    if (!agent) {
-      console.error('[get_gallery_events] Agent not available');
-      throw new Error("Agent not available");
-    }
+    if (!agent) throw new Error("Agent not available");
 
-    const env = agent.getEnv();
-    const startTime = performance.now();
-
-    const supabase = getServiceClient(env);
+    const supabase = getServiceClient(agent.getEnv());
 
     const { data, error } = await supabase.rpc("get_gallery_events", {
       gallery_uuid: galleryId,
-      event_limit: limit ?? 20
+      event_limit: limit ?? 20,
     });
 
     if (error) {
-      return formatDatabaseError(error, "get_gallery_events");
+      return `Error fetching events: ${error.message}`;
     }
 
-    const totalTime = performance.now() - startTime;
-    console.log(`[get_gallery_events] Query completed in ${totalTime.toFixed(2)}ms`);
-    console.log(`[get_gallery_events] Found ${data.length} events:`,
-      data.map((e, i) => `[${i}] ${e.title}`));
-
-    // Store results - these are from a gallery, no similarity scores
-    const eventsWithSimilarity = data.map(e => ({ ...e, similarity: 1.0 }));
-    agent.storeSearchResults(eventsWithSimilarity, []);
-
-    const currentState = agent.getSearchResults();
-    console.log(`[get_gallery_events] State after storing: ${currentState?.events.length || 0} events, ${currentState?.galleries.length || 0} galleries`);
-
-    // Format and return results
-    const formatted = formatToolResults({
-      data,
-      currentStateLength: currentState?.events.length || 0,
-      mapFn: (e, index) => ({
-        index,
-        title: e.title,
-        description: e.description || "",
-        artists: e.artists || [],
-        tags: e.tags || [],
-        start_at: e.start_at || "",
-        end_at: e.end_at || ""
-      })
-    });
-
     return {
-      found: formatted.found,
+      type: "event-results" as const,
       galleryId,
-      events: formatted.items
+      events: data,
     };
-  }
-});
-
-const showRecommendationsSchema = z.object({
-  eventIndices: z.array(z.number().int().min(0)).optional().describe("Array of indices (0-based) of events to display from the last search results"),
-  galleryIndices: z.array(z.number().int().min(0)).optional().describe("Array of indices (0-based) of galleries to display from the last search results"),
-  userContext: z.string().optional().describe("Description of why these recommendations match user preferences"),
-});
-
-const showRecommendations = tool({
-  description:
-    "Display specific search results as recommendation cards. Call this AFTER you've analyzed results from search tools (search_events_by_text, search_galleries_by_text, match_event, match_gallery). Provide indices of items you want to show (e.g., eventIndices: [0, 2, 5] to show the 1st, 3rd, and 6th events). You MUST provide personalized commentary in your response explaining why each recommendation matches the user.",
-  inputSchema: showRecommendationsSchema,
-  execute: async ({
-    eventIndices,
-    galleryIndices,
-    userContext,
-  }): Promise<EventToolResult | GalleryToolResult | CombinedToolResult> => {
-    console.log("[show_recommendations] Function called");
-    console.log("[show_recommendations] Input:", {
-      eventIndices,
-      galleryIndices,
-      userContext,
-    });
-
-    const { agent } = getCurrentAgent<Zine>();
-    if (!agent) {
-      console.error('[show_recommendations] Agent not available');
-      throw new Error("Agent not available");
-    }
-
-    const storedResults = agent.getSearchResults();
-
-    if (!storedResults) {
-      console.log("[show_recommendations] No stored search results found");
-      return {
-        type: "event-results",
-        query: "no results",
-        items: [],
-      };
-    }
-
-    console.log(`[show_recommendations] State has ${storedResults.events.length} events, ${storedResults.galleries.length} galleries`);
-
-    const hasEventIndices = eventIndices && eventIndices.length > 0;
-    const hasGalleryIndices = galleryIndices && galleryIndices.length > 0;
-
-    // If both types of indices provided, return combined result
-    if (hasEventIndices && hasGalleryIndices) {
-      const selectedEvents = eventIndices!
-        .filter(idx => idx < storedResults.events.length)
-        .map(idx => storedResults.events[idx]);
-
-      const selectedGalleries = galleryIndices!
-        .filter(idx => idx < storedResults.galleries.length)
-        .map(idx => storedResults.galleries[idx]);
-
-      console.log(`[show_recommendations] Displaying ${selectedEvents.length} events and ${selectedGalleries.length} galleries`);
-      console.log(`  Events:`, selectedEvents.map((e, i) => `[${eventIndices![i]}] ${e.title}`));
-      console.log(`  Galleries:`, selectedGalleries.map((g, i) => `[${galleryIndices![i]}] ${g.name}`));
-
-      return {
-        type: "combined-results",
-        query: userContext || "recommendations",
-        events: selectedEvents,
-        galleries: selectedGalleries,
-      } satisfies CombinedToolResult;
-    }
-
-    // Select events by indices only
-    if (hasEventIndices) {
-      const selectedEvents = eventIndices!
-        .filter(idx => idx < storedResults.events.length)
-        .map(idx => storedResults.events[idx]);
-
-      console.log(`[show_recommendations] Displaying ${selectedEvents.length} events:`,
-        selectedEvents.map((e, i) => `[${eventIndices![i]}] ${e.title} at ${e.gallery?.name}`));
-
-      return {
-        type: "event-results",
-        query: userContext || "recommendations",
-        items: selectedEvents,
-      } satisfies EventToolResult;
-    }
-
-    // Select galleries by indices only
-    if (hasGalleryIndices) {
-      const selectedGalleries = galleryIndices!
-        .filter(idx => idx < storedResults.galleries.length)
-        .map(idx => storedResults.galleries[idx]);
-
-      console.log(`[show_recommendations] Displaying ${selectedGalleries.length} galleries:`,
-        selectedGalleries.map((g, i) => `[${galleryIndices![i]}] ${g.name} in ${g.district}`));
-
-      return {
-        type: "gallery-results",
-        query: userContext || "recommendations",
-        items: selectedGalleries,
-      } satisfies GalleryToolResult;
-    }
-
-    // If no indices provided, return empty
-    console.log("[show_recommendations] No indices provided");
-    return {
-      type: "event-results",
-      query: "no results",
-      items: [],
-    };
-  }
+  },
 });
 
 export const tools = {
-  match_gallery: matchGallery,
-  match_event: matchEvent,
-  search_events_by_text: searchEventsByText,
-  search_galleries_by_text: searchGalleriesByText,
-  get_gallery_events: getGalleryEvents,
+  retrieve_galleries: retrieveGalleries,
   show_recommendations: showRecommendations,
-  update_user_requirements: updateUserRequirements
+  update_gallery_requirements: updateGalleryRequirements,
+  get_gallery_events: getGalleryEvents,
 } satisfies ToolSet;
 
 export const executions = {} as const;

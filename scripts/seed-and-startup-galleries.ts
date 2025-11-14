@@ -10,6 +10,7 @@ interface CSVRow {
   opening_hours: string;
   instagram: string;
   facebook: string;
+  google_maps: string;
   "manually checked": string;
 }
 
@@ -20,6 +21,7 @@ interface SeedAndStartupGalleryPayload {
   name?: string | null;
   address?: string | null;
   instagram?: string | null;
+  googleMapsUrl?: string | null;
   openingHours?: string | null;
 }
 
@@ -75,6 +77,7 @@ async function seedAndStartupGalleriesFromCSV(csvPath: string, apiUrl: string) {
         name: row.gallery_name && row.gallery_name.trim() !== "" ? row.gallery_name : null,
         address: row.address && row.address.trim() !== "" ? row.address : null,
         instagram: row.instagram && row.instagram.trim() !== "" ? row.instagram : null,
+        googleMapsUrl: row.google_maps && row.google_maps.trim() !== "" ? row.google_maps : null,
         openingHours: row.opening_hours && row.opening_hours.trim() !== "" ? row.opening_hours : null,
       };
 

@@ -4,14 +4,14 @@ import { ChatStatus, isToolUIPart } from "ai";
 import { TextMessage } from "./messages/text-message";
 import { ToolMessage } from "./messages/tool-message";
 import { ThinkingMessage } from "./messages/thinking-message";
-import type { EventMatchItem } from "../types/tool-results";
+import type { SavedEventCard } from "../types/chat-state";
 
 type MessageMeta = { createdAt: string; internal?: boolean };
 
 interface MessagesProps {
   messages: UIMessage<MessageMeta>[];
   status: ChatStatus;
-  onSaveToZine?: (event: EventMatchItem) => void;
+  onSaveToZine?: (event: SavedEventCard) => void;
   debugMode: boolean;
 }
 

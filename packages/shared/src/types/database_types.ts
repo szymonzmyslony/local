@@ -71,41 +71,6 @@ export type Database = {
           },
         ]
       }
-      event_occurrences: {
-        Row: {
-          end_at: string | null
-          event_id: string
-          id: string
-          present: boolean
-          start_at: string
-          timezone: string | null
-        }
-        Insert: {
-          end_at?: string | null
-          event_id: string
-          id?: string
-          present?: boolean
-          start_at: string
-          timezone?: string | null
-        }
-        Update: {
-          end_at?: string | null
-          event_id?: string
-          id?: string
-          present?: boolean
-          start_at?: string
-          timezone?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "event_occurrences_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       events: {
         Row: {
           created_at: string
@@ -113,9 +78,10 @@ export type Database = {
           gallery_id: string
           id: string
           page_id: string | null
-          start_at: string | null
+          start_at: string
           status: Database["public"]["Enums"]["event_status"]
           ticket_url: string | null
+          timezone: string | null
           title: string
           updated_at: string
         }
@@ -125,9 +91,10 @@ export type Database = {
           gallery_id: string
           id?: string
           page_id?: string | null
-          start_at?: string | null
+          start_at: string
           status?: Database["public"]["Enums"]["event_status"]
           ticket_url?: string | null
+          timezone?: string | null
           title: string
           updated_at?: string
         }
@@ -137,9 +104,10 @@ export type Database = {
           gallery_id?: string
           id?: string
           page_id?: string | null
-          start_at?: string | null
+          start_at?: string
           status?: Database["public"]["Enums"]["event_status"]
           ticket_url?: string | null
+          timezone?: string | null
           title?: string
           updated_at?: string
         }
@@ -230,6 +198,7 @@ export type Database = {
           embedding_created_at: string | null
           embedding_model: string | null
           gallery_id: string
+          google_maps_url: string | null
           instagram: string | null
           name: string | null
           phone: string | null
@@ -246,6 +215,7 @@ export type Database = {
           embedding_created_at?: string | null
           embedding_model?: string | null
           gallery_id: string
+          google_maps_url?: string | null
           instagram?: string | null
           name?: string | null
           phone?: string | null
@@ -262,6 +232,7 @@ export type Database = {
           embedding_created_at?: string | null
           embedding_model?: string | null
           gallery_id?: string
+          google_maps_url?: string | null
           instagram?: string | null
           name?: string | null
           phone?: string | null
@@ -400,11 +371,11 @@ export type Database = {
           event_id: string
           gallery: Json
           images: string[]
-          occurrences: Json
           start_at: string
           status: string
           tags: string[]
           ticket_url: string
+          timezone: string
           title: string
         }[]
       }
@@ -418,28 +389,6 @@ export type Database = {
           description: string
           id: string
           similarity: number
-        }[]
-      }
-      match_events_with_data: {
-        Args: {
-          match_count?: number
-          match_threshold?: number
-          query_embedding: string
-        }
-        Returns: {
-          artists: string[]
-          description: string
-          end_at: string
-          event_id: string
-          gallery: Database["public"]["CompositeTypes"]["gallery_result"]
-          images: string[]
-          occurrences: Database["public"]["CompositeTypes"]["event_occurrence_result"][]
-          similarity: number
-          start_at: string
-          status: string
-          tags: string[]
-          ticket_url: string
-          title: string
         }[]
       }
       match_galeries: {
@@ -478,28 +427,14 @@ export type Database = {
           tags: string[]
         }[]
       }
-      text_search_events: {
-        Args: { search_limit?: number; search_query?: string }
-        Returns: {
-          artists: string[]
-          description: string
-          end_at: string
-          event_id: string
-          gallery: Json
-          images: string[]
-          occurrences: Json
-          start_at: string
-          status: string
-          tags: string[]
-          ticket_url: string
-          title: string
-        }[]
-      }
-      text_search_galleries: {
+      search_galleries_filtered: {
         Args: {
           filter_district?: string
-          search_limit?: number
-          search_query?: string
+          filter_time_minutes?: number
+          filter_weekday?: number
+          match_count?: number
+          match_threshold?: number
+          query_embedding: string
         }
         Returns: {
           about: string
@@ -508,11 +443,11 @@ export type Database = {
           district: string
           email: string
           events_page: string
+          google_maps_url: string
           id: string
           instagram: string
           main_url: string
           name: string
-          normalized_main_url: string
           phone: string
           tags: string[]
         }[]
@@ -544,12 +479,6 @@ export type Database = {
       parse_status: "never" | "queued" | "ok" | "error"
     }
     CompositeTypes: {
-      event_occurrence_result: {
-        id: string | null
-        start_at: string | null
-        end_at: string | null
-        timezone: string | null
-      }
       gallery_result: {
         id: string | null
         name: string | null

@@ -5,8 +5,7 @@ import type { UIMessage } from "@ai-sdk/react";
 import { SidebarLayout } from "./components/sidebar-layout";
 import { Chat } from "./components/chat";
 import { JsonDisplay } from "./components/messages/json-display";
-import type { ZineChatState } from "./types/chat-state";
-import type { EventMatchItem } from "./types/tool-results";
+import type { ZineChatState, SavedEventCard } from "./types/chat-state";
 
 type MessageMeta = { createdAt: string; internal?: boolean };
 
@@ -55,7 +54,7 @@ export default function App() {
   });
 
   const handleSaveToZine = useCallback(
-    async (event: EventMatchItem) => {
+    async (event: SavedEventCard) => {
       if (!agentState) return;
 
       const savedCards = agentState.savedCards ?? [];

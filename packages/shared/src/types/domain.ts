@@ -1,7 +1,6 @@
 import type {
   Event,
   EventInfo,
-  EventOccurrence,
   Gallery,
   GalleryHours,
   GalleryInfo,
@@ -37,5 +36,4 @@ export type PageWithRelations = Page & {
 
 export type EventWithRelations = Event & {
   event_info: EventInfo | null;
-  event_occurrences: EventOccurrence[];
 };

@@ -22,8 +22,8 @@ export class ExtractGallery extends WorkflowEntrypoint<Env, Params> {
 
         console.log(`[ExtractGallery] Starting - gallery ${galleryId}`);
 
-        // Idempotency check: Skip if already extracted, but also get seeded address
-        const existingGallery = await step.do("check-if-already-extracted", async (): Promise<{ gallery_info?: { about?: string | null; email?: string | null; address?: string | null } | null } | null> => {
+        // Idempotency check: Skip if already extracted, but also get seeded fields
+        const existingGallery = await step.do("check-if-already-extracted", async (): Promise<{ gallery_info?: { about?: string | null; email?: string | null; address?: string | null; google_maps_url?: string | null } | null } | null> => {
             const gallery = await getGalleryWithInfo(supabase, galleryId);
             // Return only the fields we need to check
             return gallery ? { gallery_info: gallery.gallery_info } : null;
@@ -42,6 +42,7 @@ export class ExtractGallery extends WorkflowEntrypoint<Env, Params> {
         }
 
         const seededAddress = existingGallery?.gallery_info?.address ?? null;
+        const seededGoogleMapsUrl = existingGallery?.gallery_info?.google_maps_url ?? null;
         console.log(`[ExtractGallery] No existing extraction found, proceeding with extraction. Seeded address: ${seededAddress ?? "none"}`);
 
         // 1) Load gallery pages (main, about)
@@ -123,6 +124,7 @@ export class ExtractGallery extends WorkflowEntrypoint<Env, Params> {
                 gallery_id: galleryId,
                 about: result.about ?? null,
                 address: seededAddress ?? null, // Preserve seeded address
+                google_maps_url: seededGoogleMapsUrl ?? null, // Preserve seeded Google Maps URL
                 email: result.email ?? null,
                 phone: result.phone ?? null,
                 district: result.district ?? null,
@@ -130,7 +132,7 @@ export class ExtractGallery extends WorkflowEntrypoint<Env, Params> {
                 data: result,
                 updated_at: new Date().toISOString(),
             };
-            console.log(`[ExtractGallery] Saving gallery_info payload (email="${galleryInfoData.email}", district="${galleryInfoData.district}", address="${galleryInfoData.address}")`);
+            console.log(`[ExtractGallery] Saving gallery_info payload (email="${galleryInfoData.email}", district="${galleryInfoData.district}", address="${galleryInfoData.address}", google_maps_url="${galleryInfoData.google_maps_url}")`);
             await upsertGalleryInfo(supabase, galleryInfoData);
             console.log(`[ExtractGallery] Successfully saved gallery_info for gallery ${galleryId}`);
         });

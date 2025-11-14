@@ -1,50 +1,67 @@
 import type { Database } from "@shared";
-import type { EventMatchItem, GalleryMatchItem, ToolResultPayload } from "./tool-results";
 
 export type GalleryDistrict = Database["public"]["Enums"]["gallery_district"];
 
-export interface UserRequirements {
+/**
+ * Gallery-specific user requirements
+ */
+export interface GalleryRequirements {
   district: GalleryDistrict | null;
-  artists: string[];
   aesthetics: string[];
   mood: string | null;
+  preferredTime: {
+    weekday: number;        // 0-6 (0=Sunday)
+    timeMinutes: number;    // 0-1439 (minutes since midnight)
+  } | null;
 }
 
-export type UserLanguage = "pl" | "en" | null;
-
-export interface SignalCheckResult {
-  hasTime: boolean;
-  hasLocation: boolean;
-  hasInterest: boolean;
-  signalCount: number;
-  missingSignals: string[];
-  suggestedQuestion: string | null;
+/**
+ * Event-specific requirements (empty for now - implement later)
+ */
+export interface EventRequirements {
+  // TODO: Implement when adding event search
 }
 
-export type SavedEventCard = EventMatchItem;
+/**
+ * Complete user requirements separated by domain
+ */
+export interface UserRequirements {
+  gallery: GalleryRequirements;
+  event: EventRequirements;
+}
 
+/**
+ * Saved event card type (from get_gallery_events)
+ */
+export type SavedEventCard = Database["public"]["Functions"]["get_gallery_events"]["Returns"][number];
+
+/**
+ * Chat state - no search result storage (stateless retrieval)
+ */
 export interface ZineChatState {
   userRequirements: UserRequirements;
   savedCards: SavedEventCard[];
-  lastSearchResults: {
-    events: EventMatchItem[];
-    galleries: GalleryMatchItem[];
-  } | null;
+}
+
+export function createInitialGalleryRequirements(): GalleryRequirements {
+  return {
+    district: null,
+    aesthetics: [],
+    mood: null,
+    preferredTime: null
+  };
 }
 
 export function createInitialUserRequirements(): UserRequirements {
   return {
-    district: null,
-    artists: [],
-    aesthetics: [],
-    mood: null
+    gallery: createInitialGalleryRequirements(),
+    event: {}
   };
 }
 
 export function createInitialChatState(): ZineChatState {
   return {
     userRequirements: createInitialUserRequirements(),
-    savedCards: [],
-    lastSearchResults: null
+    savedCards: []
   };
 }

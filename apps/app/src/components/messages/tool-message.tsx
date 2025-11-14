@@ -2,12 +2,12 @@ import type { ToolUIPart } from "ai";
 import { getToolName } from "ai";
 import { ToolCallDisplay } from "./tool-call-display";
 import { ToolResult } from "./tool-result";
-import type { EventMatchItem } from "../../types/tool-results";
+import type { SavedEventCard } from "../../types/chat-state"; // was SavedEventCard from "../../types/tool-results";
 
 interface ToolMessageProps {
   part: ToolUIPart;
   timestamp: string;
-  onSaveToZine?: (event: EventMatchItem) => void;
+  onSaveToZine?: (event: SavedEventCard) => void;
   debugMode: boolean;
 }
 

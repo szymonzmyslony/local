@@ -3,8 +3,7 @@ import type { UIMessage } from "@ai-sdk/react";
 import { ArrowUp, Loader2 } from "lucide-react";
 import { Messages } from "./messages";
 import { JsonDisplay } from "./messages/json-display";
-import type { EventMatchItem } from "../types/tool-results";
-import type { ZineChatState } from "../types/chat-state";
+import type { SavedEventCard, ZineChatState } from "../types/chat-state";
 import { ChatStatus } from "ai";
 
 type MessageMeta = { createdAt: string; internal?: boolean };
@@ -18,7 +17,7 @@ interface ChatProps {
     metadata: MessageMeta;
   }) => Promise<void>;
   status: ChatStatus;
-  onSaveToZine: (event: EventMatchItem) => Promise<void>;
+  onSaveToZine: (event: SavedEventCard) => Promise<void>;
   debugMode: boolean;
   agentState: ZineChatState | null;
 }
@@ -117,8 +116,7 @@ export function Chat({
           <div className="mx-auto w-full md:max-w-2xl xxl:max-w-3xl">
             <JsonDisplay
               data={{
-                userRequirements: agentState?.userRequirements,
-                lastSearchResults: agentState?.lastSearchResults,
+                galleryRequirements: agentState?.userRequirements.gallery,
                 savedCardsCount: agentState?.savedCards?.length || 0
               }}
               title="Agent State"

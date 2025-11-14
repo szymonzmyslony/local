@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { Button } from "@shared/ui";
-import type { EventMatchItem } from "../../types/tool-results";
+import type { SavedEventCard } from "../../types/chat-state"; // was SavedEventCard from "../../types/tool-results";
 
 interface EventCardsProps {
-  events: EventMatchItem[];
-  onSaveToZine?: (event: EventMatchItem) => void;
+  events: SavedEventCard[];
+  onSaveToZine?: (event: SavedEventCard) => void;
 }
 
 export function EventCards({ events, onSaveToZine }: EventCardsProps) {
@@ -35,23 +35,26 @@ export function EventCards({ events, onSaveToZine }: EventCardsProps) {
 }
 
 interface EventCardProps {
-  event: EventMatchItem;
-  onSaveToZine?: (event: EventMatchItem) => void;
+  event: SavedEventCard;
+  onSaveToZine?: (event: SavedEventCard) => void;
 }
 
 function EventCard({ event, onSaveToZine }: EventCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
+  // Cast gallery from Json to proper type
+  const gallery = event.gallery as unknown as { name?: string; main_url?: string; normalized_main_url?: string } | null;
+
   const locationLabel =
-    event.gallery?.name ??
-    event.gallery?.normalized_main_url ??
-    event.gallery?.main_url ??
+    gallery?.name ??
+    gallery?.normalized_main_url ??
+    gallery?.main_url ??
     null;
 
   const description =
     event.description ?? "No description available for this event.";
 
-  const primaryLink = event.gallery?.main_url ?? null;
+  const primaryLink = gallery?.main_url ?? null;
   const needsTruncation = description.length > 200;
 
   return (

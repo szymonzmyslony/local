@@ -15,7 +15,6 @@ export type PageStructured = Tables<"page_structured">;
 
 export type Event = Tables<"events">;
 export type EventInfo = Tables<"event_info">;
-export type EventOccurrence = Tables<"event_occurrences">;
 
 // Insert types
 export type GalleryInsert = TablesInsert<"galleries">;
@@ -28,7 +27,6 @@ export type PageStructuredInsert = TablesInsert<"page_structured">;
 
 export type EventInsert = TablesInsert<"events">;
 export type EventInfoInsert = TablesInsert<"event_info">;
-export type EventOccurrenceInsert = TablesInsert<"event_occurrences">;
 
 // Update types
 export type GalleryUpdate = TablesUpdate<"galleries">;
@@ -41,7 +39,6 @@ export type PageStructuredUpdate = TablesUpdate<"page_structured">;
 
 export type EventUpdate = TablesUpdate<"events">;
 export type EventInfoUpdate = TablesUpdate<"event_info">;
-export type EventOccurrenceUpdate = TablesUpdate<"event_occurrences">;
 
 // Enum types
 export type EventStatus = Enums<"event_status">;
@@ -67,14 +64,7 @@ export type EventWithInfo = Event & {
     event_info: EventInfo | null;
 };
 
-export type EventWithOccurrences = Event & {
-    event_occurrences: EventOccurrence[];
-};
-
-export type EventComplete = Event & {
-    event_info: EventInfo | null;
-    event_occurrences: EventOccurrence[];
-};
+// Removed: EventWithOccurrences and EventComplete - event_occurrences table no longer exists
 
 export type GalleryWithInfo = Gallery & {
     gallery_info: GalleryInfo | null;

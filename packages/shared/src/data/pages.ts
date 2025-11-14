@@ -242,12 +242,4 @@ export async function insertPages(
   }
 }
 
-export async function deleteEventOccurrencesByEventId(
-  client: SupabaseServiceClient,
-  eventId: string
-): Promise<void> {
-  const { error } = await client.from("event_occurrences").delete().eq("event_id", eventId);
-  if (error) {
-    throw toError("deleteEventOccurrencesByEventId", error);
-  }
-}
+// Removed: deleteEventOccurrencesByEventId - event_occurrences table no longer exists

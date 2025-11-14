@@ -6,7 +6,6 @@ import type {
   EventInfoInsert,
   EventInfoUpdate,
   EventInsert,
-  EventOccurrenceInsert,
   EventUpdate
 } from "../types/common";
 import type { EventListItem, EventWithRelations } from "../types/domain";
@@ -21,7 +20,7 @@ export async function selectEventsByGallery(
 ): Promise<EventWithRelations[]> {
   const { data, error } = await client
     .from("events")
-    .select("*, event_info(*), event_occurrences(*)")
+    .select("*, event_info(*)")
     .eq("gallery_id", galleryId)
     .order("start_at", { ascending: true })
     .limit(200);
@@ -32,8 +31,7 @@ export async function selectEventsByGallery(
 
   return (data ?? []).map(event => ({
     ...event,
-    event_info: event.event_info ?? null,
-    event_occurrences: event.event_occurrences ?? []
+    event_info: event.event_info ?? null
   })) as EventWithRelations[];
 }
 
@@ -161,30 +159,8 @@ export async function upsertEventInfo(
   }
 }
 
-export async function replaceEventOccurrences(
-  client: SupabaseServiceClient,
-  occurrences: EventOccurrenceInsert[],
-  eventId: string
-): Promise<void> {
-  const { error: deleteError } = await client
-    .from("event_occurrences")
-    .delete()
-    .eq("event_id", eventId);
-
-  if (deleteError) {
-    throw toError("replaceEventOccurrences.delete", deleteError);
-  }
-
-  if (occurrences.length === 0) {
-    return;
-  }
-
-  const { error } = await client.from("event_occurrences").insert(occurrences);
-
-  if (error) {
-    throw toError("replaceEventOccurrences", error);
-  }
-}
+// Removed: replaceEventOccurrences - event_occurrences table no longer exists
+// Event timing is now stored directly in events table (start_at, end_at, timezone)
 
 export async function listEvents(
   client: SupabaseServiceClient,
@@ -318,7 +294,7 @@ export async function getEventWithRelations(
 ): Promise<EventWithRelations | null> {
   const { data, error } = await client
     .from("events")
-    .select("*, event_info(*), event_occurrences(*)")
+    .select("*, event_info(*)")
     .eq("id", eventId)
     .maybeSingle();
 
@@ -332,8 +308,7 @@ export async function getEventWithRelations(
 
   const event: EventWithRelations = {
     ...data,
-    event_info: data.event_info ?? null,
-    event_occurrences: data.event_occurrences ?? []
+    event_info: data.event_info ?? null
   };
 
   return event;

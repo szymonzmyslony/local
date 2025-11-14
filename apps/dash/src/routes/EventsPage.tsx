@@ -79,9 +79,9 @@ export function EventsPage() {
       {
         id: "start",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Start" />,
-        accessorFn: row => row.start_at ?? row.event_occurrences[0]?.start_at ?? null,
+        accessorFn: row => row.start_at ?? null,
         cell: ({ row }) => {
-          const start = row.original.start_at ?? row.original.event_occurrences[0]?.start_at ?? null;
+          const start = row.original.start_at ?? null;
           return <span className="text-sm text-slate-700">{formatEventDate(start)}</span>;
         }
       },

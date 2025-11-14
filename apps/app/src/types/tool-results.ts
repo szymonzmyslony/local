@@ -1,29 +1,21 @@
-
 import type { Database } from "@shared";
+import type { GallerySearchResult } from "../services/gallery-search";
 
-export type GalleryMatchItem =
-  Database["public"]["Functions"]["match_gallery_with_data"]["Returns"][number];
-
-export type EventMatchItem =
-  Database["public"]["Functions"]["match_events_with_data"]["Returns"][number];
-
+/**
+ * Gallery results for display
+ */
 export interface GalleryToolResult {
   type: "gallery-results";
-  query: string;
-  items: GalleryMatchItem[];
+  items: GallerySearchResult[];
 }
 
+/**
+ * Event results (from get_gallery_events)
+ */
 export interface EventToolResult {
   type: "event-results";
-  query: string;
-  items: EventMatchItem[];
+  galleryId: string;
+  events: Database["public"]["Functions"]["get_gallery_events"]["Returns"];
 }
 
-export interface CombinedToolResult {
-  type: "combined-results";
-  query: string;
-  events: EventMatchItem[];
-  galleries: GalleryMatchItem[];
-}
-
-export type ToolResultPayload = GalleryToolResult | EventToolResult | CombinedToolResult;
+export type ToolResultPayload = GalleryToolResult | EventToolResult;

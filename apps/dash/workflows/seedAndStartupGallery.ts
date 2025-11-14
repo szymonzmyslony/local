@@ -23,6 +23,7 @@ type Params = {
     name?: string | null;
     address?: string | null;
     instagram?: string | null;
+    googleMapsUrl?: string | null;
     openingHours?: string | null;
 };
 
@@ -35,7 +36,7 @@ type Params = {
  */
 export class SeedAndStartupGallery extends WorkflowEntrypoint<Env, Params> {
     async run(event: WorkflowEvent<Params>, step: WorkflowStep) {
-        const { mainUrl, aboutUrl, eventsUrl, name, address, instagram, openingHours } = event.payload;
+        const { mainUrl, aboutUrl, eventsUrl, name, address, instagram, googleMapsUrl, openingHours } = event.payload;
 
         console.log(`[SeedAndStartupGallery] Starting full gallery startup - name: ${name ?? 'none'}, main: ${mainUrl}`);
 
@@ -67,6 +68,7 @@ export class SeedAndStartupGallery extends WorkflowEntrypoint<Env, Params> {
                 name: name ?? null,
                 address: address ?? null,
                 instagram: instagram ?? null,
+                google_maps_url: googleMapsUrl ?? null,
                 data: {},
             };
             await upsertGalleryInfo(supabase, galleryInfoRecord);

@@ -1,8 +1,8 @@
 import { useState } from "react";
-import type { GalleryMatchItem } from "../../types/tool-results";
+import type { GallerySearchResult } from "../../services/gallery-search";
 
 interface GalleryCardsProps {
-  galleries: GalleryMatchItem[];
+  galleries: GallerySearchResult[];
 }
 
 export function GalleryCards({ galleries }: GalleryCardsProps) {
@@ -32,14 +32,14 @@ export function GalleryCards({ galleries }: GalleryCardsProps) {
 }
 
 interface GalleryCardProps {
-  gallery: GalleryMatchItem;
+  gallery: GallerySearchResult;
 }
 
 function GalleryCard({ gallery }: GalleryCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const description =
-    gallery.description ?? "No description available for this gallery.";
+    gallery.about ?? "No description available for this gallery.";
 
   const primaryLink = gallery.main_url ?? null;
   const needsTruncation = description.length > 200;
@@ -48,8 +48,8 @@ function GalleryCard({ gallery }: GalleryCardProps) {
     <div className="flex-shrink-0 w-[340px] h-full rounded-2xl p-6 bg-gradient-to-br from-[#fff8fa] to-[#ffecef] shadow-sm hover:shadow-md transition-all duration-200">
       <h2 className="text-sm font-semibold text-gray-900">{gallery.name}</h2>
 
-      {gallery.normalized_main_url && (
-        <p className="text-xs text-gray-600 mt-1">{gallery.normalized_main_url}</p>
+      {gallery.district && (
+        <p className="text-xs text-gray-600 mt-1">{gallery.district}</p>
       )}
 
       <div className="mt-3">

@@ -261,89 +261,6 @@ function EventEditorCard({ event, page, pendingAction, onSave, onProcess }: Even
         </Field>
       </div>
 
-      <section className="space-y-3">
-        <header className="flex items-center justify-between">
-          <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">Occurrences</span>
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={disableInputs}
-            onClick={() =>
-              setForm(current => ({
-                ...current,
-                occurrences: [
-                  ...current.occurrences,
-                  {
-                    id: generateId(),
-                    start_at: "",
-                    end_at: "",
-                    timezone: ""
-                  }
-                ]
-              }))
-            }
-          >
-            Add occurrence
-          </Button>
-        </header>
-        {form.occurrences.length === 0 ? (
-          <p className="text-xs text-slate-500">No occurrences recorded.</p>
-        ) : (
-          <div className="space-y-3">
-            {form.occurrences.map((occurrence, index) => (
-              <div key={occurrence.id ?? `occ-${index}`} className="grid gap-3 md:grid-cols-[220px_220px_140px_auto] md:items-center">
-                <Input
-                  type="datetime-local"
-                  value={occurrence.start_at}
-                  onChange={event =>
-                    setForm(current => ({
-                      ...current,
-                      occurrences: updateOccurrence(current.occurrences, index, { start_at: event.target.value })
-                    }))
-                  }
-                  disabled={disableInputs}
-                />
-                <Input
-                  type="datetime-local"
-                  value={occurrence.end_at}
-                  onChange={event =>
-                    setForm(current => ({
-                      ...current,
-                      occurrences: updateOccurrence(current.occurrences, index, { end_at: event.target.value })
-                    }))
-                  }
-                  disabled={disableInputs}
-                />
-                <Input
-                  value={occurrence.timezone}
-                  onChange={event =>
-                    setForm(current => ({
-                      ...current,
-                      occurrences: updateOccurrence(current.occurrences, index, { timezone: event.target.value })
-                    }))
-                  }
-                  placeholder="Timezone"
-                  disabled={disableInputs}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  disabled={disableInputs}
-                  onClick={() =>
-                    setForm(current => ({
-                      ...current,
-                      occurrences: current.occurrences.filter((_, itemIndex) => itemIndex !== index)
-                    }))
-                  }
-                >
-                  Remove
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
       <div className="flex justify-end">
         <Button type="submit" variant="primary" disabled={disableInputs}>
           {disableInputs ? "Saving…" : "Save event"}
@@ -404,12 +321,6 @@ type EventFormState = {
   description: string;
   tags: string;
   artists: string;
-  occurrences: Array<{
-    id: string | null;
-    start_at: string;
-    end_at: string;
-    timezone: string;
-  }>;
   created_at: string;
 };
 
@@ -418,17 +329,11 @@ function toFormState(event: GalleryEvent): EventFormState {
     title: event.title,
     status: event.status,
     start_at: toLocalInput(event.start_at),
-    end_at: toLocalInput(event.end_at),
+    end_at: toLocalInput(event.end_at ?? null),
     ticket_url: event.ticket_url ?? "",
     description: event.event_info?.description ?? "",
     tags: (event.event_info?.tags ?? []).join(", "),
     artists: (event.event_info?.artists ?? []).join(", "),
-    occurrences: (event.event_occurrences ?? []).map(item => ({
-      id: item.id,
-      start_at: toLocalInput(item.start_at),
-      end_at: toLocalInput(item.end_at),
-      timezone: item.timezone ?? ""
-    })),
     created_at: event.created_at
   };
 }
@@ -438,38 +343,16 @@ function toStructuredPayload(form: EventFormState): EventStructuredPayload {
     event: {
       title: form.title.trim(),
       status: form.status,
-      start_at: fromLocalInput(form.start_at),
-      end_at: fromLocalInput(form.end_at),
+      start_at: fromLocalInput(form.start_at) ?? "",
+      end_at: fromLocalInput(form.end_at) ?? null,
       ticket_url: normalizeField(form.ticket_url)
     },
     info: {
       description: normalizeField(form.description),
       tags: parseList(form.tags),
       artists: parseList(form.artists)
-    },
-    occurrences: form.occurrences
-      .map(item => {
-        const start_at = fromLocalInput(item.start_at);
-        if (!start_at) {
-          return null;
-        }
-        return {
-          id: item.id ?? undefined,
-          start_at,
-          end_at: fromLocalInput(item.end_at),
-          timezone: normalizeField(item.timezone)
-        };
-      })
-      .filter((entry): entry is EventStructuredPayload["occurrences"][number] => entry !== null)
+    }
   };
-}
-
-function updateOccurrence(
-  occurrences: EventFormState["occurrences"],
-  index: number,
-  patch: Partial<EventFormState["occurrences"][number]>
-): EventFormState["occurrences"] {
-  return occurrences.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item));
 }
 
 function normalizeField(value: string): string | null {
@@ -510,13 +393,6 @@ function fromLocalInput(value: string): string | null {
     return null;
   }
   return parsed.toISOString();
-}
-
-function generateId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function formatDateTime(value: string): string {
