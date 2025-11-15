@@ -39,7 +39,7 @@
         display: flex;
         justify-content: space-between;
         align-items: flex-start;
-        margin-bottom: 60px;
+        margin-bottom: 32px;
         gap: 40px;
       }
 
@@ -52,8 +52,13 @@
       }
 
       .top-left {
-        flex: 1;
-        max-width: 600px;
+        flex: 0 0 75%;
+      }
+
+      @media (max-width: 1024px) {
+        .top-left {
+          flex: 1;
+        }
       }
 
       .main-heading {
@@ -71,14 +76,20 @@
       }
 
       .main-description {
-        font-size: 18px;
+        font-size: 40px;
         color: #0140b6;
-        line-height: 1.6;
+        line-height: 1.2;
+      }
+
+      @media (max-width: 1024px) {
+        .main-description {
+          font-size: 32px;
+        }
       }
 
       @media (max-width: 768px) {
         .main-description {
-          font-size: 16px;
+          font-size: 24px;
         }
       }
 
@@ -89,11 +100,11 @@
 
       .btn-start-exploring {
         background-color: #161a23;
-        color: #fff;
-        padding: 16px 32px;
+        color: #eee7df;
+        padding: 8px 24px;
         border-radius: 8px;
         text-decoration: none;
-        font-size: 16px;
+        font-size: 14px;
         font-weight: 500;
         transition: opacity 0.2s;
         white-space: nowrap;
@@ -105,26 +116,39 @@
 
       /* Interactive Selection Section */
       .selection-section {
-        margin-bottom: 80px;
+        margin-bottom: 32px;
+        width: 100%;
       }
 
       .describe-label {
-        font-size: 20px;
-        color: #161a23;
-        margin-bottom: 32px;
-        font-weight: 500;
+        font-size: 14px;
+        color: #0140b6;
+        margin-bottom: 0px;
+        font-weight: 400;
       }
 
       .selection-items {
         display: flex;
         align-items: center;
-        gap: 24px;
-        flex-wrap: wrap;
+        justify-content: space-between;
+        width: 100%;
+        gap: 92px;
       }
 
-      @media (max-width: 768px) {
+      @media (max-width: 1024px) {
         .selection-items {
+          flex-direction: column;
+          align-items: flex-start;
           gap: 16px;
+        }
+
+        .selection-item {
+          align-items: flex-start;
+          flex: none;
+        }
+
+        .plus-symbol {
+          display: none;
         }
       }
 
@@ -133,22 +157,15 @@
         flex-direction: column;
         align-items: center;
         gap: 12px;
+        flex: 1;
       }
 
       .selection-image {
-        width: 120px;
-        height: 120px;
-        background-color: #0140b6;
+        width: 100%;
+        height: auto;
         border-radius: 8px;
         object-fit: cover;
         display: block;
-      }
-
-      @media (max-width: 768px) {
-        .selection-image {
-          width: 100px;
-          height: 100px;
-        }
       }
 
       .selection-label {
@@ -158,10 +175,11 @@
       }
 
       .plus-symbol {
-        font-size: 32px;
+        font-size: 48px;
         color: #0140b6;
-        font-weight: 300;
+        font-weight: bold;
         line-height: 1;
+        flex: 0 0 auto;
       }
 
       /* Bottom Section */
@@ -170,7 +188,7 @@
         justify-content: space-between;
         align-items: flex-end;
         gap: 40px;
-        margin-top: auto;
+        margin-top: 0;
       }
 
       @media (max-width: 768px) {
@@ -187,16 +205,11 @@
       }
 
       .bottom-text {
-        font-size: 18px;
-        color: #161a23;
+        font-size: 14px;
+        color: #0140b6;
         line-height: 1.6;
         margin-bottom: 24px;
-      }
-
-      @media (max-width: 768px) {
-        .bottom-text {
-          font-size: 16px;
-        }
+        font-weight: 400;
       }
 
       .bottom-right {
@@ -205,7 +218,7 @@
       }
 
       .large-logo {
-        font-size: 72px;
+        font-size: 112px;
         font-weight: bold;
         color: #0140b6;
         letter-spacing: 2px;
@@ -214,7 +227,7 @@
 
       @media (max-width: 768px) {
         .large-logo {
-          font-size: 48px;
+          font-size: 64px;
         }
       }
     </style>
@@ -224,12 +237,11 @@
       <!-- Top Section -->
       <div class="top-section">
         <div class="top-left">
-          <h1 class="main-heading">Zine Local</h1>
           <p class="main-description">
-            is your local guide through Warsaw's creative pulse. The small
-            openings, late-night screenings, pop-up performances and hidden
-            corners that never make it past noisy feeds or overcrowded event
-            sites.
+            <b>Zine Local</b> is your local guide through Warsaw's creative
+            pulse. The small openings, late-night screenings, pop-up
+            performances and hidden corners that never make it past noisy feeds
+            or overcrowded event sites.
           </p>
         </div>
         <div class="top-right">
@@ -247,13 +259,18 @@
         <p class="describe-label">Describe your:</p>
         <div class="selection-items">
           <div class="selection-item">
-            <img src="" alt="Mood" class="selection-image" id="mood-image" />
+            <img
+              src="mood.png"
+              alt="Mood"
+              class="selection-image"
+              id="mood-image"
+            />
             <span class="selection-label">mood</span>
           </div>
           <span class="plus-symbol">+</span>
           <div class="selection-item">
             <img
-              src=""
+              src="location.png"
               alt="Location"
               class="selection-image"
               id="location-image"
@@ -262,7 +279,12 @@
           </div>
           <span class="plus-symbol">+</span>
           <div class="selection-item">
-            <img src="" alt="Time" class="selection-image" id="time-image" />
+            <img
+              src="time.png"
+              alt="Time"
+              class="selection-image"
+              id="time-image"
+            />
             <span class="selection-label">time</span>
           </div>
         </div>
