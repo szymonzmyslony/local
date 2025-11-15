@@ -63,12 +63,12 @@ const retrieveGalleries = tool({
       .optional()
       .describe("OPTIONAL: Max results (default: 20)"),
   })
-  .refine(
-    (data) => data.searchQuery || data.district || data.openAt,
-    {
-      message: "Must provide at least one of: searchQuery, district, or openAt"
-    }
-  ),
+    .refine(
+      (data) => data.searchQuery || data.district || data.openAt,
+      {
+        message: "Must provide at least one of: searchQuery, district, or openAt"
+      }
+    ),
   execute: async (params) => {
     console.log("[retrieve_galleries] Called with params:", params);
 
@@ -148,44 +148,44 @@ const showRecommendations = tool({
   },
 });
 
-/**
- * Tool 3: Update gallery requirements
- * Silently updates user's gallery preferences
- */
-const updateGalleryRequirements = tool({
-  description: `
-    Silently update user's gallery preferences. Never announce this action.
-    Call when user mentions district, aesthetics, mood, or time preferences.
-  `,
-  inputSchema: z.object({
-    district: districtEnum.optional(),
-    aesthetics: z
-      .array(z.string().trim().min(1))
-      .optional()
-      .describe("Aesthetic keywords: minimalist, contemporary, experimental, etc."),
-    mood: z
-      .string()
-      .trim()
-      .min(1)
-      .optional()
-      .describe("Mood/vibe: calm, energetic, contemplative, playful, etc."),
-    preferredTime: z
-      .object({
-        weekday: z.number().int().min(0).max(6),
-        timeMinutes: z.number().int().min(0).max(1439),
-      })
-      .optional()
-      .describe("Preferred visiting time"),
-  }),
-  execute: async (params) => {
-    const { agent } = getCurrentAgent<Zine>();
-    if (!agent) throw new Error("Agent not available");
+// /**
+//  * Tool 3: Update gallery requirements
+//  * Silently updates user's gallery preferences
+//  */
+// const updateGalleryRequirements = tool({
+//   description: `
+//     Silently update user's gallery preferences. Never announce this action.
+//     Call when user mentions district, aesthetics, mood, or time preferences.
+//   `,
+//   inputSchema: z.object({
+//     district: districtEnum.optional(),
+//     aesthetics: z
+//       .array(z.string().trim().min(1))
+//       .optional()
+//       .describe("Aesthetic keywords: minimalist, contemporary, experimental, etc."),
+//     mood: z
+//       .string()
+//       .trim()
+//       .min(1)
+//       .optional()
+//       .describe("Mood/vibe: calm, energetic, contemplative, playful, etc."),
+//     preferredTime: z
+//       .object({
+//         weekday: z.number().int().min(0).max(6),
+//         timeMinutes: z.number().int().min(0).max(1439),
+//       })
+//       .optional()
+//       .describe("Preferred visiting time"),
+//   }),
+//   execute: async (params) => {
+//     const { agent } = getCurrentAgent<Zine>();
+//     if (!agent) throw new Error("Agent not available");
 
-    agent.updateGalleryRequirements(params);
+//     agent.updateGalleryRequirements(params);
 
-    return { success: true };
-  },
-});
+//     return { success: true };
+//   },
+// });
 
 /**
  * Tool 4: Get gallery events
@@ -272,12 +272,12 @@ const searchEventsT = tool({
       .optional()
       .describe("OPTIONAL: Max results (default: 20)"),
   })
-  .refine(
-    (data) => data.searchQuery || (data.artists && data.artists.length > 0),
-    {
-      message: "Must provide at least one of: searchQuery or artists"
-    }
-  ),
+    .refine(
+      (data) => data.searchQuery || (data.artists && data.artists.length > 0),
+      {
+        message: "Must provide at least one of: searchQuery or artists"
+      }
+    ),
   execute: async (params) => {
     console.log("[search_events] Called with params:", params);
 
@@ -318,7 +318,6 @@ const searchEventsT = tool({
 export const tools = {
   retrieve_galleries: retrieveGalleries,
   show_recommendations: showRecommendations,
-  update_gallery_requirements: updateGalleryRequirements,
   get_gallery_events: getGalleryEvents,
   search_events: searchEventsT,
 } satisfies ToolSet;

@@ -45,21 +45,21 @@ export type SavedEventCard = Database["public"]["Functions"]["get_gallery_events
  */
 export type ChannelContext =
   | {
-      channel: 'web';
-      sessionId: string;
-    }
+    channel: 'web';
+    sessionId: string;
+  }
   | {
-      channel: 'whatsapp';
-      waId: string;           // WhatsApp user ID
-      messageId: string;      // Current message ID (for read receipts)
-      phoneNumber: string;    // User's phone number
-    };
+    channel: 'whatsapp';
+    waId: string;           // WhatsApp user ID
+    messageId: string;      // Current message ID (for read receipts)
+    phoneNumber: string;    // User's phone number
+  };
 
 /**
  * Chat state - no search result storage (stateless retrieval)
  */
 export interface ZineChatState {
-  userRequirements: UserRequirements;
+  // userRequirements: UserRequirements;
   savedCards: SavedEventCard[];
   channelContext?: ChannelContext; // Optional to support initialState, set on first message
 }
@@ -82,7 +82,7 @@ export function createInitialUserRequirements(): UserRequirements {
 
 export function createInitialChatState(channelContext?: ChannelContext): ZineChatState {
   return {
-    userRequirements: createInitialUserRequirements(),
+    // userRequirements: createInitialUserRequirements(),
     savedCards: [],
     channelContext,
   };

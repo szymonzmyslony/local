@@ -63,23 +63,23 @@ export class Zine extends AIChatAgent<Env, ZineChatState> {
     console.log(`[Zine] ✅ saveMessages() completed, now ${this.messages.length} total messages`);
   }
 
-  /**
-   * Update gallery requirements - called by update_gallery_requirements tool
-   */
-  updateGalleryRequirements(requirements: Partial<GalleryRequirements>): void {
-    const currentState = this.state ?? createInitialChatState();
+  // /**
+  //  * Update gallery requirements - called by update_gallery_requirements tool
+  //  */
+  // updateGalleryRequirements(requirements: Partial<GalleryRequirements>): void {
+  //   const currentState = this.state ?? createInitialChatState();
 
-    this.setState({
-      ...currentState,
-      userRequirements: {
-        ...currentState.userRequirements,
-        gallery: {
-          ...currentState.userRequirements.gallery,
-          ...requirements,
-        },
-      },
-    });
-  }
+  //   this.setState({
+  //     ...currentState,
+  //     userRequirements: {
+  //       ...currentState.userRequirements,
+  //       gallery: {
+  //         ...currentState.userRequirements.gallery,
+  //         ...requirements,
+  //       },
+  //     },
+  //   });
+  // }
 
   /**
    * Handles incoming chat messages and manages the response stream
@@ -131,9 +131,8 @@ Format your gallery recommendations as:
 ℹ️ Brief about text
 🔗 Website
 
-Be warm, concise, and match the user's language (Polish/English). Quote from actual gallery descriptions.
+Be warm, concise, and match the user's language (Polish/English). Quote from actual gallery descriptions.`,
 
-Current preferences: ${JSON.stringify(this.state.userRequirements.gallery)}`,
 
             messages: convertToModelMessages(processedMessages),
             model,
@@ -143,7 +142,7 @@ Current preferences: ${JSON.stringify(this.state.userRequirements.gallery)}`,
                 reasoningEffort: "minimal",
               } satisfies OpenAIResponsesProviderOptions,
             },
-            onFinish: (async (finishResult) => {
+            onFinish: (async (finishResult: any) => {
               console.log('[AI] ✅ AI processing finished');
               console.log(`[AI] 📊 Response length: ${finishResult.text?.length || 0} chars`);
               console.log(`[AI] 🔧 Tool calls made: ${finishResult.toolCalls?.length || 0}`);
