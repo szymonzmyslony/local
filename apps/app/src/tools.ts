@@ -103,6 +103,7 @@ const retrieveGalleries = tool({
 /**
  * Tool 2: Show gallery recommendations
  * Refetches galleries by IDs and displays as cards
+ * Context-aware: Returns UI data for web, sends WhatsApp messages for WhatsApp
  */
 const showRecommendations = tool({
   description: `
@@ -135,9 +136,11 @@ const showRecommendations = tool({
       return `Error fetching galleries: ${error.message}`;
     }
 
-    console.log(`[show_recommendations] Displaying ${data.length} galleries`);
+    console.log(`[show_recommendations] Returning ${data.length} galleries as data`);
 
-    // Return in format expected by UI
+    // Return data for both web and WhatsApp
+    // For web: React UI will render cards
+    // For WhatsApp: AI will format and include in text response
     return {
       type: "gallery-results" as const,
       items: data,

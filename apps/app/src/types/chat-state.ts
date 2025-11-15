@@ -36,11 +36,32 @@ export interface UserRequirements {
 export type SavedEventCard = Database["public"]["Functions"]["get_gallery_events"]["Returns"][number];
 
 /**
+ * Channel Context - Discriminated union for different conversation channels
+ *
+ * This allows the same agent to work across multiple platforms (web, WhatsApp, etc.)
+ * while adapting its behavior based on the channel.
+ *
+ * Future: Can be extended with telegram, sms, etc.
+ */
+export type ChannelContext =
+  | {
+      channel: 'web';
+      sessionId: string;
+    }
+  | {
+      channel: 'whatsapp';
+      waId: string;           // WhatsApp user ID
+      messageId: string;      // Current message ID (for read receipts)
+      phoneNumber: string;    // User's phone number
+    };
+
+/**
  * Chat state - no search result storage (stateless retrieval)
  */
 export interface ZineChatState {
   userRequirements: UserRequirements;
   savedCards: SavedEventCard[];
+  channelContext?: ChannelContext; // Optional to support initialState, set on first message
 }
 
 export function createInitialGalleryRequirements(): GalleryRequirements {
@@ -59,9 +80,10 @@ export function createInitialUserRequirements(): UserRequirements {
   };
 }
 
-export function createInitialChatState(): ZineChatState {
+export function createInitialChatState(channelContext?: ChannelContext): ZineChatState {
   return {
     userRequirements: createInitialUserRequirements(),
-    savedCards: []
+    savedCards: [],
+    channelContext,
   };
 }

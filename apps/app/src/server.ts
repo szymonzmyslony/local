@@ -8,12 +8,15 @@ import {
   convertToModelMessages,
   createUIMessageStreamResponse,
   type ToolSet,
+  type UIMessage,
 } from "ai";
 import { openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { processToolCalls, cleanupMessages } from "./utils";
 import { tools, executions } from "./tools";
-import type { ZineChatState, GalleryRequirements } from "./types/chat-state";
+import type { ZineChatState, GalleryRequirements, ChannelContext } from "./types/chat-state";
 import { createInitialChatState } from "./types/chat-state";
+import type { WhatsAppWebhookPayload, ExtractedWhatsAppMessage } from "./types/whatsapp";
+import { markMessageAsRead, sendTextMessage } from "./services/whatsapp-api";
 
 const model = openai("gpt-5");
 
@@ -22,6 +25,42 @@ export class Zine extends AIChatAgent<Env, ZineChatState> {
 
   public getEnv(): Env {
     return this.env;
+  }
+
+  /**
+   * Set channel context (called on first message from each channel)
+   */
+  public setChannelContext(context: import("./types/chat-state").ChannelContext): void {
+    if (!this.state.channelContext) {
+      this.setState({
+        ...this.state,
+        channelContext: context,
+      });
+    }
+  }
+
+  /**
+   * Override saveMessages to add detailed logging
+   */
+  override async saveMessages(messages: UIMessage[]): Promise<void> {
+    const context = this.state.channelContext;
+    console.log(`[Zine] 📝 saveMessages() called with ${messages.length} message(s)`);
+    console.log(`[Zine] 💬 Current conversation has ${this.messages.length} messages before save`);
+    console.log(`[Zine] 🆔 Channel: ${context?.channel || 'unknown'}`);
+
+    if (context?.channel === 'whatsapp') {
+      console.log(`[Zine] 📱 WhatsApp user: ${context.waId}`);
+    }
+
+    // Log the incoming messages
+    for (const msg of messages) {
+      const text = msg.parts.find(p => p.type === 'text')?.text || '[no text]';
+      console.log(`[Zine] 📨 Incoming message [${msg.role}]: ${text.substring(0, 100)}...`);
+    }
+
+    await super.saveMessages(messages);
+
+    console.log(`[Zine] ✅ saveMessages() completed, now ${this.messages.length} total messages`);
   }
 
   /**
@@ -49,6 +88,23 @@ export class Zine extends AIChatAgent<Env, ZineChatState> {
     onFinish: StreamTextOnFinishCallback<ToolSet>,
     _options?: { abortSignal?: AbortSignal }
   ) {
+    const context = this.state.channelContext;
+    console.log('[AI] 🤖 onChatMessage() TRIGGERED');
+    console.log(`[AI] 📊 Conversation stats: ${this.messages.length} messages in history`);
+    console.log(`[AI] 🆔 User channel: ${context?.channel || 'unknown'}`);
+
+    if (context?.channel === 'whatsapp') {
+      console.log(`[AI] 📱 WhatsApp user: ${context.waId}`);
+    }
+
+    if (this.messages.length > 0) {
+      const lastMsg = this.messages[this.messages.length - 1];
+      const lastText = lastMsg.parts?.find(p => p.type === 'text')?.text || '[no text]';
+      console.log(`[AI] 💬 Last message [${lastMsg.role}]: ${lastText.substring(0, 50)}...`);
+    }
+
+    console.log('[AI] 🚀 Starting AI processing...');
+
     const stream = createUIMessageStream({
       execute: async ({ writer }) => {
         try {
@@ -62,86 +118,22 @@ export class Zine extends AIChatAgent<Env, ZineChatState> {
           const result = streamText({
             system: `You are a knowledgeable Warsaw art guide helping people discover galleries.
 
-## YOUR ROLE: DATA ANALYST + CURATOR
+When users ask about galleries:
+1. Capture their preferences silently (district, mood, aesthetics, time)
+2. Retrieve galleries using search tools
+3. Select 3-5 that truly match their needs
+4. Present them clearly with specific details from gallery descriptions
 
-You retrieve gallery data, then use your judgment to recommend what truly fits.
+Format your gallery recommendations as:
 
-## WORKFLOW
+🎨 **Gallery Name**
+📍 District • Address
+ℹ️ Brief about text
+🔗 Website
 
-1. **Capture Preferences** (silently)
-   When user mentions preferences, call update_gallery_requirements:
-   - District: "Praga", "Śródmieście", "Mokotów", etc.
-   - Aesthetics: "minimalist", "contemporary", "experimental", "traditional"
-   - Mood: "calm", "energetic", "contemplative", "playful"
-   - Time examples:
-     - "Sunday" → weekday: 0 (no timeMinutes)
-     - "Sunday afternoon" → weekday: 0, timeMinutes: 840 (only if specific time mentioned)
+Be warm, concise, and match the user's language (Polish/English). Quote from actual gallery descriptions.
 
-2. **Retrieve Galleries**
-   Call retrieve_galleries with at least ONE parameter:
-   - searchQuery: OPTIONAL - Natural language query using semantic understanding
-     Examples: "calm minimalist spaces", "energetic experimental art", "traditional galleries"
-   - district: OPTIONAL - if user mentioned location
-   - openAt: OPTIONAL - if user mentioned day/time
-     - weekday: ALWAYS include if day mentioned (0=Sunday, 1=Monday, ..., 6=Saturday)
-     - timeMinutes: ONLY include if user mentions specific time (e.g., "2pm" → 840)
-
-   You MUST provide at least one parameter. You'll receive ALL matching galleries with full details (id, name, about, tags, district).
-
-3. **Analyze & Curate**
-   Read EVERY gallery's name, about text, and tags carefully.
-   Consider:
-   - Does the description match user's aesthetic?
-   - Do the tags align with their mood?
-   - Is the location convenient?
-   - Does it fit their stated preferences?
-
-   Select 3-5 galleries that genuinely fit.
-
-4. **Show Selections**
-   Call show_recommendations with gallery IDs you chose.
-   Then explain WHY each gallery fits:
-   - Quote relevant details from their descriptions
-   - Connect to user's stated preferences
-   - Be specific and genuine
-
-5. **Follow-up**
-   After showing recommendations, ask ONE short check-in:
-   - "Any of these resonate?"
-   - "Want to see what's on at any of these?"
-
-## EXAMPLE INTERACTION
-
-User: "Calm galleries in Śródmieście"
-
-You think:
-- District: Śródmieście
-- Mood: calm
-- Call update_gallery_requirements(district: "Srodmiescie", mood: "calm")
-- Call retrieve_galleries(searchQuery: "calm peaceful contemplative spaces", district: "Srodmiescie", limit: 20)
-- Semantic search returns 12 galleries ranked by relevance
-- Read each carefully, identify IDs abc-123, def-456, ghi-789 that best match the calm aesthetic
-- Call show_recommendations(galleryIds: ["abc-123", "def-456", "ghi-789"])
-
-You respond:
-"Here are three calm spaces in Śródmieście:
-
-[Gallery 1] focuses on minimal installations in a quiet setting...
-[Gallery 2] describes itself as a contemplative space for...
-[Gallery 3] emphasizes serene exhibitions...
-
-Any of these catch your eye?"
-
-## LANGUAGE & TONE
-
-- Match user's language (Polish/English)
-- Be warm, concise, knowledgeable
-- Quote from gallery descriptions to support your picks
-- Never invent details
-
-## CURRENT USER PREFERENCES
-
-${JSON.stringify(this.state.userRequirements.gallery)}`,
+Current preferences: ${JSON.stringify(this.state.userRequirements.gallery)}`,
 
             messages: convertToModelMessages(processedMessages),
             model,
@@ -151,7 +143,56 @@ ${JSON.stringify(this.state.userRequirements.gallery)}`,
                 reasoningEffort: "minimal",
               } satisfies OpenAIResponsesProviderOptions,
             },
-            onFinish: onFinish as unknown as StreamTextOnFinishCallback<typeof tools>,
+            onFinish: (async (finishResult) => {
+              console.log('[AI] ✅ AI processing finished');
+              console.log(`[AI] 📊 Response length: ${finishResult.text?.length || 0} chars`);
+              console.log(`[AI] 🔧 Tool calls made: ${finishResult.toolCalls?.length || 0}`);
+
+              // Log tool calls
+              if (finishResult.toolCalls && finishResult.toolCalls.length > 0) {
+                for (const toolCall of finishResult.toolCalls) {
+                  console.log(`[AI] 🔨 Tool: ${toolCall.toolName}`);
+                }
+              }
+
+              // Call original onFinish
+              await onFinish(finishResult);
+
+              // If WhatsApp mode, send the full text response
+              const context = this.state.channelContext;
+              if (context?.channel === 'whatsapp') {
+                console.log('[AI] 📤 Extracting text for WhatsApp...');
+
+                // Extract all text content from assistant messages
+                const textParts: string[] = [];
+                for (const msg of finishResult.response.messages) {
+                  if (msg.role === 'assistant') {
+                    for (const content of msg.content) {
+                      if (content.type === 'text') {
+                        textParts.push(content.text);
+                      }
+                    }
+                  }
+                }
+
+                if (textParts.length > 0) {
+                  const fullText = textParts.join('\n\n');
+                  console.log(`[AI] 💬 Sending ${fullText.length} chars to WhatsApp user ${context.waId}`);
+                  console.log(`[AI] 📝 Preview: ${fullText.substring(0, 100)}...`);
+
+                  try {
+                    await sendTextMessage(this.getEnv(), context.waId, fullText);
+                    console.log('[AI] ✅ Text response sent successfully via WhatsApp');
+                  } catch (error) {
+                    console.error('[AI] ❌ Failed to send WhatsApp message:', error);
+                  }
+                } else {
+                  console.log('[AI] ⚠️ No text content to send');
+                }
+              } else {
+                console.log('[AI] 🌐 Web mode - response handled by UI');
+              }
+            }) as unknown as StreamTextOnFinishCallback<typeof tools>,
             stopWhen: stepCountIs(10),
           });
 
@@ -168,11 +209,138 @@ ${JSON.stringify(this.state.userRequirements.gallery)}`,
 }
 
 /**
+ * Extract message data from WhatsApp webhook payload
+ */
+function extractWhatsAppMessage(payload: WhatsAppWebhookPayload): ExtractedWhatsAppMessage | null {
+  const entry = payload.entry?.[0];
+  const changes = entry?.changes?.[0];
+  const value = changes?.value;
+
+  if (!value?.messages || !value?.contacts) {
+    return null;
+  }
+
+  const contact = value.contacts[0];
+  const message = value.messages[0];
+
+  if (!contact || !message || message.type !== 'text' || !message.text?.body) {
+    return null;
+  }
+
+  return {
+    waId: contact.wa_id,
+    messageId: message.id,
+    phoneNumber: message.from,
+    text: message.text.body,
+    timestamp: message.timestamp,
+  };
+}
+
+/**
+ * Handle WhatsApp webhook verification (GET /webhook)
+ */
+function handleWhatsAppVerification(request: Request, env: Env): Response {
+  const url = new URL(request.url);
+  const mode = url.searchParams.get('hub.mode');
+  const token = url.searchParams.get('hub.verify_token');
+  const challenge = url.searchParams.get('hub.challenge');
+
+  console.log(`[WhatsApp Verification] Received: mode=${mode}, challenge=${challenge}`);
+
+  if (mode === 'subscribe' && token === env.WEBHOOK_VERIFY_TOKEN) {
+    console.log('✅ WhatsApp webhook verified successfully!');
+    return new Response(challenge || '', { status: 200 });
+  } else {
+    console.error('❌ WhatsApp webhook verification failed - token mismatch');
+    return Response.json({ error: 'Verification failed' }, { status: 403 });
+  }
+}
+
+/**
+ * Handle incoming WhatsApp message (POST /webhook)
+ */
+async function handleWhatsAppMessage(request: Request, env: Env): Promise<Response> {
+  try {
+    console.log('[WhatsApp] 📥 Received POST webhook');
+    const payload: WhatsAppWebhookPayload = await request.json();
+    console.log('[WhatsApp] 📋 Parsed webhook payload');
+
+    const message = extractWhatsAppMessage(payload);
+
+    if (!message) {
+      console.log('[WhatsApp] ⏭️  Skipping non-text message or status update');
+      return Response.json({ message: 'Not a valid text message' });
+    }
+
+    console.log(`[WhatsApp] ✅ Message received from ${message.waId}: ${message.text}`);
+
+    // Get or create Durable Object for this WhatsApp user
+    const id = env.Zine.idFromName(`whatsapp:${message.waId}`);
+    const stub = env.Zine.get(id);
+    console.log(`[WhatsApp] 🔗 Got Durable Object stub for: whatsapp:${message.waId}`);
+
+    // Mark message as read
+    await markMessageAsRead(env, message.messageId);
+    console.log(`[WhatsApp] ✓ Marked message as read: ${message.messageId}`);
+
+    // Set channel context
+    const channelContext: ChannelContext = {
+      channel: 'whatsapp',
+      waId: message.waId,
+      messageId: message.messageId,
+      phoneNumber: message.phoneNumber,
+    };
+
+    // Set the context on the agent (this will be persisted in the Durable Object state)
+    await stub.setChannelContext(channelContext);
+    console.log(`[WhatsApp] 📱 Channel context set for WhatsApp user`);
+
+    // Create a UIMessage for the user's text
+    const userMessage: UIMessage = {
+      id: `user_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
+      role: 'user',
+      parts: [
+        {
+          type: 'text',
+          text: message.text,
+        }
+      ],
+    };
+
+    console.log(`[WhatsApp] 💬 Created UIMessage with ID: ${userMessage.id}`);
+
+    // Use built-in saveMessages method (triggers onChatMessage automatically)
+    console.log(`[WhatsApp] ⏳ Calling saveMessages()...`);
+    await stub.saveMessages([userMessage]);
+    console.log(`[WhatsApp] ✨ saveMessages() returned successfully`);
+    console.log(`[WhatsApp] 🎯 Agent should now be processing the message`);
+    console.log(`[WhatsApp] ✅ Webhook handler completing`);
+
+    return Response.json({ success: true });
+  } catch (error) {
+    console.error('[WhatsApp] Error processing webhook:', error);
+    return Response.json(
+      { error: 'Failed to process message' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
  * Worker entry point that routes incoming requests to the appropriate handler
  */
 export default {
   async fetch(request: Request, env: Env, _ctx: ExecutionContext) {
     const url = new URL(request.url);
+
+    // WhatsApp webhook routes (handle BEFORE other routing)
+    if (url.pathname === "/webhook") {
+      if (request.method === "GET") {
+        return handleWhatsAppVerification(request, env);
+      } else if (request.method === "POST") {
+        return handleWhatsAppMessage(request, env);
+      }
+    }
 
     if (url.pathname === "/check-open-ai-key") {
       const hasOpenAIKey = !!process.env.OPENAI_API_KEY;

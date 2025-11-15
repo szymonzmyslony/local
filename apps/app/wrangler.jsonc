@@ -36,9 +36,9 @@
 			"enabled": true
 		}
 	},
-	"workers_dev": true,
+	"workers_dev": false,
 	"routes": [
-		{ "pattern": "chat.zinelocal.com/*", "zone_name": "zinelocal.com" }
+		{ "pattern": "chat.zinelocal.com", "zone_name": "zinelocal.com", "custom_domain": true }
 	]
 	
 
