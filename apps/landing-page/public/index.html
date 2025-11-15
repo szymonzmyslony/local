@@ -11,21 +11,43 @@
         box-sizing: border-box;
       }
 
+      html,
+      body {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+      }
+
       body {
         font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
         background-color: #eee7df;
         color: #161a23;
         overflow-x: hidden;
-        min-height: 100vh;
+      }
+
+      @media (min-width: 1025px) {
+        body {
+          overflow: hidden;
+        }
       }
 
       .container {
-        min-height: 100vh;
+        height: 100vh;
+        width: 100%;
         display: flex;
         flex-direction: column;
-        padding: 40px;
+        padding: 24px;
         max-width: 1400px;
         margin: 0 auto;
+        box-sizing: border-box;
+      }
+
+      @media (max-width: 1024px) {
+        .container {
+          min-height: 100vh;
+          height: auto;
+        }
       }
 
       @media (max-width: 768px) {
@@ -39,8 +61,20 @@
         display: flex;
         justify-content: space-between;
         align-items: flex-start;
-        margin-bottom: 32px;
+        flex: 0 0 auto;
         gap: 40px;
+      }
+
+      @media (min-width: 1025px) {
+        .top-section {
+          margin-bottom: 0;
+        }
+      }
+
+      @media (max-width: 1024px) {
+        .top-section {
+          margin-bottom: 32px;
+        }
       }
 
       @media (max-width: 768px) {
@@ -116,8 +150,40 @@
 
       /* Interactive Selection Section */
       .selection-section {
-        margin-bottom: 32px;
-        width: 100%;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        width: 100vw;
+        position: relative;
+        left: 50%;
+        right: 50%;
+        margin-left: -50vw;
+        margin-right: -50vw;
+        min-height: 0;
+      }
+
+      @media (min-width: 1025px) {
+        .selection-section {
+          margin-bottom: 0;
+        }
+      }
+
+      @media (max-width: 1024px) {
+        .selection-section {
+          flex: 0 0 auto;
+          margin-bottom: 32px;
+        }
+      }
+
+      @media (max-width: 768px) {
+        .selection-section {
+          width: 100vw;
+          left: 50%;
+          right: 50%;
+          margin-left: -50vw;
+          margin-right: -50vw;
+        }
       }
 
       .describe-label {
@@ -125,6 +191,8 @@
         color: #0140b6;
         margin-bottom: 0px;
         font-weight: 400;
+        padding-left: 24px;
+        padding-right: 24px;
       }
 
       .selection-items {
@@ -156,16 +224,48 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 12px;
+        gap: 0px;
         flex: 1;
+        min-height: 0;
+        justify-content: flex-start;
+      }
+
+      @media (min-width: 1025px) {
+        .selection-item {
+          max-width: 100%;
+        }
       }
 
       .selection-image {
         width: 100%;
+        max-height: 25vh;
         height: auto;
         border-radius: 8px;
-        object-fit: cover;
+        object-fit: contain;
         display: block;
+      }
+
+      .selection-item:first-child .selection-image {
+        border-top-left-radius: 0;
+        border-bottom-left-radius: 0;
+      }
+
+      .selection-item:last-child .selection-image {
+        border-top-right-radius: 0;
+        border-bottom-right-radius: 0;
+      }
+
+      @media (max-width: 1024px) {
+        .selection-image {
+          height: auto;
+          flex: none;
+          border-radius: 8px;
+        }
+
+        .selection-item:first-child .selection-image,
+        .selection-item:last-child .selection-image {
+          border-radius: 8px;
+        }
       }
 
       .selection-label {
@@ -180,6 +280,9 @@
         font-weight: bold;
         line-height: 1;
         flex: 0 0 auto;
+        align-self: center;
+        display: flex;
+        align-items: center;
       }
 
       /* Bottom Section */
@@ -188,7 +291,19 @@
         justify-content: space-between;
         align-items: flex-end;
         gap: 40px;
-        margin-top: 0;
+        flex: 0 0 auto;
+      }
+
+      @media (min-width: 1025px) {
+        .bottom-section {
+          margin-top: 0;
+        }
+      }
+
+      @media (max-width: 1024px) {
+        .bottom-section {
+          margin-top: 0;
+        }
       }
 
       @media (max-width: 768px) {
@@ -210,6 +325,7 @@
         line-height: 1.6;
         margin-bottom: 24px;
         font-weight: 400;
+        max-width: 380px;
       }
 
       .bottom-right {
