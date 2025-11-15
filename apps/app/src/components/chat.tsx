@@ -116,7 +116,6 @@ export function Chat({
           <div className="mx-auto w-full md:max-w-2xl xxl:max-w-3xl">
             <JsonDisplay
               data={{
-                galleryRequirements: agentState?.userRequirements.gallery,
                 savedCardsCount: agentState?.savedCards?.length || 0
               }}
               title="Agent State"
