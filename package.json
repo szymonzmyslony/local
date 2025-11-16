@@ -9,13 +9,13 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace @gallery-agents/shared && npm run build --workspace @gallery-agents/dash && npm run build --workspace @gallery-agents/app",
-    "check": "npm run lint --workspace @gallery-agents/dash && npm run lint --workspace @gallery-agents/app && npm run typecheck",
+    "build": "bun run build --filter @gallery-agents/shared && bun run build --filter @gallery-agents/dash && bun run build --filter @gallery-agents/app",
+    "check": "bun run lint --filter @gallery-agents/dash && bun run lint --filter @gallery-agents/app && bun run typecheck",
     "format": "prettier --write .",
     "lint": "biome lint .",
-    "start": "npm run dev --workspace @gallery-agents/dash",
-    "dev": "npm run dev --workspace @gallery-agents/dash",
-    "test": "npm run test --workspace @gallery-agents/app",
+    "start": "bun run dev --filter @gallery-agents/dash",
+    "dev": "bun run dev --filter @gallery-agents/dash",
+    "test": "bun run test --filter @gallery-agents/app",
     "typecheck": "tsc -b packages/shared/tsconfig.json apps/dash/tsconfig.json apps/app/tsconfig.json"
   },
   "keywords": [
