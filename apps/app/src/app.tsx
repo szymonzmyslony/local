@@ -28,17 +28,7 @@ export default function App() {
     });
   }, []);
 
-  // Keyboard shortcut: Ctrl+D / Cmd+D
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "d") {
-        e.preventDefault();
-        toggleDebugMode();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [toggleDebugMode]);
+
 
   const agent = useAgent<ZineChatState>({
     agent: "zine",
