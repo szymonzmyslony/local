@@ -9,13 +9,16 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "bun run build --filter @gallery-agents/shared && bun run build --filter @gallery-agents/dash && bun run build --filter @gallery-agents/app",
-    "check": "bun run lint --filter @gallery-agents/dash && bun run lint --filter @gallery-agents/app && bun run typecheck",
+    "build": "cd packages/shared && bun run build && cd ../../apps/dash && bun run build && cd ../app && bun run build",
+    "build:shared": "cd packages/shared && bun run build",
+    "build:dash": "cd apps/dash && bun run build",
+    "build:app": "cd apps/app && bun run build",
+    "check": "cd apps/dash && bun run lint && cd ../app && bun run lint && cd ../.. && bun run typecheck",
     "format": "prettier --write .",
     "lint": "biome lint .",
-    "start": "bun run dev --filter @gallery-agents/dash",
-    "dev": "bun run dev --filter @gallery-agents/dash",
-    "test": "bun run test --filter @gallery-agents/app",
+    "start": "cd apps/dash && bun run dev",
+    "dev": "cd apps/dash && bun run dev",
+    "test": "cd apps/app && bun run test",
     "typecheck": "tsc -b packages/shared/tsconfig.json apps/dash/tsconfig.json apps/app/tsconfig.json"
   },
   "keywords": [
