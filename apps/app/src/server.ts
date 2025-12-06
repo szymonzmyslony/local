@@ -8,15 +8,28 @@ import {
   convertToModelMessages,
   createUIMessageStreamResponse,
   type ToolSet,
-  type UIMessage,
+  type UIMessage
 } from "ai";
 import { openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { processToolCalls, cleanupMessages } from "./utils";
 import { tools, executions } from "./tools";
-import type { ZineChatState, GalleryRequirements, ChannelContext } from "./types/chat-state";
+import type {
+  ZineChatState,
+  GalleryRequirements,
+  ChannelContext
+} from "./types/chat-state";
 import { createInitialChatState } from "./types/chat-state";
-import type { WhatsAppWebhookPayload, ExtractedWhatsAppMessage } from "./types/whatsapp";
-import { markMessageAsRead, sendTextMessage, formatForWhatsApp } from "./services/whatsapp-api";
+import type {
+  WhatsAppWebhookPayload,
+  ExtractedWhatsAppMessage
+} from "./types/whatsapp";
+import {
+  markMessageAsRead,
+  sendTextMessage,
+  formatForWhatsApp,
+  sendTypingIndicator,
+  calculateTypingDelay
+} from "./services/whatsapp-api";
 
 const model = openai("gpt-5");
 
@@ -30,11 +43,13 @@ export class Zine extends AIChatAgent<Env, ZineChatState> {
   /**
    * Set channel context (called on first message from each channel)
    */
-  public setChannelContext(context: import("./types/chat-state").ChannelContext): void {
+  public setChannelContext(
+    context: import("./types/chat-state").ChannelContext
+  ): void {
     if (!this.state.channelContext) {
       this.setState({
         ...this.state,
-        channelContext: context,
+        channelContext: context
       });
     }
   }
@@ -44,23 +59,32 @@ export class Zine extends AIChatAgent<Env, ZineChatState> {
    */
   override async saveMessages(messages: UIMessage[]): Promise<void> {
     const context = this.state.channelContext;
-    console.log(`[Zine] 📝 saveMessages() called with ${messages.length} message(s)`);
-    console.log(`[Zine] 💬 Current conversation has ${this.messages.length} messages before save`);
-    console.log(`[Zine] 🆔 Channel: ${context?.channel || 'unknown'}`);
+    console.log(
+      `[Zine] 📝 saveMessages() called with ${messages.length} message(s)`
+    );
+    console.log(
+      `[Zine] 💬 Current conversation has ${this.messages.length} messages before save`
+    );
+    console.log(`[Zine] 🆔 Channel: ${context?.channel || "unknown"}`);
 
-    if (context?.channel === 'whatsapp') {
+    if (context?.channel === "whatsapp") {
       console.log(`[Zine] 📱 WhatsApp user: ${context.waId}`);
     }
 
     // Log the incoming messages
     for (const msg of messages) {
-      const text = msg.parts.find(p => p.type === 'text')?.text || '[no text]';
-      console.log(`[Zine] 📨 Incoming message [${msg.role}]: ${text.substring(0, 100)}...`);
+      const text =
+        msg.parts.find((p) => p.type === "text")?.text || "[no text]";
+      console.log(
+        `[Zine] 📨 Incoming message [${msg.role}]: ${text.substring(0, 100)}...`
+      );
     }
 
     await super.saveMessages(messages);
 
-    console.log(`[Zine] ✅ saveMessages() completed, now ${this.messages.length} total messages`);
+    console.log(
+      `[Zine] ✅ saveMessages() completed, now ${this.messages.length} total messages`
+    );
   }
 
   // /**
@@ -89,21 +113,26 @@ export class Zine extends AIChatAgent<Env, ZineChatState> {
     _options?: { abortSignal?: AbortSignal }
   ) {
     const context = this.state.channelContext;
-    console.log('[AI] 🤖 onChatMessage() TRIGGERED');
-    console.log(`[AI] 📊 Conversation stats: ${this.messages.length} messages in history`);
-    console.log(`[AI] 🆔 User channel: ${context?.channel || 'unknown'}`);
+    console.log("[AI] 🤖 onChatMessage() TRIGGERED");
+    console.log(
+      `[AI] 📊 Conversation stats: ${this.messages.length} messages in history`
+    );
+    console.log(`[AI] 🆔 User channel: ${context?.channel || "unknown"}`);
 
-    if (context?.channel === 'whatsapp') {
+    if (context?.channel === "whatsapp") {
       console.log(`[AI] 📱 WhatsApp user: ${context.waId}`);
     }
 
     if (this.messages.length > 0) {
       const lastMsg = this.messages[this.messages.length - 1];
-      const lastText = lastMsg.parts?.find(p => p.type === 'text')?.text || '[no text]';
-      console.log(`[AI] 💬 Last message [${lastMsg.role}]: ${lastText.substring(0, 50)}...`);
+      const lastText =
+        lastMsg.parts?.find((p) => p.type === "text")?.text || "[no text]";
+      console.log(
+        `[AI] 💬 Last message [${lastMsg.role}]: ${lastText.substring(0, 50)}...`
+      );
     }
 
-    console.log('[AI] 🚀 Starting AI processing...');
+    console.log("[AI] 🚀 Starting AI processing...");
 
     const stream = createUIMessageStream({
       execute: async ({ writer }) => {
@@ -112,12 +141,12 @@ export class Zine extends AIChatAgent<Env, ZineChatState> {
           const processedMessages = await processToolCalls({
             messages: cleanedMessages,
             tools: tools,
-            executions,
+            executions
           });
 
           // Build channel-specific system prompt
           const channelContext = this.state.channelContext;
-          const isWhatsApp = channelContext?.channel === 'whatsapp';
+          const isWhatsApp = channelContext?.channel === "whatsapp";
 
           const basePrompt = `You are Zine, an AI art discovery assistant helping people find galleries and art events in Warsaw.
 
@@ -149,13 +178,27 @@ CORE BEHAVIOR:
 - Keep answers direct, concise, and immediately actionable
 - No long conversations. Provide results instantly.
 
-FOR EACH EVENT, ALWAYS INCLUDE:
-- Event name (in *bold*)
-- One-sentence vibe fit (why it matches their mood)
-- Venue name
-- Opening hours
-- Street address
-- A Google Maps link formatted as: https://maps.google.com/?q=VENUE_NAME+ADDRESS
+EXACT FORMAT FOR EACH EVENT (follow this precisely):
+
+*Event Name* [in bold with asterisks]
+
+[Short description on the vibe match and the event's aesthetic - one sentence]
+
+[Empty line - one line break]
+
+🎨 Venue name (gallery name)
+
+📅 Date range (e.g., "28.11.2025 – 31.01.2026")
+
+📍 Street address (District name in parentheses)
+
+🕒 Opening hours (e.g., "wt–pt 12:00–19:00" or "sob. 12:00–16:00" if different)
+
+[Empty line]
+
+🗺️ https://maps.google.com/?q=VENUE_NAME+ADDRESS
+
+[Empty line between events]
 
 TONE:
 - Confident and perceptive
@@ -163,12 +206,14 @@ TONE:
 - No filler
 - Feel like a friend with perfect taste who "just knows"
 
-FORMATTING:
-- Use *bold* for event names and important info
-- Keep each event to 3-4 lines max
-- Separate events with a blank line
-- Maximum 150 words total per response
-- Use emojis sparingly (1-2 total)`
+FORMATTING RULES:
+- Use *bold* (with asterisks) for event names
+- Use compact emoji markers: 🎨 for venue, 📅 for dates, 📍 for address, 🕒 for hours, 🗺️ for map
+- Group metadata cleanly with emoji markers
+- Put Google Maps link on its own line (easier to tap)
+- Always include empty line between title and metadata
+- Always include empty line before map link
+- Separate multiple events with empty line`
             : `\n\nChannel: Web. You can provide richer details and context. Users can see visual gallery cards when you call show_recommendations. Use markdown formatting for better readability.`;
 
           const result = streamText({
@@ -176,16 +221,19 @@ FORMATTING:
             messages: convertToModelMessages(processedMessages),
             model,
             tools: tools,
-            maxTokens: isWhatsApp ? 300 : 500, // Limit tokens for WhatsApp to keep responses concise
             providerOptions: {
               openai: {
-                reasoningEffort: "minimal",
-              } satisfies OpenAIResponsesProviderOptions,
+                reasoningEffort: "minimal"
+              } satisfies OpenAIResponsesProviderOptions
             },
             onFinish: (async (finishResult: any) => {
-              console.log('[AI] ✅ AI processing finished');
-              console.log(`[AI] 📊 Response length: ${finishResult.text?.length || 0} chars`);
-              console.log(`[AI] 🔧 Tool calls made: ${finishResult.toolCalls?.length || 0}`);
+              console.log("[AI] ✅ AI processing finished");
+              console.log(
+                `[AI] 📊 Response length: ${finishResult.text?.length || 0} chars`
+              );
+              console.log(
+                `[AI] 🔧 Tool calls made: ${finishResult.toolCalls?.length || 0}`
+              );
 
               // Log tool calls
               if (finishResult.toolCalls && finishResult.toolCalls.length > 0) {
@@ -197,17 +245,17 @@ FORMATTING:
               // Call original onFinish
               await onFinish(finishResult);
 
-              // If WhatsApp mode, send the full text response
+              // If WhatsApp mode, send the full text response with typing indicator
               const context = this.state.channelContext;
-              if (context?.channel === 'whatsapp') {
-                console.log('[AI] 📤 Extracting text for WhatsApp...');
+              if (context?.channel === "whatsapp") {
+                console.log("[AI] 📤 Extracting text for WhatsApp...");
 
                 // Extract all text content from assistant messages
                 const textParts: string[] = [];
                 for (const msg of finishResult.response.messages) {
-                  if (msg.role === 'assistant') {
+                  if (msg.role === "assistant") {
                     for (const content of msg.content) {
-                      if (content.type === 'text') {
+                      if (content.type === "text") {
                         textParts.push(content.text);
                       }
                     }
@@ -215,25 +263,50 @@ FORMATTING:
                 }
 
                 if (textParts.length > 0) {
-                  const fullText = textParts.join('\n\n');
+                  const fullText = textParts.join("\n\n");
                   const formattedText = formatForWhatsApp(fullText);
-                  console.log(`[AI] 💬 Sending ${formattedText.length} chars to WhatsApp user ${context.waId}`);
-                  console.log(`[AI] 📝 Preview: ${formattedText.substring(0, 100)}...`);
+                  console.log(
+                    `[AI] 💬 Sending ${formattedText.length} chars to WhatsApp user ${context.waId}`
+                  );
+                  console.log(
+                    `[AI] 📝 Preview: ${formattedText.substring(0, 100)}...`
+                  );
 
                   try {
-                    await sendTextMessage(this.getEnv(), context.waId, formattedText);
-                    console.log('[AI] ✅ Text response sent successfully via WhatsApp');
+                    // Step 1: Send typing indicator
+                    console.log("[AI] ⌨️ Sending typing indicator...");
+                    await sendTypingIndicator(this.getEnv(), context.waId);
+
+                    // Step 2: Wait based on message length
+                    const delay = calculateTypingDelay(formattedText.length);
+                    console.log(
+                      `[AI] ⏳ Waiting ${delay}ms before sending message...`
+                    );
+                    await new Promise((resolve) => setTimeout(resolve, delay));
+
+                    // Step 3: Send the final message
+                    await sendTextMessage(
+                      this.getEnv(),
+                      context.waId,
+                      formattedText
+                    );
+                    console.log(
+                      "[AI] ✅ Text response sent successfully via WhatsApp"
+                    );
                   } catch (error) {
-                    console.error('[AI] ❌ Failed to send WhatsApp message:', error);
+                    console.error(
+                      "[AI] ❌ Failed to send WhatsApp message:",
+                      error
+                    );
                   }
                 } else {
-                  console.log('[AI] ⚠️ No text content to send');
+                  console.log("[AI] ⚠️ No text content to send");
                 }
               } else {
-                console.log('[AI] 🌐 Web mode - response handled by UI');
+                console.log("[AI] 🌐 Web mode - response handled by UI");
               }
             }) as unknown as StreamTextOnFinishCallback<typeof tools>,
-            stopWhen: stepCountIs(10),
+            stopWhen: stepCountIs(10)
           });
 
           writer.merge(result.toUIMessageStream());
@@ -241,7 +314,7 @@ FORMATTING:
           console.error("[onChatMessage] Error in stream execution:", error);
           throw error;
         }
-      },
+      }
     });
 
     return createUIMessageStreamResponse({ stream });
@@ -251,7 +324,9 @@ FORMATTING:
 /**
  * Extract message data from WhatsApp webhook payload
  */
-function extractWhatsAppMessage(payload: WhatsAppWebhookPayload): ExtractedWhatsAppMessage | null {
+function extractWhatsAppMessage(
+  payload: WhatsAppWebhookPayload
+): ExtractedWhatsAppMessage | null {
   const entry = payload.entry?.[0];
   const changes = entry?.changes?.[0];
   const value = changes?.value;
@@ -263,7 +338,7 @@ function extractWhatsAppMessage(payload: WhatsAppWebhookPayload): ExtractedWhats
   const contact = value.contacts[0];
   const message = value.messages[0];
 
-  if (!contact || !message || message.type !== 'text' || !message.text?.body) {
+  if (!contact || !message || message.type !== "text" || !message.text?.body) {
     return null;
   }
 
@@ -272,7 +347,7 @@ function extractWhatsAppMessage(payload: WhatsAppWebhookPayload): ExtractedWhats
     messageId: message.id,
     phoneNumber: message.from,
     text: message.text.body,
-    timestamp: message.timestamp,
+    timestamp: message.timestamp
   };
 }
 
@@ -281,43 +356,52 @@ function extractWhatsAppMessage(payload: WhatsAppWebhookPayload): ExtractedWhats
  */
 function handleWhatsAppVerification(request: Request, env: Env): Response {
   const url = new URL(request.url);
-  const mode = url.searchParams.get('hub.mode');
-  const token = url.searchParams.get('hub.verify_token');
-  const challenge = url.searchParams.get('hub.challenge');
+  const mode = url.searchParams.get("hub.mode");
+  const token = url.searchParams.get("hub.verify_token");
+  const challenge = url.searchParams.get("hub.challenge");
 
-  console.log(`[WhatsApp Verification] Received: mode=${mode}, challenge=${challenge}`);
+  console.log(
+    `[WhatsApp Verification] Received: mode=${mode}, challenge=${challenge}`
+  );
 
-  if (mode === 'subscribe' && token === env.WEBHOOK_VERIFY_TOKEN) {
-    console.log('✅ WhatsApp webhook verified successfully!');
-    return new Response(challenge || '', { status: 200 });
+  if (mode === "subscribe" && token === env.WEBHOOK_VERIFY_TOKEN) {
+    console.log("✅ WhatsApp webhook verified successfully!");
+    return new Response(challenge || "", { status: 200 });
   } else {
-    console.error('❌ WhatsApp webhook verification failed - token mismatch');
-    return Response.json({ error: 'Verification failed' }, { status: 403 });
+    console.error("❌ WhatsApp webhook verification failed - token mismatch");
+    return Response.json({ error: "Verification failed" }, { status: 403 });
   }
 }
 
 /**
  * Handle incoming WhatsApp message (POST /webhook)
  */
-async function handleWhatsAppMessage(request: Request, env: Env): Promise<Response> {
+async function handleWhatsAppMessage(
+  request: Request,
+  env: Env
+): Promise<Response> {
   try {
-    console.log('[WhatsApp] 📥 Received POST webhook');
+    console.log("[WhatsApp] 📥 Received POST webhook");
     const payload: WhatsAppWebhookPayload = await request.json();
-    console.log('[WhatsApp] 📋 Parsed webhook payload');
+    console.log("[WhatsApp] 📋 Parsed webhook payload");
 
     const message = extractWhatsAppMessage(payload);
 
     if (!message) {
-      console.log('[WhatsApp] ⏭️  Skipping non-text message or status update');
-      return Response.json({ message: 'Not a valid text message' });
+      console.log("[WhatsApp] ⏭️  Skipping non-text message or status update");
+      return Response.json({ message: "Not a valid text message" });
     }
 
-    console.log(`[WhatsApp] ✅ Message received from ${message.waId}: ${message.text}`);
+    console.log(
+      `[WhatsApp] ✅ Message received from ${message.waId}: ${message.text}`
+    );
 
     // Get or create Durable Object for this WhatsApp user
     const id = env.Zine.idFromName(`whatsapp:${message.waId}`);
     const stub = env.Zine.get(id);
-    console.log(`[WhatsApp] 🔗 Got Durable Object stub for: whatsapp:${message.waId}`);
+    console.log(
+      `[WhatsApp] 🔗 Got Durable Object stub for: whatsapp:${message.waId}`
+    );
 
     // Mark message as read
     await markMessageAsRead(env, message.messageId);
@@ -325,10 +409,10 @@ async function handleWhatsAppMessage(request: Request, env: Env): Promise<Respon
 
     // Set channel context
     const channelContext: ChannelContext = {
-      channel: 'whatsapp',
+      channel: "whatsapp",
       waId: message.waId,
       messageId: message.messageId,
-      phoneNumber: message.phoneNumber,
+      phoneNumber: message.phoneNumber
     };
 
     // Set the context on the agent (this will be persisted in the Durable Object state)
@@ -338,13 +422,13 @@ async function handleWhatsAppMessage(request: Request, env: Env): Promise<Respon
     // Create a UIMessage for the user's text
     const userMessage: UIMessage = {
       id: `user_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
-      role: 'user',
+      role: "user",
       parts: [
         {
-          type: 'text',
-          text: message.text,
+          type: "text",
+          text: message.text
         }
-      ],
+      ]
     };
 
     console.log(`[WhatsApp] 💬 Created UIMessage with ID: ${userMessage.id}`);
@@ -358,9 +442,9 @@ async function handleWhatsAppMessage(request: Request, env: Env): Promise<Respon
 
     return Response.json({ success: true });
   } catch (error) {
-    console.error('[WhatsApp] Error processing webhook:', error);
+    console.error("[WhatsApp] Error processing webhook:", error);
     return Response.json(
-      { error: 'Failed to process message' },
+      { error: "Failed to process message" },
       { status: 500 }
     );
   }
@@ -385,7 +469,7 @@ export default {
     if (url.pathname === "/check-open-ai-key") {
       const hasOpenAIKey = !!process.env.OPENAI_API_KEY;
       return Response.json({
-        success: hasOpenAIKey,
+        success: hasOpenAIKey
       });
     }
     if (!process.env.OPENAI_API_KEY) {
@@ -398,7 +482,8 @@ export default {
     if (routed) return routed;
 
     // Minimal SPA fallback: serve index.html at "/" and delegate other assets to ASSETS
-    const assets = (env as unknown as { ASSETS?: { fetch: typeof fetch } }).ASSETS;
+    const assets = (env as unknown as { ASSETS?: { fetch: typeof fetch } })
+      .ASSETS;
     if (assets) {
       const urlPath = url.pathname;
       if (request.method === "GET" && (urlPath === "/" || urlPath === "")) {
@@ -412,5 +497,5 @@ export default {
     }
 
     return new Response("Not found", { status: 404 });
-  },
+  }
 } satisfies ExportedHandler<Env>;
