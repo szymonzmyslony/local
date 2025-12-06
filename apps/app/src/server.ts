@@ -16,7 +16,7 @@ import { tools, executions } from "./tools";
 import type { ZineChatState, GalleryRequirements, ChannelContext } from "./types/chat-state";
 import { createInitialChatState } from "./types/chat-state";
 import type { WhatsAppWebhookPayload, ExtractedWhatsAppMessage } from "./types/whatsapp";
-import { markMessageAsRead, sendTextMessage } from "./services/whatsapp-api";
+import { markMessageAsRead, sendTextMessage, formatForWhatsApp } from "./services/whatsapp-api";
 
 const model = openai("gpt-5");
 
@@ -141,16 +141,42 @@ When discussing events, include dates and ticket information if available.
 Personality: Be enthusiastic about art, warm, and conversational. Match the user's language (Polish/English). Quote from actual gallery descriptions to add authenticity.`;
 
           const channelInstructions = isWhatsApp
-            ? `\n\nChannel: WhatsApp. Keep responses concise and mobile-friendly. Use emojis sparingly (1-2 per message). Break long content into digestible chunks.`
-            : `\n\nChannel: Web. You can provide richer details and context. Users can see visual gallery cards when you call show_recommendations.`;
+            ? `\n\nChannel: WhatsApp - CRITICAL INSTRUCTIONS:
+
+CORE BEHAVIOR:
+- Detect the user's emotional tone, social energy level, and aesthetic preferences from their message
+- Suggest 3-5 events that best match their mood
+- Keep answers direct, concise, and immediately actionable
+- No long conversations. Provide results instantly.
+
+FOR EACH EVENT, ALWAYS INCLUDE:
+- Event name (in *bold*)
+- One-sentence vibe fit (why it matches their mood)
+- Venue name
+- Opening hours
+- Street address
+- A Google Maps link formatted as: https://maps.google.com/?q=VENUE_NAME+ADDRESS
+
+TONE:
+- Confident and perceptive
+- No overexplaining
+- No filler
+- Feel like a friend with perfect taste who "just knows"
+
+FORMATTING:
+- Use *bold* for event names and important info
+- Keep each event to 3-4 lines max
+- Separate events with a blank line
+- Maximum 150 words total per response
+- Use emojis sparingly (1-2 total)`
+            : `\n\nChannel: Web. You can provide richer details and context. Users can see visual gallery cards when you call show_recommendations. Use markdown formatting for better readability.`;
 
           const result = streamText({
             system: basePrompt + channelInstructions,
-
-
             messages: convertToModelMessages(processedMessages),
             model,
             tools: tools,
+            maxTokens: isWhatsApp ? 300 : 500, // Limit tokens for WhatsApp to keep responses concise
             providerOptions: {
               openai: {
                 reasoningEffort: "minimal",
@@ -190,11 +216,12 @@ Personality: Be enthusiastic about art, warm, and conversational. Match the user
 
                 if (textParts.length > 0) {
                   const fullText = textParts.join('\n\n');
-                  console.log(`[AI] 💬 Sending ${fullText.length} chars to WhatsApp user ${context.waId}`);
-                  console.log(`[AI] 📝 Preview: ${fullText.substring(0, 100)}...`);
+                  const formattedText = formatForWhatsApp(fullText);
+                  console.log(`[AI] 💬 Sending ${formattedText.length} chars to WhatsApp user ${context.waId}`);
+                  console.log(`[AI] 📝 Preview: ${formattedText.substring(0, 100)}...`);
 
                   try {
-                    await sendTextMessage(this.getEnv(), context.waId, fullText);
+                    await sendTextMessage(this.getEnv(), context.waId, formattedText);
                     console.log('[AI] ✅ Text response sent successfully via WhatsApp');
                   } catch (error) {
                     console.error('[AI] ❌ Failed to send WhatsApp message:', error);
