@@ -14,7 +14,7 @@ export function GalleryCards({ galleries }: GalleryCardsProps) {
 
   return (
     <div className="w-full">
-      <div className="flex gap-3 overflow-x-auto pb-3 -mx-4 px-4 items-stretch">
+      <div className="zine-scrollbar -mx-4 flex items-stretch gap-3 overflow-x-auto px-4 pb-3">
         {limitedGalleries.map((gallery) => (
           <GalleryCard
             key={gallery.id}
@@ -23,7 +23,7 @@ export function GalleryCards({ galleries }: GalleryCardsProps) {
         ))}
       </div>
       {galleries.length > 5 && (
-        <p className="text-[10px] text-slate-400 text-center mt-1.5">
+        <p className="mt-1.5 text-center font-mono text-[10px] text-[#0140B6]/55">
           Showing top 5 of {galleries.length} results
         </p>
       )}
@@ -45,16 +45,17 @@ function GalleryCard({ gallery }: GalleryCardProps) {
   const needsTruncation = description.length > 200;
 
   return (
-    <div className="flex-shrink-0 w-[340px] h-full rounded-2xl p-6 bg-gradient-to-br from-[#fff8fa] to-[#ffecef] shadow-sm hover:shadow-md transition-all duration-200">
-      <h2 className="text-sm font-semibold text-gray-900">{gallery.name}</h2>
+    <div className="h-full w-[340px] flex-shrink-0 rounded-lg border border-[#0140B6]/30 bg-[#F1F5FF] p-6 transition-all duration-200 hover:border-[#0140B6]">
+      <p className="mb-3 text-[9px] uppercase tracking-[0.18em] text-[#0140B6]/60">Gallery</p>
+      <h2 className="text-lg font-semibold leading-tight text-[#0140B6]">{gallery.name}</h2>
 
       {gallery.district && (
-        <p className="text-xs text-gray-600 mt-1">{gallery.district}</p>
+        <p className="mt-1 text-xs text-[#0140B6]/70">{gallery.district}</p>
       )}
 
       <div className="mt-3">
         <p
-          className={`text-xs text-gray-700 leading-relaxed ${
+          className={`text-xs leading-relaxed text-[#161A23]/80 ${
             !isExpanded && needsTruncation ? "line-clamp-6" : ""
           }`}
         >
@@ -64,7 +65,7 @@ function GalleryCard({ gallery }: GalleryCardProps) {
           <button
             type="button"
             onClick={() => setIsExpanded(!isExpanded)}
-            className="text-xs text-gray-600 hover:text-gray-900 mt-1 font-medium"
+            className="mt-1 text-xs font-medium text-[#0140B6] hover:underline"
           >
             {isExpanded ? "read less" : "read more"}
           </button>
@@ -79,7 +80,7 @@ function GalleryCard({ gallery }: GalleryCardProps) {
               e.preventDefault();
               window.open(primaryLink, "_blank", "noopener,noreferrer");
             }}
-            className="bg-white text-gray-900 px-3 py-1.5 rounded-xl hover:bg-gray-50 transition text-xs font-medium"
+            className="rounded-md bg-[#161A23] px-3 py-2 text-xs font-medium text-white transition hover:bg-[#0140B6]"
           >
             visit gallery
           </button>
@@ -89,7 +90,7 @@ function GalleryCard({ gallery }: GalleryCardProps) {
           onClick={() => {
             // TODO: Implement share functionality
           }}
-          className="bg-white text-gray-900 px-3 py-1.5 rounded-xl hover:bg-gray-50 transition text-xs font-medium"
+          className="rounded-md border border-[#0140B6] bg-white px-3 py-2 text-xs font-medium text-[#0140B6] transition hover:bg-[#0140B6] hover:text-white"
         >
           share
         </button>

@@ -5,20 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="AI-powered chat agent built with Cloudflare Agents"
+      content="Zine Local — discover London's art scene by mood, place and time."
     />
-    <meta name="theme-color" content="#000000" />
+    <meta name="theme-color" content="#0140b6" />
 
-    <title>AI Chat Agent</title>
-
-    <script>
-      document.documentElement.classList.toggle(
-        "dark",
-        localStorage.theme === "dark" ||
-          (!("theme" in localStorage) &&
-            window.matchMedia("(prefers-color-scheme: dark)").matches)
-      );
-    </script>
+    <title>Zine Local — London art guide</title>
 
     <!-- Favicon support -->
     <link rel="icon" href="/favicon.ico" />
@@ -30,12 +21,7 @@
     <!-- Prevent flash of unstyled content -->
     <style>
       html {
-        background: var(--background);
-      }
-      @media (prefers-color-scheme: dark) {
-        html {
-          background: var(--background);
-        }
+        background: #ffffff;
       }
     </style>
   </head>

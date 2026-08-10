@@ -27,8 +27,8 @@ export function ToolResult({ part, onSaveToZine, debugMode }: ToolResultProps) {
   // For non-recommendation tools: show compact indicator when debug is OFF
   if (!debugMode && !isRecommendationTool) {
     return (
-      <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800">
-        <p className="text-xs text-slate-600 dark:text-slate-400">
+      <div className="mt-2 rounded-lg border border-[#0140B6]/25 bg-[#F1F5FF] px-3 py-2">
+        <p className="text-xs text-[#0140B6]">
           {toolName}
         </p>
       </div>
@@ -42,8 +42,8 @@ export function ToolResult({ part, onSaveToZine, debugMode }: ToolResultProps) {
 
     if (count === 0) {
       return (
-        <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800">
-          <p className="text-xs text-slate-600 dark:text-slate-400">
+        <div className="mt-2 rounded-lg border border-[#0140B6]/25 bg-[#F1F5FF] px-3 py-2">
+          <p className="text-xs text-[#0140B6]">
             No events found for this gallery
           </p>
         </div>
@@ -52,7 +52,7 @@ export function ToolResult({ part, onSaveToZine, debugMode }: ToolResultProps) {
 
     return (
       <div className="mt-2">
-        <p className="text-xs text-slate-600 dark:text-slate-400 mb-2">
+        <p className="mb-2 text-xs text-[#0140B6]">
           Found {count} event{count === 1 ? "" : "s"}
         </p>
         <EventCards events={eventResult.events} onSaveToZine={onSaveToZine} />
@@ -67,8 +67,8 @@ export function ToolResult({ part, onSaveToZine, debugMode }: ToolResultProps) {
 
     if (count === 0) {
       return (
-        <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800">
-          <p className="text-xs text-slate-600 dark:text-slate-400">
+        <div className="mt-2 rounded-lg border border-[#0140B6]/25 bg-[#F1F5FF] px-3 py-2">
+          <p className="text-xs text-[#0140B6]">
             No galleries found matching your criteria
           </p>
         </div>
@@ -77,7 +77,7 @@ export function ToolResult({ part, onSaveToZine, debugMode }: ToolResultProps) {
 
     return (
       <div className="mt-2">
-        <p className="text-xs text-slate-600 dark:text-slate-400 mb-2">
+        <p className="mb-2 text-xs text-[#0140B6]">
           Found {count} {count === 1 ? "gallery" : "galleries"}
         </p>
         <GalleryCards galleries={galleryResult.items} />
@@ -92,8 +92,8 @@ export function ToolResult({ part, onSaveToZine, debugMode }: ToolResultProps) {
         ? (typeof output.found === "number" ? output.found : 0)
         : 0;
       return (
-        <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 dark:border-blue-700 dark:bg-blue-900/20">
-          <p className="text-xs text-blue-700 dark:text-blue-400">
+        <div className="mt-2 rounded-lg border border-[#0140B6]/25 bg-[#F1F5FF] px-3 py-2">
+          <p className="text-xs text-[#0140B6]">
             Retrieved {count} {count === 1 ? "gallery" : "galleries"} for analysis
           </p>
         </div>
@@ -121,8 +121,8 @@ export function ToolResult({ part, onSaveToZine, debugMode }: ToolResultProps) {
     }
 
     return (
-      <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800">
-        <p className="text-xs text-slate-600 dark:text-slate-400">
+      <div className="mt-2 rounded-lg border border-[#0140B6]/25 bg-[#F1F5FF] px-3 py-2">
+        <p className="text-xs text-[#0140B6]">
           Preferences update completed
         </p>
       </div>

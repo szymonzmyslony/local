@@ -20,7 +20,7 @@ export function ToolMessage({ part, timestamp, onSaveToZine, debugMode }: ToolMe
 
       <ToolResult part={part} onSaveToZine={onSaveToZine} debugMode={debugMode} />
 
-      <p className="text-[10px] text-slate-400">{timestamp}</p>
+      <p className="font-mono text-[9px] text-[#0140B6]/45">{timestamp}</p>
     </div>
   );
 }

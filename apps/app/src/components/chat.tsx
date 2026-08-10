@@ -98,10 +98,25 @@ export function Chat({
   }
 
   return (
-    <div className="flex h-screen w-full flex-col">
+    <div className="flex h-screen w-full flex-col bg-white">
+      <header className="flex min-h-16 items-center justify-between border-b border-[#0140B6]/20 px-5 md:px-8">
+        <div className="flex items-baseline gap-3">
+          <span className="text-sm font-bold tracking-[-0.02em] text-[#0140B6] md:hidden">
+            ZINE LOCAL
+          </span>
+          <span className="hidden text-[10px] uppercase tracking-[0.2em] text-[#0140B6] md:inline">
+            London / art / now
+          </span>
+        </div>
+        <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.14em] text-[#0140B6]">
+          <span className="h-1.5 w-1.5 rounded-full bg-[#0140B6]" />
+          Live guide
+        </div>
+      </header>
+
       {/* Debug State Display - Sticky at top */}
       {debugMode && (
-        <div className="sticky top-0 z-40 px-6 pt-4 pb-2 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
+        <div className="sticky top-0 z-40 border-b border-[#0140B6]/20 bg-[#F1F5FF] px-6 pt-4 pb-2">
           <div className="mx-auto w-full md:max-w-2xl xxl:max-w-3xl">
             <JsonDisplay
               data={{
@@ -116,10 +131,10 @@ export function Chat({
 
       {/* Messages area */}
       <div
-        className={`flex-1 bg-slate-50 dark:bg-slate-900 ${hasMessages ? "overflow-y-auto px-6 py-6" : "flex items-center justify-center px-6 py-6"}`}
+        className={`zine-scrollbar flex-1 bg-white ${hasMessages ? "overflow-y-auto px-5 py-6 md:px-8" : "flex items-center justify-center px-5 py-8 md:px-8"}`}
       >
         <div
-          className={`mx-auto w-full md:max-w-2xl xxl:max-w-3xl ${hasMessages ? "" : "h-full flex items-center justify-center"}`}
+          className={`mx-auto w-full max-w-4xl ${hasMessages ? "" : "flex h-full items-center justify-center"}`}
         >
           {hasMessages ? (
             <>
@@ -131,7 +146,7 @@ export function Chat({
               />
               {status === "error" && (
                 <div className="flex justify-start mt-3">
-                  <div className="rounded-[16px] border border-red-200/50 bg-red-50/50 px-3 py-2 text-xs text-red-700 dark:border-red-400/30 dark:bg-red-500/10 dark:text-red-200">
+                  <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">
                     Something went wrong while contacting the assistant. Please
                     try again.
                   </div>
@@ -140,45 +155,47 @@ export function Chat({
               <div ref={messagesEndRef} />
             </>
           ) : (
-            <div className="w-full space-y-4 text-center">
-              <div className="space-y-1.5">
-                <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                  What do you feel like doing?
+            <div className="w-full space-y-7">
+              <div className="max-w-3xl space-y-3">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-[#0140B6]">
+                  Mood + location + time
                 </p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Describe your mood, aesthetic, or how you'd like the day to
-                  unfold and Zine will find art that fits.
+                <h1 className="max-w-2xl text-4xl font-bold leading-[1.02] tracking-[-0.045em] text-[#0140B6] sm:text-5xl md:text-6xl">
+                  What feels alive today?
+                </h1>
+                <p className="max-w-xl text-sm leading-relaxed text-[#0140B6]">
+                  Tell Zine how you want the day to feel, where you want to wander and when you are free.
                 </p>
               </div>
-              <div className="prompt-cards grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-4 w-full">
+              <div className="prompt-cards grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 {[
-                  "Quiet exhibitions in Praga this weekend",
-                  "Calm galleries to visit on Sunday",
-                  "Playful art around Shoreditch tonight",
-                  "Experimental installations near Old Town"
+                  "Something calm in Peckham tonight",
+                  "Photography in Soho this weekend",
+                  "Experimental art in the East End",
+                  "A gallery open Sunday afternoon"
                 ].map((suggestion) => (
                   <button
                     key={suggestion}
                     type="button"
                     onClick={() => handleSuggestionClick(suggestion)}
                     disabled={status === "submitted" || status === "streaming"}
-                    className="h-auto w-full rounded-xl border border-slate-300/60 bg-slate-50/80 px-4 py-2.5 text-left text-xs font-normal text-slate-700 transition-all hover:border-slate-400/60 hover:bg-slate-100/90 hover:shadow-sm disabled:opacity-50 disabled:cursor-not-allowed dark:border-slate-600/50 dark:bg-slate-800/50 dark:text-slate-300 dark:hover:border-slate-500/60 dark:hover:bg-slate-700/60"
+                    className="h-auto min-h-20 w-full rounded-lg border border-[#0140B6]/35 bg-white px-4 py-3 text-left text-xs leading-relaxed text-[#0140B6] transition-all hover:border-[#0140B6] hover:bg-[#F1F5FF] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {suggestion}
                   </button>
                 ))}
               </div>
               {/* Input form - shown on desktop when no messages */}
-              <div className="hidden md:block mt-8">
+              <div className="mt-2 hidden md:block">
                 <form onSubmit={handleSubmit}>
-                  <div className="relative flex items-center">
+                  <div className="relative flex items-end">
                     <textarea
                       ref={desktopInputRef}
                       value={inputValue}
                       onChange={handleInputChange}
                       onKeyDown={handleKeyDown}
                       rows={1}
-                      className="min-h-[40px] max-h-[120px] resize-none text-start flex-1 overflow-y-auto rounded-[28px] border border-slate-200 bg-white px-4 pr-14 py-3 text-xs leading-normal text-slate-900 outline-none focus:border-slate-300 placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-slate-600 dark:placeholder:text-slate-500"
+                      className="min-h-[58px] max-h-[140px] flex-1 resize-none overflow-y-auto rounded-lg border-2 border-[#0140B6] bg-white px-4 py-[18px] pr-16 text-start text-sm leading-normal text-[#161A23] outline-none placeholder:text-[#0140B6]/45 focus:ring-2 focus:ring-[#0140B6]/15"
                       aria-label="Message"
                       placeholder="Add your mood, time and place, I will take care of the rest..."
                     />
@@ -189,7 +206,7 @@ export function Chat({
                         status === "submitted" ||
                         status === "streaming"
                       }
-                      className="absolute right-2 flex h-8 w-8 items-center justify-center rounded-full bg-[#D8D3FA] text-slate-900 transition hover:bg-[#C8C3EA] disabled:opacity-50 disabled:cursor-not-allowed dark:bg-[#D8D3FA] dark:text-slate-900 dark:hover:bg-[#C8C3EA]"
+                      className="absolute right-2 bottom-2 flex h-[42px] w-[42px] items-center justify-center rounded-md bg-[#161A23] text-white transition hover:bg-[#0140B6] disabled:cursor-not-allowed disabled:opacity-35"
                       aria-label="Send message"
                     >
                       {status === "submitted" || status === "streaming" ? (
@@ -208,18 +225,18 @@ export function Chat({
 
       {/* Input area - always shown on mobile, hidden on desktop when no messages */}
       <div
-        className={`border-slate-200 bg-transparent px-6 py-4 dark:border-slate-800 dark:bg-slate-950 ${!hasMessages ? "md:hidden" : ""}`}
+        className={`border-t border-[#0140B6]/20 bg-white px-5 py-4 md:px-8 ${!hasMessages ? "md:hidden" : ""}`}
       >
-        <div className="mx-auto w-full md:max-w-2xl xxl:max-w-3xl">
+        <div className="mx-auto w-full max-w-4xl">
           <form ref={composerRef} onSubmit={handleSubmit}>
-            <div className="relative flex items-center">
+            <div className="relative flex items-end">
               <textarea
                 ref={inputRef}
                 value={inputValue}
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 rows={1}
-                className="min-h-[40px] max-h-[120px] resize-none text-start flex-1 overflow-y-auto rounded-[28px] border border-slate-200 bg-white px-4 pr-14 py-3 text-xs leading-normal text-slate-900 outline-none focus:border-slate-300 placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-slate-600 dark:placeholder:text-slate-500"
+                className="min-h-[52px] max-h-[140px] flex-1 resize-none overflow-y-auto rounded-lg border-2 border-[#0140B6] bg-white px-4 py-4 pr-16 text-start text-sm leading-normal text-[#161A23] outline-none placeholder:text-[#0140B6]/45 focus:ring-2 focus:ring-[#0140B6]/15"
                 aria-label="Message"
                 placeholder="Add your mood, time and place, I will take care of the rest..."
               />
@@ -230,7 +247,7 @@ export function Chat({
                   status === "submitted" ||
                   status === "streaming"
                 }
-                className="absolute right-2 flex h-8 w-8 items-center justify-center rounded-full bg-[#D8D3FA] text-slate-900 transition hover:bg-[#C8C3EA] disabled:opacity-50 disabled:cursor-not-allowed dark:bg-[#D8D3FA] dark:text-slate-900 dark:hover:bg-[#C8C3EA]"
+                className="absolute right-2 bottom-2 flex h-9 w-9 items-center justify-center rounded-md bg-[#161A23] text-white transition hover:bg-[#0140B6] disabled:cursor-not-allowed disabled:opacity-35"
                 aria-label="Send message"
               >
                 {status === "submitted" || status === "streaming" ? (

@@ -9,24 +9,24 @@ interface TextMessageProps {
 export function TextMessage({ text, timestamp, isUser }: TextMessageProps) {
   const textLength = text?.length ?? 0;
   const isShortMessage = textLength <= 16;
-  const borderRadius = isShortMessage ? "rounded-full" : "rounded-[16px]";
+  const borderRadius = isShortMessage ? "rounded-lg" : "rounded-lg";
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div className="max-w-[98%]">
+      <div className="max-w-[92%] md:max-w-[82%]">
         <div
-          className={`${borderRadius} px-3 py-2 ${
+          className={`${borderRadius} px-4 py-3 ${
             isUser
-              ? "bg-[#D8D3FA] text-slate-900"
-              : "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
+              ? "bg-[#0140B6] text-white"
+              : "border border-[#0140B6]/25 bg-[#F1F5FF] text-[#161A23]"
           }`}
         >
-          <Markdown className="text-xs">{text}</Markdown>
+          <Markdown className="text-sm leading-relaxed">{text}</Markdown>
           <p
-            className={`mt-1 text-[10px] ${
+            className={`mt-2 font-mono text-[9px] ${
               isUser
-                ? "text-slate-600"
-                : "text-slate-400 dark:text-slate-400"
+                ? "text-white/60"
+                : "text-[#0140B6]/55"
             }`}
           >
             {timestamp}

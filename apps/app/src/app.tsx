@@ -69,10 +69,10 @@ export default function App() {
       <button
         type="button"
         onClick={toggleDebugMode}
-        className="fixed bottom-4 right-4 z-50 px-3 py-2 text-xs font-medium rounded-lg shadow-lg transition-all hover:scale-105 bg-slate-800 text-slate-100 hover:bg-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600"
+        className="fixed bottom-3 right-3 z-50 hidden rounded-md border border-[#0140B6]/35 bg-white px-2 py-1 text-[9px] uppercase tracking-[0.14em] text-[#0140B6] opacity-60 transition hover:opacity-100 md:block"
         title="Toggle debug mode (Ctrl/Cmd+D)"
       >
-        Debug: {debugMode ? "ON" : "OFF"}
+        Dev {debugMode ? "on" : "off"}
       </button>
 
       <SidebarLayout savedEvents={savedEvents}>

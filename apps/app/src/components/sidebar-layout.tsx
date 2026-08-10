@@ -9,49 +9,56 @@ interface SidebarLayoutProps {
 }
 
 export function SidebarLayout({ children, savedEvents }: SidebarLayoutProps) {
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(
+    () => typeof window === "undefined" || window.innerWidth >= 768
+  );
 
   return (
-    <div className="flex h-screen w-full bg-neutral-50 dark:bg-neutral-950">
+    <div className="flex h-screen w-full overflow-hidden bg-white text-[#161A23]">
       {/* Collapsible sidebar */}
       <aside
         className={`
-          border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950
+          border-r border-[#0140B6]/25 bg-white
           flex flex-col transition-all duration-300 ease-in-out
-          ${isOpen ? "w-64" : "w-12"}
+          ${isOpen ? "w-[280px]" : "w-14"}
         `}
       >
-        <div className="p-3 flex items-center justify-end">
+        <div className={`flex min-h-16 items-center border-b border-[#0140B6]/20 p-3 ${isOpen ? "justify-between" : "justify-center"}`}>
+          {isOpen && (
+            <a href="https://zinelocal.com" className="text-[17px] font-bold tracking-[-0.03em] text-[#0140B6]">
+              ZINE LOCAL
+            </a>
+          )}
           <button
             type="button"
             aria-label={isOpen ? "Collapse saved events" : "Expand saved events"}
             onClick={() => setIsOpen(!isOpen)}
-            className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            className="flex h-8 w-8 items-center justify-center rounded-md border border-transparent text-[#0140B6] transition-colors hover:border-[#0140B6]/30 hover:bg-[#F1F5FF]"
           >
-            <PanelLeft className="h-4 w-4 text-slate-700 dark:text-slate-300" />
+            <PanelLeft className="h-4 w-4" />
           </button>
         </div>
 
         {isOpen && (
-          <div className="flex-1 overflow-y-auto p-2">
-            <div className="flex items-center gap-2 px-2 py-2 mb-2">
-              {/* <Layers className="h-4 w-4 text-slate-700 dark:text-slate-300" /> */}
-              <h2 className="text-xs font-regular text-slate-700 dark:text-slate-100">
-                Saved Events
+          <div className="zine-scrollbar flex-1 overflow-y-auto p-4">
+            <div className="mb-4 flex items-center justify-between border-b border-[#0140B6]/20 pb-3">
+              <h2 className="text-[10px] font-medium uppercase tracking-[0.18em] text-[#0140B6]">
+                Saved events
               </h2>
+              <span className="font-mono text-[10px] text-[#0140B6]/60">{String(savedEvents.length).padStart(2, "0")}</span>
             </div>
             {savedEvents.length > 0 ? (
-              <div className="space-y-1">
+              <div className="space-y-2">
                 {savedEvents.map((event) => {
                   const gallery = event.gallery as unknown as { name?: string } | null;
                   return (
                     <EventDetailPopover key={event.event_id} event={event}>
-                      <button type="button" className="w-full text-left rounded-lg px-2 py-2 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors">
-                        <div className="text-xs font-medium text-slate-900 dark:text-slate-100 line-clamp-2">
+                      <button type="button" className="w-full rounded-lg border border-[#0140B6]/20 px-3 py-3 text-left transition-colors hover:border-[#0140B6] hover:bg-[#F1F5FF]">
+                        <div className="line-clamp-2 text-xs font-medium text-[#161A23]">
                           {event.title}
                         </div>
                         {gallery?.name && (
-                          <div className="text-xs text-slate-600 dark:text-slate-400 mt-1 truncate">
+                          <div className="mt-1 truncate text-[10px] uppercase tracking-[0.08em] text-[#0140B6]">
                             {gallery.name}
                           </div>
                         )}
@@ -61,12 +68,18 @@ export function SidebarLayout({ children, savedEvents }: SidebarLayoutProps) {
                 })}
               </div>
             ) : (
-              <div className="flex h-full items-center justify-center p-4">
-                <p className="text-center text-xs text-slate-500 dark:text-slate-400">
-                  Events you save will appear here
+              <div className="flex h-full items-center justify-center p-5">
+                <p className="max-w-[150px] text-center text-xs leading-relaxed text-[#0140B6]/65">
+                  Save anything that feels worth coming back to.
                 </p>
               </div>
             )}
+            <a
+              href="https://zinelocal.com"
+              className="mt-6 inline-flex text-[10px] uppercase tracking-[0.16em] text-[#0140B6] hover:underline"
+            >
+              Back to the guide ↗
+            </a>
           </div>
         )}
       </aside>

@@ -1,5 +1,71 @@
 @import "tailwindcss";
 @import "@shared/ui/theme.css";
+
+@layer base {
+  :root {
+    --zine-blue: #0140b6;
+    --zine-blue-soft: #f1f5ff;
+    --zine-ink: #161a23;
+    --zine-line: #b9c9eb;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #app {
+    width: 100%;
+    min-height: 100%;
+    margin: 0;
+  }
+
+  body {
+    background: #ffffff;
+    color: var(--zine-ink);
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  }
+
+  button,
+  textarea,
+  input {
+    font: inherit;
+  }
+
+  ::selection {
+    background: var(--zine-blue);
+    color: #ffffff;
+  }
+}
+
+@layer utilities {
+  .zine-scrollbar {
+    scrollbar-color: var(--zine-line) transparent;
+    scrollbar-width: thin;
+  }
+
+  .zine-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .zine-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--zine-line);
+    border-radius: 999px;
+  }
+}
+
 @layer base {
     :root {
       --sidebar: oklch(0.985 0 0);

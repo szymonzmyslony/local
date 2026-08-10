@@ -46,28 +46,28 @@ export function EventDetailPopover({ event, children }: EventDetailPopoverProps)
       <PopoverTrigger asChild>
         {children}
       </PopoverTrigger>
-      <PopoverContent className="w-96 p-0" side="right" align="start">
+      <PopoverContent className="w-96 border-[#0140B6]/30 bg-white p-0" side="right" align="start">
         <div className="space-y-4 p-4">
           <div className="space-y-0.5">
-            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+            <p className="text-sm font-semibold text-[#0140B6]">
               {event.title}
             </p>
           </div>
           {event.description && (
-            <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200">
+            <p className="text-xs leading-relaxed text-[#161A23]">
               {event.description}
             </p>
           )}
-          <div className="space-y-1.5 text-xs text-slate-600 dark:text-slate-300">
+          <div className="space-y-1.5 text-xs text-[#161A23]/75">
             <p>
-              <span className="font-semibold text-slate-800 dark:text-slate-100">
+              <span className="font-semibold text-[#0140B6]">
                 When:
               </span>{" "}
               {formatDateRange(event.start_at, event.end_at)}
             </p>
             {gallery?.name && (
               <p>
-                <span className="font-semibold text-slate-800 dark:text-slate-100">
+                <span className="font-semibold text-[#0140B6]">
                   Gallery:
                 </span>{" "}
                 {gallery.name}
@@ -79,7 +79,7 @@ export function EventDetailPopover({ event, children }: EventDetailPopoverProps)
                   href={gallery.main_url}
                   target="_blank"
                   rel="noreferrer"
-                  className="font-medium text-[#D8D3FA] hover:underline dark:text-[#D8D3FA]"
+                  className="font-medium text-[#0140B6] hover:underline"
                 >
                   Visit gallery site →
                 </a>
