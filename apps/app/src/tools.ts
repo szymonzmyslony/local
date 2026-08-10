@@ -159,12 +159,19 @@ const eventTimingSchema = z.discriminatedUnion("kind", [
     .strict()
 ]);
 
+const eventAttendanceSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("in_person") }).strict(),
+  z.object({ kind: z.literal("online") }).strict(),
+  z.object({ kind: z.literal("any") }).strict()
+]);
+
 const eventSearchInputSchema = z
   .object({
     mode: z.literal("discover"),
     subject: eventSubjectSchema,
     location: eventLocationSchema,
-    timing: eventTimingSchema
+    timing: eventTimingSchema,
+    attendance: eventAttendanceSchema
   })
   .strict();
 
@@ -307,10 +314,11 @@ export function createZineTools(env: Env) {
 
     Events are automatically filtered to only show events from the current time onward.
 
-    Always provide three explicit discriminated dimensions:
+    Always provide four explicit discriminated dimensions:
     subject (any, semantic, artists, semantic_and_artists), location
     (anywhere_in_london or area), and timing (current_and_upcoming, on_date,
-    or date_range).
+    or date_range), and attendance (in_person, online, or any). Use in_person
+    for a place-based visit unless the user explicitly asks for online events.
 
     After receiving results, analyze and present relevant events to the user.
   `,

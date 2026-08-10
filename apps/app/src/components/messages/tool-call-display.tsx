@@ -117,6 +117,7 @@ export function getToolPresentation(
     const subject = asRecord(input.subject);
     const location = asRecord(input.location);
     const timing = asRecord(input.timing);
+    const attendance = asRecord(input.attendance);
     const timingLabel =
       timing.kind === "on_date" && typeof timing.date === "string"
         ? timing.date
@@ -136,7 +137,12 @@ export function getToolPresentation(
         : null
       ,
       typeof location.area === "string" ? titleCase(location.area) : "London",
-      timingLabel
+      timingLabel,
+      attendance.kind === "in_person"
+        ? "In person"
+        : attendance.kind === "online"
+          ? "Online"
+          : "Any format"
     ].filter((detail): detail is string => Boolean(detail));
     const count = resultCount(outputValue, "found");
     return {

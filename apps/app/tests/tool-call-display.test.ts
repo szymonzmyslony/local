@@ -49,7 +49,8 @@ describe("human-readable tool activity", () => {
         mode: "discover",
         subject: { kind: "semantic", searchQuery: "experimental sculpture" },
         location: { kind: "area", area: "East London" },
-        timing: { kind: "on_date", date: "2026-08-15" }
+        timing: { kind: "on_date", date: "2026-08-15" },
+        attendance: { kind: "in_person" }
       },
       { found: 6 }
     );
@@ -58,7 +59,8 @@ describe("human-readable tool activity", () => {
     expect(presentation.details).toEqual([
       "Experimental Sculpture",
       "East London",
-      "2026-08-15"
+      "2026-08-15",
+      "In person"
     ]);
   });
 });

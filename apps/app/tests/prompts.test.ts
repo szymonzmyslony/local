@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { getZineSystemPrompt } from "../src/prompts";
 import {
   deduplicateEvents,
+  eventMatchesAttendance,
   eventMatchesTiming,
   getEventSearchStart
 } from "../src/services/event-search";
@@ -82,5 +83,18 @@ describe("event search cutoff", () => {
 
     const duplicate = { ...event, event_id: "event-2" };
     expect(deduplicateEvents([event, duplicate])).toEqual([event]);
+  });
+
+  it("keeps online-only events out of in-person area searches", () => {
+    expect(
+      eventMatchesAttendance(
+        {
+          title: "Ghost in the loop",
+          description: "An online exhibition.",
+          tags: []
+        },
+        { kind: "in_person" }
+      )
+    ).toBe(false);
   });
 });

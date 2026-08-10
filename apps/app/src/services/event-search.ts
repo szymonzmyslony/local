@@ -22,12 +22,18 @@ export type EventTiming =
   | { kind: "on_date"; date: string }
   | { kind: "date_range"; from: string; to: string };
 
+export type EventAttendance =
+  | { kind: "in_person" }
+  | { kind: "online" }
+  | { kind: "any" };
+
 /** Every discovery dimension is an explicit discriminated union. */
 export type EventSearchParams = {
   mode: "discover";
   subject: EventSubject;
   location: EventLocation;
   timing: EventTiming;
+  attendance: EventAttendance;
 };
 
 /** Return the current instant in the format expected by Supabase/Postgres. */
@@ -94,6 +100,20 @@ export function eventMatchesTiming(
   return eventStartDate <= timing.to && eventEndDate >= timing.from;
 }
 
+export function eventMatchesAttendance(
+  event: Pick<EventSearchResult, "title" | "description" | "tags">,
+  attendance: EventAttendance
+): boolean {
+  if (attendance.kind === "any") return true;
+  const evidence = [event.title, event.description ?? "", ...event.tags]
+    .join(" ")
+    .toLowerCase();
+  const isOnlineOnly =
+    /\bonline[- ]only\b/.test(evidence) ||
+    /\bonline (exhibition|event|screening|programme|program)\b/.test(evidence);
+  return attendance.kind === "online" ? isOnlineOnly : !isOnlineOnly;
+}
+
 function filterEvents(
   events: EventSearchResult[],
   params: EventSearchParams,
@@ -103,7 +123,11 @@ function filterEvents(
     const locationMatches =
       params.location.kind === "anywhere_in_london" ||
       matchesLondonArea(event.gallery_district, params.location.area);
-    return locationMatches && eventMatchesTiming(event, params.timing, now);
+    return (
+      locationMatches &&
+      eventMatchesTiming(event, params.timing, now) &&
+      eventMatchesAttendance(event, params.attendance)
+    );
   });
 }
 
