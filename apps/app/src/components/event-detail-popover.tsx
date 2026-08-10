@@ -38,8 +38,7 @@ function formatDateRange(
 }
 
 export function EventDetailPopover({ event, children }: EventDetailPopoverProps) {
-  // Cast gallery from Json to proper type
-  const gallery = event.gallery as unknown as { name?: string; main_url?: string } | null;
+  const primaryLink = event.ticket_url ?? event.source_url ?? event.gallery.main_url;
 
   return (
     <Popover>
@@ -65,23 +64,31 @@ export function EventDetailPopover({ event, children }: EventDetailPopoverProps)
               </span>{" "}
               {formatDateRange(event.start_at, event.end_at)}
             </p>
-            {gallery?.name && (
+            {event.gallery.name && (
               <p>
                 <span className="font-semibold text-[#0140B6]">
                   Gallery:
                 </span>{" "}
-                {gallery.name}
+                {event.gallery.name}
               </p>
             )}
-            {gallery?.main_url && (
+            {event.gallery.area && (
+              <p>
+                <span className="font-semibold text-[#0140B6]">
+                  Area:
+                </span>{" "}
+                {event.gallery.area}
+              </p>
+            )}
+            {primaryLink && (
               <p>
                 <a
-                  href={gallery.main_url}
+                  href={primaryLink}
                   target="_blank"
                   rel="noreferrer"
                   className="font-medium text-[#0140B6] hover:underline"
                 >
-                  Visit gallery site →
+                  Open event details →
                 </a>
               </p>
             )}

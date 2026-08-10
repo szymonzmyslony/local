@@ -1,5 +1,3 @@
-import type { Database } from "@shared";
-
 export type GalleryDistrict = string;
 
 /**
@@ -28,10 +26,28 @@ export interface UserRequirements {
   event: EventRequirements;
 }
 
-/**
- * Saved event card type (from get_gallery_events)
- */
-export type SavedEventCard = Database["public"]["Functions"]["get_gallery_events"]["Returns"][number];
+export type EventCardData = {
+  event_id: string;
+  title: string;
+  description: string | null;
+  start_at: string;
+  end_at: string | null;
+  status: string;
+  ticket_url: string | null;
+  source_url: string | null;
+  artists: string[];
+  tags: string[];
+  images: string[];
+  gallery: {
+    id: string;
+    name: string | null;
+    main_url: string;
+    area: string | null;
+    address: string | null;
+  };
+};
+
+export type SavedEventCard = EventCardData;
 
 /**
  * Channel Context - Discriminated union for different conversation channels

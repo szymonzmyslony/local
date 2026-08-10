@@ -2,20 +2,30 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@shared";
 import { createEmbedder, toPgVector } from "@shared";
 import type { GalleryDistrict } from "../types/chat-state";
+import { isLondonWideArea, matchesLondonArea } from "./london-area";
 
-/**
- * Gallery search parameters
- * At least ONE of searchQuery, area, or openAt must be provided
- */
-export type GallerySearchParams = {
-  searchQuery?: string;             // OPTIONAL - semantic search via embeddings
-  area?: string;                    // OPTIONAL - London area/neighbourhood
-  openAt?: {
-    weekday: number;                // 0-6 (0=Sunday)
-    timeMinutes?: number;           // 0-1439 (minutes since midnight) - optional
-  };
-  limit?: number;                   // OPTIONAL - default: 20
-};
+export type GalleryVisitTime =
+  | { precision: "day"; weekday: number }
+  | { precision: "exact_time"; weekday: number; timeMinutes: number };
+
+export type GallerySearchCriteria =
+  | { kind: "semantic"; searchQuery: string }
+  | { kind: "area"; area: string }
+  | { kind: "semantic_in_area"; searchQuery: string; area: string }
+  | { kind: "open_at"; openAt: GalleryVisitTime }
+  | { kind: "semantic_open_at"; searchQuery: string; openAt: GalleryVisitTime }
+  | { kind: "area_open_at"; area: string; openAt: GalleryVisitTime }
+  | {
+      kind: "semantic_in_area_open_at";
+      searchQuery: string;
+      area: string;
+      openAt: GalleryVisitTime;
+    };
+
+/** Closed input protocol: catalogue listing or one explicit search shape. */
+export type GallerySearchParams =
+  | { mode: "all" }
+  | { mode: "search"; criteria: GallerySearchCriteria };
 
 /**
  * Complete gallery data for LLM analysis and display
@@ -49,16 +59,12 @@ export async function searchGalleries(
   params: GallerySearchParams,
   openRouterApiKey: string
 ): Promise<{ data: GallerySearchResult[]; error: Error | null }> {
-  const { searchQuery, area, openAt, limit = 20 } = params;
-
-  // Validate: at least one search criterion must be provided
-  if (!searchQuery && !area && !openAt) {
-    console.error("[gallery-search] No search parameters provided");
-    return {
-      data: [],
-      error: new Error("At least one search parameter required (searchQuery, area, or openAt)")
-    };
-  }
+  const criteria = params.mode === "search" ? params.criteria : null;
+  const searchQuery =
+    criteria && "searchQuery" in criteria ? criteria.searchQuery : undefined;
+  const area = criteria && "area" in criteria ? criteria.area : undefined;
+  const openAt = criteria && "openAt" in criteria ? criteria.openAt : undefined;
+  const limit = 20;
 
   console.log("[gallery-search] Searching with params:", params);
 
@@ -79,7 +85,10 @@ export async function searchGalleries(
         match_threshold: 0.3,
         filter_district: area ?? undefined,
         filter_weekday: openAt?.weekday ?? undefined,
-        filter_time_minutes: openAt?.timeMinutes ?? undefined,
+            filter_time_minutes:
+              openAt?.precision === "exact_time"
+                ? openAt.timeMinutes
+                : undefined,
       });
 
       if (error) {
@@ -87,12 +96,8 @@ export async function searchGalleries(
         return { data: [], error: new Error(error.message) };
       }
 
-      if (!data) {
-        return { data: [], error: null };
-      }
-
       // Map RPC results to GallerySearchResult format
-      const results: GallerySearchResult[] = data.map((g) => ({
+      const results: GallerySearchResult[] = (data ?? []).map((g) => ({
         id: g.id,
         name: g.name ?? null,
         about: g.about ?? null,
@@ -108,8 +113,15 @@ export async function searchGalleries(
         google_maps_url: g.google_maps_url ?? null,
       }));
 
-      console.log(`[gallery-search] Found ${results.length} galleries via embedding search`);
-      return { data: results, error: null };
+      if (results.length > 0) {
+        console.log(`[gallery-search] Found ${results.length} galleries via embedding search`);
+        return { data: results, error: null };
+      }
+
+      // A new or partially enriched catalogue may not have gallery embeddings
+      // yet. Return the browsable London catalogue instead of encouraging the
+      // agent to retry the same empty semantic search.
+      console.warn("[gallery-search] Semantic search was empty; falling back to catalogue retrieval");
     }
 
     // No searchQuery: fall back to basic filtering (district and/or openAt only)
@@ -140,10 +152,7 @@ export async function searchGalleries(
       .limit(limit);
 
     query = query.eq("market", "ldn");
-    if (area) {
-      query = query.ilike("gallery_info.area", `%${area}%`);
-    }
-
+    const isWideArea = area ? isLondonWideArea(area) : false;
     const { data, error } = await query;
 
     if (error) {
@@ -171,6 +180,10 @@ export async function searchGalleries(
       google_maps_url: g.gallery_info?.google_maps_url ?? null,
     }));
 
+    if (area && !isWideArea) {
+      results = results.filter((gallery) => matchesLondonArea(gallery.district, area));
+    }
+
     // Apply hours filter if specified (only for non-embedding search)
     if (openAt && results.length > 0) {
       const galleryIds = results.map((g) => g.id);
@@ -186,7 +199,7 @@ export async function searchGalleries(
         return { data: [], error: new Error(hoursError.message) };
       }
 
-      if (hoursData) {
+      if (hoursData && hoursData.length > 0) {
         // Find galleries open at specified time
         const openGalleryIds = new Set(
           hoursData
@@ -195,7 +208,7 @@ export async function searchGalleries(
               if (!Array.isArray(ranges)) return false;
 
               // If timeMinutes not specified, just check if gallery has hours for this weekday
-              if (openAt.timeMinutes === undefined) {
+              if (openAt.precision === "day") {
                 return true;
               }
 
@@ -203,13 +216,17 @@ export async function searchGalleries(
               return ranges.some((range) => {
                 if (!Array.isArray(range) || range.length < 2) return false;
                 const [start, end] = range as [number, number];
-                return openAt.timeMinutes! >= start && openAt.timeMinutes! <= end;
+                return openAt.timeMinutes >= start && openAt.timeMinutes <= end;
               });
             })
             .map((h) => h.gallery_id)
         );
 
         results = results.filter((g) => openGalleryIds.has(g.id));
+      } else {
+        console.warn(
+          "[gallery-search] Opening-hours coverage is unavailable; returning unfiltered catalogue results"
+        );
       }
     }
 

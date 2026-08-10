@@ -24,7 +24,7 @@ export class Zine extends Think<Env, ZineChatState> {
   override initialState = createInitialChatState();
   override includeMcpTools = false;
   override workspaceBash = false;
-  override maxSteps = 10;
+  override maxSteps = 4;
   override chatStreamStallTimeoutMs = 120_000;
 
   override getModel() {

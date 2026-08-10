@@ -43,6 +43,14 @@ export function Chat({
   }, [messages]);
 
   const hasMessages = messages.some((msg) => !msg.metadata?.internal);
+  const lastVisibleMessage = [...messages]
+    .reverse()
+    .find((message) => !message.metadata?.internal);
+  const hasCompletedAssistantText =
+    lastVisibleMessage?.role === "assistant" &&
+    lastVisibleMessage.parts.some(
+      (part) => part.type === "text" && part.text.trim().length > 0
+    );
 
   const handleInputChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -144,9 +152,9 @@ export function Chat({
                 onSaveToZine={onSaveToZine}
                 debugMode={debugMode}
               />
-              {status === "error" && (
+              {status === "error" && !hasCompletedAssistantText && (
                 <div className="flex justify-start mt-3">
-                  <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  <div className="rounded-lg border border-[#0140B6]/25 bg-[#F1F5FF] px-3 py-2 text-xs text-[#0140B6]">
                     Something went wrong while contacting the assistant. Please
                     try again.
                   </div>
@@ -206,7 +214,7 @@ export function Chat({
                         status === "submitted" ||
                         status === "streaming"
                       }
-                      className="absolute right-2 bottom-2 flex h-[42px] w-[42px] items-center justify-center rounded-md bg-[#161A23] text-white transition hover:bg-[#0140B6] disabled:cursor-not-allowed disabled:opacity-35"
+                      className="absolute right-2 bottom-2 flex h-[42px] w-[42px] items-center justify-center rounded-md bg-[#0140B6] text-white transition hover:bg-[#0140B6]/85 disabled:cursor-not-allowed disabled:opacity-35"
                       aria-label="Send message"
                     >
                       {status === "submitted" || status === "streaming" ? (
@@ -247,7 +255,7 @@ export function Chat({
                   status === "submitted" ||
                   status === "streaming"
                 }
-                className="absolute right-2 bottom-2 flex h-9 w-9 items-center justify-center rounded-md bg-[#161A23] text-white transition hover:bg-[#0140B6] disabled:cursor-not-allowed disabled:opacity-35"
+                className="absolute right-2 bottom-2 flex h-9 w-9 items-center justify-center rounded-md bg-[#0140B6] text-white transition hover:bg-[#0140B6]/85 disabled:cursor-not-allowed disabled:opacity-35"
                 aria-label="Send message"
               >
                 {status === "submitted" || status === "streaming" ? (

@@ -18,7 +18,7 @@ export function TextMessage({ text, timestamp, isUser }: TextMessageProps) {
           className={`${borderRadius} px-4 py-3 ${
             isUser
               ? "bg-[#0140B6] text-white"
-              : "border border-[#0140B6]/25 bg-[#F1F5FF] text-[#161A23]"
+              : "border border-[#0140B6]/25 bg-white text-[#161A23]"
           }`}
         >
           <Markdown className="text-sm leading-relaxed">{text}</Markdown>

@@ -16,7 +16,7 @@ export function ToolMessage({ part, timestamp, onSaveToZine, debugMode }: ToolMe
 
   return (
     <div className="space-y-1.5">
-      <ToolCallDisplay part={part} toolName={toolName} />
+      <ToolCallDisplay part={part} toolName={toolName} debugMode={debugMode} />
 
       <ToolResult part={part} onSaveToZine={onSaveToZine} debugMode={debugMode} />
 

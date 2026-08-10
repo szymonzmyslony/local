@@ -10,23 +10,16 @@ export function GalleryCards({ galleries }: GalleryCardsProps) {
     return null;
   }
 
-  const limitedGalleries = galleries.slice(0, 5);
-
   return (
     <div className="w-full">
       <div className="zine-scrollbar -mx-4 flex items-stretch gap-3 overflow-x-auto px-4 pb-3">
-        {limitedGalleries.map((gallery) => (
+        {galleries.map((gallery) => (
           <GalleryCard
             key={gallery.id}
             gallery={gallery}
           />
         ))}
       </div>
-      {galleries.length > 5 && (
-        <p className="mt-1.5 text-center font-mono text-[10px] text-[#0140B6]/55">
-          Showing top 5 of {galleries.length} results
-        </p>
-      )}
     </div>
   );
 }
@@ -45,7 +38,7 @@ function GalleryCard({ gallery }: GalleryCardProps) {
   const needsTruncation = description.length > 200;
 
   return (
-    <div className="h-full w-[340px] flex-shrink-0 rounded-lg border border-[#0140B6]/30 bg-[#F1F5FF] p-6 transition-all duration-200 hover:border-[#0140B6]">
+    <div className="h-full w-[340px] flex-shrink-0 rounded-lg border border-[#0140B6]/30 bg-white p-6 transition-all duration-200 hover:border-[#0140B6]">
       <p className="mb-3 text-[9px] uppercase tracking-[0.18em] text-[#0140B6]/60">Gallery</p>
       <h2 className="text-lg font-semibold leading-tight text-[#0140B6]">{gallery.name}</h2>
 
@@ -72,28 +65,17 @@ function GalleryCard({ gallery }: GalleryCardProps) {
         )}
       </div>
 
-      <div className="flex gap-2 mt-4">
+      <div className="mt-4">
         {primaryLink && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              window.open(primaryLink, "_blank", "noopener,noreferrer");
-            }}
-            className="rounded-md bg-[#161A23] px-3 py-2 text-xs font-medium text-white transition hover:bg-[#0140B6]"
+          <a
+            href={primaryLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex rounded-md bg-[#0140B6] px-3 py-2 text-xs font-medium text-white transition hover:bg-[#0140B6]/85"
           >
             visit gallery
-          </button>
+          </a>
         )}
-        <button
-          type="button"
-          onClick={() => {
-            // TODO: Implement share functionality
-          }}
-          className="rounded-md border border-[#0140B6] bg-white px-3 py-2 text-xs font-medium text-[#0140B6] transition hover:bg-[#0140B6] hover:text-white"
-        >
-          share
-        </button>
       </div>
     </div>
   );

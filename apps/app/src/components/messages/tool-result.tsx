@@ -20,19 +20,16 @@ export function ToolResult({ part, onSaveToZine, debugMode }: ToolResultProps) {
 
   const toolName = getToolName(part);
   const output = part.output;
+  const outputType =
+    output && typeof output === "object" && "type" in output
+      ? output.type
+      : null;
+  const isUserFacingResult =
+    outputType === "event-results" || outputType === "gallery-results";
 
-  // ALWAYS show show_recommendations results (they are the final user-facing output)
-  const isRecommendationTool = toolName === "show_recommendations";
-
-  // For non-recommendation tools: show compact indicator when debug is OFF
-  if (!debugMode && !isRecommendationTool) {
-    return (
-      <div className="mt-2 rounded-lg border border-[#0140B6]/25 bg-[#F1F5FF] px-3 py-2">
-        <p className="text-xs text-[#0140B6]">
-          {toolName}
-        </p>
-      </div>
-    );
+  // Intermediate tool output is useful in diagnostics, not in consumer chat.
+  if (!debugMode && !isUserFacingResult) {
+    return null;
   }
 
   // Handle event results (from get_gallery_events)
@@ -44,7 +41,7 @@ export function ToolResult({ part, onSaveToZine, debugMode }: ToolResultProps) {
       return (
         <div className="mt-2 rounded-lg border border-[#0140B6]/25 bg-[#F1F5FF] px-3 py-2">
           <p className="text-xs text-[#0140B6]">
-            No events found for this gallery
+            No current events found for those filters
           </p>
         </div>
       );
@@ -53,7 +50,7 @@ export function ToolResult({ part, onSaveToZine, debugMode }: ToolResultProps) {
     return (
       <div className="mt-2">
         <p className="mb-2 text-xs text-[#0140B6]">
-          Found {count} event{count === 1 ? "" : "s"}
+          Found {count} {count === 1 ? "event" : "events"}
         </p>
         <EventCards events={eventResult.events} onSaveToZine={onSaveToZine} />
       </div>
@@ -81,50 +78,6 @@ export function ToolResult({ part, onSaveToZine, debugMode }: ToolResultProps) {
           Found {count} {count === 1 ? "gallery" : "galleries"}
         </p>
         <GalleryCards galleries={galleryResult.items} />
-      </div>
-    );
-  }
-
-  // Handle retrieve_galleries - show compact indicator in normal mode, JSON in debug mode
-  if (toolName === "retrieve_galleries") {
-    if (!debugMode) {
-      const count = output && typeof output === "object" && "found" in output
-        ? (typeof output.found === "number" ? output.found : 0)
-        : 0;
-      return (
-        <div className="mt-2 rounded-lg border border-[#0140B6]/25 bg-[#F1F5FF] px-3 py-2">
-          <p className="text-xs text-[#0140B6]">
-            Retrieved {count} {count === 1 ? "gallery" : "galleries"} for analysis
-          </p>
-        </div>
-      );
-    }
-    // In debug mode, fall through to show full JSON below
-  }
-
-  // Handle update_gallery_requirements
-  if (toolName === "update_gallery_requirements") {
-    const isSuccess =
-      (output && typeof output === "object" && (
-        ("success" in output && output.success) ||
-        ("updated" in output && output.updated)
-      )) || output !== null;
-
-    if (isSuccess) {
-      return (
-        <div className="mt-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 dark:border-green-700 dark:bg-green-900/20">
-          <p className="text-xs text-green-700 dark:text-green-400">
-            ✓ Gallery preferences updated
-          </p>
-        </div>
-      );
-    }
-
-    return (
-      <div className="mt-2 rounded-lg border border-[#0140B6]/25 bg-[#F1F5FF] px-3 py-2">
-        <p className="text-xs text-[#0140B6]">
-          Preferences update completed
-        </p>
       </div>
     );
   }

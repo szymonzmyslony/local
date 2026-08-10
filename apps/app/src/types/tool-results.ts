@@ -1,5 +1,5 @@
-import type { Database } from "@shared";
 import type { GallerySearchResult } from "../services/gallery-search";
+import type { EventCardData } from "./chat-state";
 
 /**
  * Gallery results for display
@@ -12,10 +12,17 @@ export interface GalleryToolResult {
 /**
  * Event results (from get_gallery_events)
  */
-export interface EventToolResult {
-  type: "event-results";
-  galleryId: string;
-  events: Database["public"]["Functions"]["get_gallery_events"]["Returns"];
-}
+export type EventToolResult =
+  | {
+      type: "event-results";
+      source: "gallery";
+      galleryId: string;
+      events: EventCardData[];
+    }
+  | {
+      type: "event-results";
+      source: "search";
+      events: EventCardData[];
+    };
 
 export type ToolResultPayload = GalleryToolResult | EventToolResult;

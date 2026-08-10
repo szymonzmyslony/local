@@ -9,9 +9,20 @@ import type { ZineChatState, SavedEventCard } from "./types/chat-state";
 type MessageMeta = { createdAt: string; internal?: boolean };
 
 const DEBUG_MODE_KEY = "zine-debug-mode";
+const WEB_AGENT_ID_KEY = "zine-web-agent-id-v3";
+
+export function getOrCreateWebAgentId(): string {
+  const existing = localStorage.getItem(WEB_AGENT_ID_KEY);
+  if (existing?.startsWith("web-")) return existing;
+
+  const id = `web-${crypto.randomUUID()}`;
+  localStorage.setItem(WEB_AGENT_ID_KEY, id);
+  return id;
+}
 
 export default function App() {
   const [agentState, setAgentState] = useState<ZineChatState | null>(null);
+  const [webAgentId] = useState(getOrCreateWebAgentId);
   const [debugMode, setDebugMode] = useState<boolean>(() => {
     // Initialize from localStorage
     const stored = localStorage.getItem(DEBUG_MODE_KEY);
@@ -29,6 +40,7 @@ export default function App() {
 
   const agent = useAgent<ZineChatState>({
     agent: "zine",
+    name: webAgentId,
     onStateUpdate: setAgentState
   });
 

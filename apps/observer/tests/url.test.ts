@@ -14,6 +14,19 @@ describe("source URL safety", () => {
     ).toBe("https://example.com/events");
   });
 
+  it("removes browser accessibility labels appended to event URLs", () => {
+    expect(
+      normalizeSourceUrl(
+        "https://example.com/events/show%20%22Open%20Homepage%22"
+      )
+    ).toBe("https://example.com/events/show");
+    expect(
+      normalizeSourceUrl(
+        "https://example.com/events/show%20%22Open%20Example%20Exhibition%22"
+      )
+    ).toBe("https://example.com/events/show");
+  });
+
   it("blocks local and cross-origin URLs", () => {
     expect(() => normalizeSourceUrl("http://127.0.0.1/admin")).toThrow();
     expect(() =>

@@ -1,16 +1,33 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@shared";
 import { createEmbedder, toPgVector } from "@shared";
+import { matchesLondonArea } from "./london-area";
 
-/**
- * Event search parameters
- * At least ONE of searchQuery or artists must be provided
- * Date filtering (startAfter) is automatically set to today
- */
+export type EventSubject =
+  | { kind: "any" }
+  | { kind: "semantic"; searchQuery: string }
+  | { kind: "artists"; artists: string[] }
+  | {
+      kind: "semantic_and_artists";
+      searchQuery: string;
+      artists: string[];
+    };
+
+export type EventLocation =
+  | { kind: "anywhere_in_london" }
+  | { kind: "area"; area: string };
+
+export type EventTiming =
+  | { kind: "current_and_upcoming" }
+  | { kind: "on_date"; date: string }
+  | { kind: "date_range"; from: string; to: string };
+
+/** Every discovery dimension is an explicit discriminated union. */
 export type EventSearchParams = {
-  searchQuery?: string;     // OPTIONAL - semantic search via embeddings
-  artists?: string[];       // OPTIONAL - array of artist names
-  limit?: number;           // OPTIONAL - default: 20
+  mode: "discover";
+  subject: EventSubject;
+  location: EventLocation;
+  timing: EventTiming;
 };
 
 /** Return the current instant in the format expected by Supabase/Postgres. */
@@ -30,6 +47,7 @@ export type EventSearchResult = {
   timezone: string | null;
   status: string;
   ticket_url: string | null;
+  source_url: string | null;
   artists: string[];
   tags: string[];
   images: string[];
@@ -47,6 +65,62 @@ type EventQueryResult = Database["public"]["Tables"]["events"]["Row"] & {
   }) | null;
 };
 
+const londonDateFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Europe/London",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit"
+});
+
+function toLondonDate(value: string): string {
+  return londonDateFormatter.format(new Date(value));
+}
+
+export function eventMatchesTiming(
+  event: Pick<EventSearchResult, "start_at" | "end_at">,
+  timing: EventTiming,
+  now = new Date()
+): boolean {
+  const effectiveEnd = event.end_at ?? event.start_at;
+  if (timing.kind === "current_and_upcoming") {
+    return Date.parse(effectiveEnd) >= now.getTime();
+  }
+
+  const eventStartDate = toLondonDate(event.start_at);
+  const eventEndDate = toLondonDate(effectiveEnd);
+  if (timing.kind === "on_date") {
+    return eventStartDate <= timing.date && eventEndDate >= timing.date;
+  }
+  return eventStartDate <= timing.to && eventEndDate >= timing.from;
+}
+
+function filterEvents(
+  events: EventSearchResult[],
+  params: EventSearchParams,
+  now = new Date()
+): EventSearchResult[] {
+  return events.filter((event) => {
+    const locationMatches =
+      params.location.kind === "anywhere_in_london" ||
+      matchesLondonArea(event.gallery_district, params.location.area);
+    return locationMatches && eventMatchesTiming(event, params.timing, now);
+  });
+}
+
+export function deduplicateEvents(events: EventSearchResult[]): EventSearchResult[] {
+  const seen = new Set<string>();
+  return events.filter((event) => {
+    const key = [
+      event.gallery_id,
+      event.title.trim().toLowerCase().replace(/\s+/g, " "),
+      event.start_at
+    ].join("|");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 /**
  * Search events using semantic search and filters
  */
@@ -55,17 +129,12 @@ export async function searchEvents(
   params: EventSearchParams,
   openRouterApiKey: string
 ): Promise<{ data: EventSearchResult[]; error: Error | null }> {
-  const { searchQuery, artists, limit = 20 } = params;
+  const { subject } = params;
+  const searchQuery =
+    "searchQuery" in subject ? subject.searchQuery : undefined;
+  const artists = "artists" in subject ? subject.artists : undefined;
+  const limit = 20;
   const searchStart = getEventSearchStart();
-
-  // Validate: at least one search criterion required
-  if (!searchQuery && (!artists || artists.length === 0)) {
-    console.error("[event-search] No search parameters provided");
-    return {
-      data: [],
-      error: new Error("At least one search parameter required (searchQuery or artists)")
-    };
-  }
 
   console.log("[event-search] Searching with params:", params);
   console.log("[event-search] Auto-filtering events after:", searchStart);
@@ -83,9 +152,12 @@ export async function searchEvents(
 
       const { data, error } = await supabase.rpc("search_events_filtered", {
         query_embedding: embeddingVector,
-        match_count: limit,
+        match_count: 100,
         match_threshold: 0.3,
-        filter_start_after: searchStart,
+        filter_start_after:
+          params.timing.kind === "current_and_upcoming"
+            ? searchStart
+            : `${params.timing.kind === "on_date" ? params.timing.date : params.timing.from}T00:00:00Z`,
         filter_artists: artists ?? undefined,
       });
 
@@ -98,7 +170,15 @@ export async function searchEvents(
         return { data: [], error: null };
       }
 
-      // Map RPC results to EventSearchResult format
+      const eventIds = (data ?? []).map((event) => event.event_id);
+      const { data: sourceRows } = eventIds.length
+        ? await supabase.from("events").select("id, source_url").in("id", eventIds)
+        : { data: [] };
+      const sourceUrls = new Map(
+        (sourceRows ?? []).map((event) => [event.id, event.source_url])
+      );
+
+      // Map RPC results to EventSearchResult format.
       const results: EventSearchResult[] = data.map((e) => ({
         event_id: e.event_id,
         title: e.title,
@@ -108,6 +188,7 @@ export async function searchEvents(
         timezone: e.timezone ?? null,
         status: e.status,
         ticket_url: e.ticket_url ?? null,
+        source_url: sourceUrls.get(e.event_id) ?? null,
         artists: e.artists ?? [],
         tags: e.tags ?? [],
         images: e.images ?? [],
@@ -118,8 +199,12 @@ export async function searchEvents(
         gallery_address: e.gallery_address ?? null,
       }));
 
-      console.log(`[event-search] Found ${results.length} events via embedding search`);
-      return { data: results, error: null };
+      const filteredResults = deduplicateEvents(filterEvents(results, params)).slice(
+        0,
+        limit
+      );
+      console.log(`[event-search] Found ${filteredResults.length} events via embedding search`);
+      return { data: filteredResults, error: null };
     }
 
     // No searchQuery: fall back to basic filtering (date and/or artists only)
@@ -136,6 +221,7 @@ export async function searchEvents(
         timezone,
         status,
         ticket_url,
+        source_url,
         gallery_id,
         event_info!inner (
           description,
@@ -155,8 +241,7 @@ export async function searchEvents(
       `
       )
       .order("start_at", { ascending: true })
-      .limit(limit)
-      .gt("start_at", searchStart)
+      .limit(100)
       .eq("galleries.market", "ldn")
       .eq("published", true);
 
@@ -185,6 +270,7 @@ export async function searchEvents(
       timezone: e.timezone,
       status: e.status,
       ticket_url: e.ticket_url,
+      source_url: e.source_url,
       artists: e.event_info?.artists ?? [],
       tags: e.event_info?.tags ?? [],
       images: e.event_info?.images ?? [],
@@ -195,8 +281,12 @@ export async function searchEvents(
       gallery_address: e.galleries?.gallery_info?.address ?? null,
     }));
 
-    console.log(`[event-search] Found ${results.length} events via basic filter`);
-    return { data: results, error: null };
+    const filteredResults = deduplicateEvents(filterEvents(results, params)).slice(
+      0,
+      limit
+    );
+    console.log(`[event-search] Found ${filteredResults.length} events via basic filter`);
+    return { data: filteredResults, error: null };
   } catch (err) {
     console.error("[event-search] Unexpected error:", err);
     const errorMessage = err instanceof Error ? err.message : "Unknown error";

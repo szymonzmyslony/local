@@ -50,16 +50,15 @@ export function SidebarLayout({ children, savedEvents }: SidebarLayoutProps) {
             {savedEvents.length > 0 ? (
               <div className="space-y-2">
                 {savedEvents.map((event) => {
-                  const gallery = event.gallery as unknown as { name?: string } | null;
                   return (
                     <EventDetailPopover key={event.event_id} event={event}>
                       <button type="button" className="w-full rounded-lg border border-[#0140B6]/20 px-3 py-3 text-left transition-colors hover:border-[#0140B6] hover:bg-[#F1F5FF]">
                         <div className="line-clamp-2 text-xs font-medium text-[#161A23]">
                           {event.title}
                         </div>
-                        {gallery?.name && (
+                        {event.gallery.name && (
                           <div className="mt-1 truncate text-[10px] uppercase tracking-[0.08em] text-[#0140B6]">
-                            {gallery.name}
+                            {event.gallery.name}
                           </div>
                         )}
                       </button>

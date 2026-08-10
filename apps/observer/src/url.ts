@@ -33,6 +33,9 @@ export function normalizeSourceUrl(input: string): string {
   for (const key of [...url.searchParams.keys()]) {
     if (/^(utm_|fbclid$|gclid$)/i.test(key)) url.searchParams.delete(key);
   }
+  // Browser markdown can append an accessibility label to extracted hrefs.
+  // It is presentation text, not part of the destination URL.
+  url.pathname = url.pathname.replace(/%20%22open%20.*%22$/i, "");
   if (url.pathname !== "/") url.pathname = url.pathname.replace(/\/+$/, "");
   return url.toString();
 }
