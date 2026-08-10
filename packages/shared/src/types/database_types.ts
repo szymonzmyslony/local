@@ -731,6 +731,28 @@ export type Database = {
           title: string
         }[]
       }
+      get_gallery_events_for_market: {
+        Args: {
+          event_limit?: number
+          filter_market: string
+          gallery_uuid: string
+        }
+        Returns: {
+          artists: string[]
+          description: string
+          end_at: string
+          event_id: string
+          gallery: Json
+          images: string[]
+          source_url: string
+          start_at: string
+          status: string
+          tags: string[]
+          ticket_url: string
+          timezone: string
+          title: string
+        }[]
+      }
       match_events: {
         Args: {
           match_count: number
@@ -806,9 +828,63 @@ export type Database = {
           title: string
         }[]
       }
+      search_events_for_market: {
+        Args: {
+          filter_artists?: string[]
+          filter_market: string
+          filter_start_after?: string
+          match_count?: number
+          match_threshold?: number
+          query_embedding: string
+        }
+        Returns: {
+          artists: string[]
+          description: string
+          end_at: string
+          event_id: string
+          gallery_address: string
+          gallery_district: string
+          gallery_id: string
+          gallery_main_url: string
+          gallery_name: string
+          images: string[]
+          start_at: string
+          status: string
+          tags: string[]
+          ticket_url: string
+          timezone: string
+          title: string
+        }[]
+      }
       search_galleries_filtered: {
         Args: {
           filter_district?: string
+          filter_time_minutes?: number
+          filter_weekday?: number
+          match_count?: number
+          match_threshold?: number
+          query_embedding: string
+        }
+        Returns: {
+          about: string
+          about_url: string
+          address: string
+          district: string
+          email: string
+          events_page: string
+          google_maps_url: string
+          id: string
+          instagram: string
+          main_url: string
+          name: string
+          phone: string
+          tags: string[]
+        }[]
+      }
+      search_galleries_for_market: {
+        Args: {
+          filter_district?: string
+          filter_market: string
           filter_time_minutes?: number
           filter_weekday?: number
           match_count?: number

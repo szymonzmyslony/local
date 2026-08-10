@@ -1,6 +1,10 @@
 import { createWhatsAppAdapter } from "@chat-adapter/whatsapp";
-import { Think, type TurnConfig } from "@cloudflare/think";
-import { createZineLanguageModel } from "@shared";
+import { Think, type StepContext, type TurnConfig } from "@cloudflare/think";
+import {
+  createZineLanguageModel,
+  getMarketConfig,
+  marketFromAgentName
+} from "@shared";
 import {
   chatSdkMessenger,
   ThinkMessengerStateAgent,
@@ -31,23 +35,72 @@ export class Zine extends Think<Env, ZineChatState> {
     return createZineLanguageModel(this.env.OPENROUTER_API_KEY);
   }
 
+  private getMarket() {
+    return getMarketConfig(marketFromAgentName(this.name));
+  }
+
+  private ensureConfiguredState(channel: "web" | "whatsapp") {
+    const market = this.getMarket().market;
+    if (
+      this.state.kind !== "ready" ||
+      this.state.market !== market ||
+      this.state.channel.kind !== channel
+    ) {
+      this.setState({
+        kind: "ready",
+        market,
+        savedCards: this.state.kind === "ready" ? this.state.savedCards : [],
+        channel: { kind: channel }
+      });
+    }
+  }
+
+  override async onStart() {
+    this.ensureConfiguredState(
+      this.name.includes("whatsapp") ? "whatsapp" : "web"
+    );
+  }
+
   override getSystemPrompt(): string {
-    return getZineSystemPrompt("web");
+    return getZineSystemPrompt("web", this.getMarket());
   }
 
   override getTools() {
-    return createZineTools(this.env);
+    return createZineTools(this.env, this.getMarket());
   }
 
   override beforeTurn(): TurnConfig {
     const channel =
       this.getMessengerContext()?.provider === "whatsapp" ? "whatsapp" : "web";
+    this.ensureConfiguredState(channel);
 
     return {
-      instructions: getZineSystemPrompt(channel),
+      instructions: getZineSystemPrompt(channel, this.getMarket()),
       activeTools: [...ZINE_TOOL_NAMES],
-      maxSteps: this.maxSteps
+      maxSteps: this.maxSteps,
+      maxOutputTokens: 4096,
+      sendReasoning: false,
+      providerOptions: {
+        openrouter: {
+          reasoning: { effort: "none", exclude: true }
+        }
+      }
     };
+  }
+
+  override onStepFinish(ctx: StepContext) {
+    console.log(
+      JSON.stringify({
+        event: "zine_step_finished",
+        market: this.getMarket().market,
+        step: ctx.stepNumber,
+        finishReason: ctx.finishReason,
+        rawFinishReason: ctx.rawFinishReason,
+        textLength: ctx.text.length,
+        toolCalls: ctx.toolCalls.length,
+        usage: ctx.usage
+      })
+    );
   }
 
   override getMessengers(): ThinkMessengers {
@@ -91,7 +144,7 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/webhook") {
-      const ingress = await getAgentByName<Env, Zine>(env.Zine, "whatsapp");
+      const ingress = await getAgentByName<Env, Zine>(env.Zine, "ldn-whatsapp-v2");
       return ingress.fetch(request);
     }
 

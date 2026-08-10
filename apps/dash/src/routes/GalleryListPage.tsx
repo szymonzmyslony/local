@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@shared/ui";
+import type { MarketCode } from "@shared";
 import { searchGalleries, type GalleryListItem, type GallerySearchMatch } from "../api";
 import {
   DataTable,
@@ -115,7 +116,12 @@ export function GalleryListPage() {
     []
   );
 
-  async function handleSeed(payload: { mainUrl: string; aboutUrl: string | null; eventsUrl: string | null }): Promise<void> {
+  async function handleSeed(payload: {
+    market: MarketCode;
+    mainUrl: string;
+    aboutUrl: string | null;
+    eventsUrl: string | null;
+  }): Promise<void> {
     setStatus(null);
     setError(null);
     setSemanticMatches(null);

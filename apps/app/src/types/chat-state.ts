@@ -1,3 +1,5 @@
+import type { MarketCode } from "@shared";
+
 export type GalleryDistrict = string;
 
 /**
@@ -32,6 +34,7 @@ export type EventCardData = {
   description: string | null;
   start_at: string;
   end_at: string | null;
+  timezone: string;
   status: string;
   ticket_url: string | null;
   source_url: string | null;
@@ -72,11 +75,14 @@ export type ChannelContext =
 /**
  * Chat state - no search result storage (stateless retrieval)
  */
-export interface ZineChatState {
-  // userRequirements: UserRequirements;
-  savedCards: SavedEventCard[];
-  channelContext?: ChannelContext; // Optional to support initialState, set on first message
-}
+export type ZineChatState =
+  | { kind: "unconfigured" }
+  | {
+      kind: "ready";
+      market: MarketCode;
+      savedCards: SavedEventCard[];
+      channel: { kind: "web" } | { kind: "whatsapp" };
+    };
 
 export function createInitialGalleryRequirements(): GalleryRequirements {
   return {
@@ -94,10 +100,6 @@ export function createInitialUserRequirements(): UserRequirements {
   };
 }
 
-export function createInitialChatState(channelContext?: ChannelContext): ZineChatState {
-  return {
-    // userRequirements: createInitialUserRequirements(),
-    savedCards: [],
-    channelContext,
-  };
+export function createInitialChatState(): ZineChatState {
+  return { kind: "unconfigured" };
 }

@@ -6,7 +6,8 @@ import type {
   GalleryWithRelations,
   OpeningHoursItem,
   PageDetail,
-  PageWithRelations
+  PageWithRelations,
+  MarketCode
 } from "@shared";
 
 export type PageStatus = {
@@ -96,7 +97,12 @@ export async function listGalleries(): Promise<GalleryListItem[]> {
   return parseResponse<GalleryListItem[]>(response);
 }
 
-export async function seedGallery(payload: { mainUrl: string; aboutUrl: string | null; eventsUrl: string | null }): Promise<string> {
+export async function seedGallery(payload: {
+  market: MarketCode;
+  mainUrl: string;
+  aboutUrl: string | null;
+  eventsUrl: string | null;
+}): Promise<string> {
   const response = await fetch("/api/galleries/seed", {
     method: "POST",
     headers: { "content-type": "application/json" },

@@ -12,12 +12,12 @@ A TypeScript script that runs the complete gallery startup pipeline from start t
 ### Usage
 
 ```bash
-bun run scripts/seed-and-startup-galleries.ts <path-to-csv> <worker-api-url>
+bun run scripts/seed-and-startup-galleries.ts <path-to-csv> <worker-api-url> <ldn|waw>
 ```
 
 Example:
 ```bash
-bun run scripts/seed-and-startup-galleries.ts scripts/my.csv http://localhost:8787
+bun run scripts/seed-and-startup-galleries.ts scripts/my.csv http://localhost:8787 waw
 ```
 
 ### What it does

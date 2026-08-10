@@ -12,7 +12,8 @@ interface EventDetailPopoverProps {
 
 function formatDateRange(
   start: string | null | undefined,
-  end: string | null | undefined
+  end: string | null | undefined,
+  timezone: string
 ): string {
   if (!start) {
     return "Date to be announced";
@@ -23,6 +24,7 @@ function formatDateRange(
     const formattedStart = startDate.toLocaleString(undefined, {
       dateStyle: "medium",
       timeStyle: "short",
+      timeZone: timezone
     });
     if (!endDate) {
       return formattedStart;
@@ -30,6 +32,7 @@ function formatDateRange(
     const formattedEnd = endDate.toLocaleString(undefined, {
       dateStyle: "medium",
       timeStyle: "short",
+      timeZone: timezone
     });
     return `${formattedStart} → ${formattedEnd}`;
   } catch {
@@ -62,7 +65,7 @@ export function EventDetailPopover({ event, children }: EventDetailPopoverProps)
               <span className="font-semibold text-[#0140B6]">
                 When:
               </span>{" "}
-              {formatDateRange(event.start_at, event.end_at)}
+              {formatDateRange(event.start_at, event.end_at, event.timezone)}
             </p>
             {event.gallery.name && (
               <p>

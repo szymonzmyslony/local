@@ -1,8 +1,19 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { Button, Input, Label } from "@shared/ui";
+import type { MarketCode } from "@shared";
+import {
+  Button,
+  Input,
+  Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from "@shared/ui";
 
 type SeedGalleryPayload = {
+  market: MarketCode;
   mainUrl: string;
   aboutUrl: string | null;
   eventsUrl: string | null;
@@ -15,6 +26,7 @@ type SeedGalleryFormProps = {
 };
 
 export function SeedGalleryForm({ onSubmit, onCancel, submitting }: SeedGalleryFormProps) {
+  const [market, setMarket] = useState<MarketCode>("waw");
   const [mainUrl, setMainUrl] = useState("");
   const [aboutUrl, setAboutUrl] = useState("");
   const [eventsUrl, setEventsUrl] = useState("");
@@ -26,6 +38,7 @@ export function SeedGalleryForm({ onSubmit, onCancel, submitting }: SeedGalleryF
     const trimmedAbout = aboutUrl.trim();
     const trimmedEvents = eventsUrl.trim();
     await onSubmit({
+      market,
       mainUrl: trimmedMain,
       aboutUrl: trimmedAbout ? trimmedAbout : null,
       eventsUrl: trimmedEvents ? trimmedEvents : null
@@ -37,6 +50,18 @@ export function SeedGalleryForm({ onSubmit, onCancel, submitting }: SeedGalleryF
 
   return (
     <form className="flex flex-col gap-5" onSubmit={handleSubmit}>
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="seed-market">Market</Label>
+        <Select value={market} onValueChange={value => setMarket(value as MarketCode)}>
+          <SelectTrigger id="seed-market" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="waw">Warsaw</SelectItem>
+            <SelectItem value="ldn">London</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
       <div className="flex flex-col gap-2">
         <Label htmlFor="seed-main-url">
           Main URL <span className="text-destructive">*</span>

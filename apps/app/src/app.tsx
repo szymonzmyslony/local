@@ -1,28 +1,36 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useAgent } from "agents/react";
 import { useAgentChat } from "@cloudflare/think/react";
 import type { UIMessage } from "ai";
 import { SidebarLayout } from "./components/sidebar-layout";
 import { Chat } from "./components/chat";
 import type { ZineChatState, SavedEventCard } from "./types/chat-state";
+import { getMarketConfig, type MarketCode } from "@shared";
+import { resolveMarket } from "./market";
 
 type MessageMeta = { createdAt: string; internal?: boolean };
 
 const DEBUG_MODE_KEY = "zine-debug-mode";
-const WEB_AGENT_ID_KEY = "zine-web-agent-id-v3";
+const WEB_AGENT_ID_KEY = "zine-web-agent-id-v4";
 
-export function getOrCreateWebAgentId(): string {
-  const existing = localStorage.getItem(WEB_AGENT_ID_KEY);
-  if (existing?.startsWith("web-")) return existing;
+export function getOrCreateWebAgentId(market: MarketCode): string {
+  const storageKey = `${WEB_AGENT_ID_KEY}-${market}`;
+  const existing = localStorage.getItem(storageKey);
+  if (existing?.startsWith(`${market}-web-`)) return existing;
 
-  const id = `web-${crypto.randomUUID()}`;
-  localStorage.setItem(WEB_AGENT_ID_KEY, id);
+  const id = `${market}-web-${crypto.randomUUID()}`;
+  localStorage.setItem(storageKey, id);
   return id;
 }
 
 export default function App() {
+  const [market] = useState(() => resolveMarket(window.location));
+  const marketConfig = getMarketConfig(market);
   const [agentState, setAgentState] = useState<ZineChatState | null>(null);
-  const [webAgentId] = useState(getOrCreateWebAgentId);
+  const [webAgentId] = useState(() => getOrCreateWebAgentId(market));
+  useEffect(() => {
+    document.title = `Zine Local — ${marketConfig.city} art guide`;
+  }, [marketConfig.city]);
   const [debugMode, setDebugMode] = useState<boolean>(() => {
     // Initialize from localStorage
     const stored = localStorage.getItem(DEBUG_MODE_KEY);
@@ -53,9 +61,9 @@ export default function App() {
 
   const handleSaveToZine = useCallback(
     async (event: SavedEventCard) => {
-      if (!agentState) return;
+      if (agentState?.kind !== "ready") return;
 
-      const savedCards = agentState.savedCards ?? [];
+      const savedCards = agentState.savedCards;
       const existingIndex = savedCards.findIndex(
         (card) => card.event_id === event.event_id
       );
@@ -73,7 +81,7 @@ export default function App() {
     [agent, agentState]
   );
 
-  const savedEvents = agentState?.savedCards ?? [];
+  const savedEvents = agentState?.kind === "ready" ? agentState.savedCards : [];
 
   return (
     <>
@@ -87,7 +95,7 @@ export default function App() {
         Dev {debugMode ? "on" : "off"}
       </button>
 
-      <SidebarLayout savedEvents={savedEvents}>
+      <SidebarLayout savedEvents={savedEvents} market={market}>
         <Chat
           messages={messages}
           sendMessage={sendMessage}
@@ -95,6 +103,7 @@ export default function App() {
           onSaveToZine={handleSaveToZine}
           debugMode={debugMode}
           agentState={agentState}
+          market={marketConfig}
         />
       </SidebarLayout>
     </>

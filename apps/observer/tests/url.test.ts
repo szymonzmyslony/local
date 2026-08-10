@@ -34,7 +34,7 @@ describe("source URL safety", () => {
     ).toThrow();
   });
 
-  it("creates deterministic London observation windows", () => {
+  it("creates deterministic market observation windows", () => {
     const first = stableMinute("gallery-id");
     expect(first).toBe(stableMinute("gallery-id"));
     expect(first).toBeGreaterThanOrEqual(120);

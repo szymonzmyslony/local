@@ -44,11 +44,11 @@ export async function classifyPageKindFromMarkdown(provider: ZineModelProvider, 
 export async function extractGalleryInfoFromMarkdown(provider: ZineModelProvider, md: string, url: string, seededAddress?: string | null): Promise<GalleryExtraction> {
     try {
         const promptParts = [
-            "Extract gallery information (name, about, London area, contacts, socials, tags, weekly hours and exceptions if present) from the Markdown below.",
+            "Extract gallery information (name, about, city area, contacts, socials, tags, weekly hours and exceptions if present) from the Markdown below.",
             "Return a JSON object matching the gallery extraction schema.",
             "Only include facts explicitly present in the content.",
             "",
-            "For area: extract the London area, borough, or neighbourhood stated in the source.",
+            "For area: extract the city area, district, borough, or neighbourhood stated in the source.",
         ];
 
         if (seededAddress) {
@@ -107,11 +107,11 @@ export async function extractOpeningHoursFromText(provider: ZineModelProvider, h
             model: provider(AI_CONFIG.CHAT_MODEL),
             output: Output.object({ schema: openingHoursExtractionSchema }),
             prompt: [
-                "You are given text describing gallery/museum opening hours in Polish.",
+                "You are given text describing gallery or museum opening hours in English or Polish.",
                 "Extract structured opening hours for each day of the week.",
                 "",
                 "IMPORTANT RULES:",
-                "- Weekday numbers: 0=Niedziela (Sunday), 1=Poniedziałek (Monday), 2=Wtorek (Tuesday), 3=Środa (Wednesday), 4=Czwartek (Thursday), 5=Piątek (Friday), 6=Sobota (Saturday)",
+                "- Weekday numbers: 0=Sunday/Niedziela, 1=Monday/Poniedziałek, 2=Tuesday/Wtorek, 3=Wednesday/Środa, 4=Thursday/Czwartek, 5=Friday/Piątek, 6=Saturday/Sobota",
                 "- Convert times to minutes from midnight (e.g., 12:00 = 720, 19:00 = 1140)",
                 "- If a day is closed (\"nieczynne\"), include it with an empty array for open_minutes",
                 "- Handle ranges like 'Środa - Piątek' by creating entries for each day in the range",

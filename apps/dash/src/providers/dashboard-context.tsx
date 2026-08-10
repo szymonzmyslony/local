@@ -1,8 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { listGalleries, seedGallery, type GalleryListItem } from "../api";
-import { normalizeUrl } from "@shared";
+import { normalizeUrl, type MarketCode } from "@shared";
 
-type SeedPayload = { mainUrl: string; aboutUrl: string | null; eventsUrl: string | null };
+type SeedPayload = {
+  market: MarketCode;
+  mainUrl: string;
+  aboutUrl: string | null;
+  eventsUrl: string | null;
+};
 
 type SeedResult = {
   workflowId: string;
@@ -40,10 +45,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   }, [refreshGalleries]);
 
   const handleSeedGallery = useCallback(
-    async ({ mainUrl, aboutUrl, eventsUrl }: SeedPayload): Promise<SeedResult> => {
+    async ({ market, mainUrl, aboutUrl, eventsUrl }: SeedPayload): Promise<SeedResult> => {
       setSeeding(true);
       try {
-        const workflowId = await seedGallery({ mainUrl, aboutUrl, eventsUrl });
+        const workflowId = await seedGallery({ market, mainUrl, aboutUrl, eventsUrl });
         const updated = await refreshGalleries();
         const normalized = normalizeUrl(mainUrl);
         const match = updated.find(gallery => gallery.normalized_main_url === normalized);

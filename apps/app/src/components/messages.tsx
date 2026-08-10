@@ -4,6 +4,7 @@ import { TextMessage } from "./messages/text-message";
 import { ToolMessage } from "./messages/tool-message";
 import { ThinkingMessage } from "./messages/thinking-message";
 import type { SavedEventCard } from "../types/chat-state";
+import type { MarketConfig } from "@shared";
 
 type MessageMeta = { createdAt: string; internal?: boolean };
 
@@ -12,6 +13,7 @@ interface MessagesProps {
   status: ChatStatus;
   onSaveToZine?: (event: SavedEventCard) => void;
   debugMode: boolean;
+  market: MarketConfig;
 }
 
 function formatTimestamp(value: string | Date | undefined): string {
@@ -20,7 +22,13 @@ function formatTimestamp(value: string | Date | undefined): string {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-export function Messages({ messages, status, onSaveToZine, debugMode }: MessagesProps) {
+export function Messages({
+  messages,
+  status,
+  onSaveToZine,
+  debugMode,
+  market
+}: MessagesProps) {
   const visibleMessages = useMemo(
     () => messages.filter((msg) => !msg.metadata?.internal),
     [messages]
@@ -62,6 +70,7 @@ export function Messages({ messages, status, onSaveToZine, debugMode }: Messages
                     timestamp={timestamp}
                     onSaveToZine={onSaveToZine}
                     debugMode={debugMode}
+                    market={market}
                   />
                 );
               }
@@ -71,7 +80,7 @@ export function Messages({ messages, status, onSaveToZine, debugMode }: Messages
 
             {/* Show thinking indicator while loading and no text content yet */}
             {isMessageLoading && !hasTextContent && (
-              <ThinkingMessage />
+              <ThinkingMessage city={market.city} />
             )}
           </div>
         );
@@ -79,7 +88,7 @@ export function Messages({ messages, status, onSaveToZine, debugMode }: Messages
 
       {/* Show thinking message when waiting for initial assistant response */}
       {isLoading && (!lastMessage || lastMessage.role === "user") && (
-        <ThinkingMessage />
+        <ThinkingMessage city={market.city} />
       )}
     </div>
   );

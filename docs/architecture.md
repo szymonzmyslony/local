@@ -2,11 +2,11 @@
 
 ## What the system does
 
-Zine observes official London gallery sites every day, preserves the source evidence, extracts structured exhibitions/events with Luna, validates candidates deterministically, and publishes the trustworthy subset into a searchable catalogue. The end-user agent searches that catalogue from the web or WhatsApp.
+Zine observes official gallery sites in London and Warsaw every day, preserves source evidence, extracts structured exhibitions/events with Luna, validates candidates deterministically, and publishes the trustworthy subset into a searchable catalogue. The end-user agent searches one explicitly selected market from web chat; WhatsApp remains London-scoped until a second Meta number/route is configured.
 
 ```mermaid
 flowchart LR
-  LS["LondonScout Think agent"] --> GO["One GalleryObserver per gallery"]
+  MS["One market scout per city"] --> GO["One GalleryObserver per gallery"]
   GO --> WF["Durable observation Workflow"]
   WF --> BR["Cloudflare Browser Run"]
   WF --> HTTP["Worker HTTP fetch"]
@@ -40,14 +40,14 @@ Storage responsibilities:
 
 ## Observer lifecycle
 
-1. `LondonScout` reconciles all active `ldn` galleries daily at 01:15 Europe/London and performs a weekly coverage reconciliation on Monday at 01:45.
-2. Every gallery maps to one named `GalleryObserver` Durable Object. Its deterministic schedule is distributed over 02:15, 03:15, 04:15, or 05:15 London time to avoid a thundering herd.
+1. A market-scoped scout reconciles active galleries daily at 01:15 in that market's timezone and performs a weekly coverage reconciliation on Monday at 01:45. The deployed Durable Object class retains the legacy name `LondonScout`, but its named instances are `ldn` and `waw` and its state is a closed market union.
+2. Every gallery maps to one named `GalleryObserver` Durable Object. Its deterministic schedule is distributed between 02:00 and 05:59 in `Europe/London` or `Europe/Warsaw` to avoid a thundering herd.
 3. A scheduled invocation starts `GalleryObservationWorkflow` with the Think idempotency key. The database also makes `observation_runs.idempotency_key` unique.
 4. Each allowlisted official source is fetched with its configured strategy. Browser Run is the default; raw HTTP is available for sources proven to be complete without rendering.
 5. The bounded response is hashed and archived to R2. An unchanged hash skips model extraction.
-6. Luna returns a Zod-validated object with events, evidence, confidence, and same-origin source discoveries.
-7. Deterministic checks reject invalid ranges, ended/stale events, missing start dates/evidence, and confidence below 0.82. Borderline candidates go to review instead of becoming public.
-8. Published events are deduplicated by a source fingerprint and embedded through OpenRouter.
+6. Luna returns a Zod-validated object with events, venue evidence, confidence, and same-origin source discoveries.
+7. Deterministic checks reject invalid ranges, ended/stale events, missing start dates/evidence, low confidence, unknown venues, and events outside the selected market. Borderline candidates go to review instead of becoming public.
+8. Published events are deduplicated across official sources by normalized title and time identity, while each source observation remains in the candidate ledger. Event text is embedded through OpenRouter.
 9. The workflow records completion, partial failure, or unchanged state with per-source metrics.
 
 This is agent-first at the control layer, but not “one unconstrained crawler agent per site.” Agents own memory, schedule, tools, and durable workflows; security, URL scope, idempotency, validation, and publishing remain deterministic code.
@@ -56,7 +56,7 @@ This is agent-first at the control layer, but not “one unconstrained crawler a
 
 Official gallery domains are the authority. A source can be a home, events, calendar, about, feed, or other page. Discovered URLs are accepted only above 0.8 confidence and only on the same origin as an existing official source.
 
-Use a per-source adaptive cascade:
+Use a per-source measured cascade:
 
 1. Prefer `http_html` when prior evaluations show the response includes a complete event listing.
 2. Use `browser_markdown` for client rendering, anti-bot interstitials, incomplete server HTML, or when a listing-count heuristic shows suspiciously low recall.
@@ -65,7 +65,7 @@ Use a per-source adaptive cascade:
 
 LLM extraction is appropriate for heterogeneous pages, but crawling itself is not agentic guesswork. Browser/HTTP acquisition, limits, evidence archiving, and URL policy are fixed. Luna performs typed semantic extraction; deterministic code decides what is published.
 
-## London test set and first production comparison
+## Fetch-technique evaluation
 
 `apps/observer/src/london-fixtures.ts` contains 20 official London sources stratified across national institutions, mid-sized venues, independents, and static/hybrid/JavaScript render profiles.
 
@@ -80,6 +80,16 @@ On 2026-08-10, the deployed worker evaluated a representative static/hybrid/Java
 All six runs passed the current structural threshold and had evidence on every extracted item. The meaningful result is recall, not the binary pass: HTTP matched Browser Run on the static fixture but returned far fewer listings for Tate and V&A. Therefore the production default remains Browser Run until ground-truthed per-source recall proves that HTTP is safe. Raw HTTP is an optimization, not a universal replacement.
 
 The next evaluation improvement is a hand-labelled gold set with expected titles/date ranges. `extraction_evaluations` already has precision/recall fields, but the current automated test measures minimum item count, schema validity, evidence presence, duration, and token usage—not true semantic precision/recall.
+
+`apps/observer/src/warsaw-fixtures.ts` adds a 12-gallery Warsaw pilot spanning national institutions and independents. The first production comparison on 2026-08-10 used Zachęta, Muzeum Sztuki Nowoczesnej, and Zamek Ujazdowski:
+
+| Fixture | Browser Run | HTTP | Result |
+| --- | ---: | ---: | --- |
+| Zachęta | 3 events / 35.0s / 3,780 tokens | 0 / 6.5s / 36,690 tokens | browser required for rendered listings |
+| MSN Warsaw | 19 / 42.3s / 12,767 | 19 / 40.8s / 33,344 | equal count; browser far cheaper |
+| Zamek Ujazdowski | 5 / 12.9s / 5,600 | 6 / 16.1s / 40,577 | HTTP included an Ostrava touring show; browser was more precise |
+
+Browser-rendered Markdown is therefore the Warsaw default. HTTP remains an evaluated per-source optimization, not a blanket fallback.
 
 ## Database and RLS
 
@@ -102,13 +112,13 @@ The public event read policy exposes only `published = true`. Worker-side servic
 
 ### `apps/app`
 
-`Zine` is a Think Durable Object. Web sessions enter through `/agents/zine/default`. The four search tools query the public Supabase catalogue and return UI cards on web or compact text on WhatsApp. The model is `openai/gpt-5.6-luna` via OpenRouter.
+`Zine` is a Think Durable Object. The client derives a trusted market from `/`, `/warsaw`, `?market=`, or a Warsaw hostname and creates an isolated `${market}-web-${uuid}` agent name. The model cannot choose or override the market. Three search tools query market-scoped Supabase RPCs and return gallery/event cards on web or compact text on WhatsApp. The model is `openai/gpt-5.6-luna` via OpenRouter.
 
 `/webhook` is handled by the official `@chat-adapter/whatsapp` adapter. The entire messenger is disabled unless access token, app secret, phone number ID, and verify token are all present. This preserves web chat if Meta credentials expire and prevents accepting unsigned WhatsApp traffic.
 
 ### `apps/observer`
 
-Owns London discovery/observation, Browser Run, R2 snapshots, per-gallery agents, schedules, workflows, evaluation fixtures, and protected operational endpoints. It is the preferred path for new ingestion.
+Owns multi-market discovery/observation, Browser Run, R2 snapshots, per-gallery agents, market-local schedules, workflows, evaluation fixtures, and protected operational endpoints. It is the preferred path for new ingestion.
 
 ### `apps/dash`
 
@@ -122,11 +132,11 @@ Owns the OpenRouter provider, model/embedding names, embedding helpers, strict p
 
 Protected observer routes require `Authorization: Bearer $OBSERVER_ADMIN_TOKEN`:
 
-- `POST /internal/bootstrap` — idempotently registers the 20 fixtures and reconciles schedules
-- `POST /internal/galleries` — register/configure one London gallery
-- `POST /internal/observe` — force or deduplicate a workflow run
+- `POST /internal/bootstrap` — `{ "mode": "market", "market": "waw" }` or `{ "mode": "all_markets" }`; idempotently activates fixtures without duplicating legacy galleries
+- `POST /internal/galleries` — register/configure one gallery using explicit `market`, `sources.kind`, and `location.kind` variants
+- `POST /internal/observe` — `{ "mode": "change_only", "galleryId": "..." }` or `{ "mode": "force_extract", "galleryId": "..." }`
 - `GET /internal/runs` — recent run ledger
-- `POST /internal/evaluate` — compare fetch techniques
+- `POST /internal/evaluate` — `{ "mode": "default", "market": "waw" }` or an explicit selected-fixtures/techniques variant
 - `POST /internal/diagnostics` — live Supabase, Luna, R2 and Browser Run checks
 
 Health endpoints expose configuration state but never secret values. Production secrets belong in Cloudflare Worker secrets; local `.env` and `.dev.vars` are ignored.

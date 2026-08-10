@@ -15,6 +15,7 @@ interface CSVRow {
 }
 
 interface SeedAndStartupGalleryPayload {
+  market: "ldn" | "waw";
   mainUrl: string;
   aboutUrl?: string | null;
   eventsUrl?: string | null;
@@ -43,7 +44,11 @@ async function seedAndStartupGallery(apiUrl: string, payload: SeedAndStartupGall
   return result.id;
 }
 
-async function seedAndStartupGalleriesFromCSV(csvPath: string, apiUrl: string) {
+async function seedAndStartupGalleriesFromCSV(
+  market: "ldn" | "waw",
+  csvPath: string,
+  apiUrl: string
+) {
   // Read and parse CSV
   const fileContent = readFileSync(csvPath, "utf-8");
   const records = parse(fileContent, {
@@ -71,6 +76,7 @@ async function seedAndStartupGalleriesFromCSV(csvPath: string, apiUrl: string) {
 
     try {
       const payload: SeedAndStartupGalleryPayload = {
+        market,
         mainUrl: row.gallery_homepage,
         aboutUrl: row.gallery_about && row.gallery_about.trim() !== "" ? row.gallery_about : null,
         eventsUrl: row.gallery_events && row.gallery_events.trim() !== "" ? row.gallery_events : null,
@@ -111,11 +117,12 @@ async function seedAndStartupGalleriesFromCSV(csvPath: string, apiUrl: string) {
 // Main execution
 const csvPath = process.argv[2];
 const apiUrl = process.argv[3];
+const market = process.argv[4];
 
-if (!csvPath || !apiUrl) {
-  console.error("Usage: bun run scripts/seed-and-startup-galleries.ts <path-to-csv> <worker-api-url>");
+if (!csvPath || !apiUrl || (market !== "ldn" && market !== "waw")) {
+  console.error("Usage: bun run scripts/seed-and-startup-galleries.ts <path-to-csv> <worker-api-url> <ldn|waw>");
   console.error("\nExample:");
-  console.error("  bun run scripts/seed-and-startup-galleries.ts scripts/my.csv http://localhost:8787");
+  console.error("  bun run scripts/seed-and-startup-galleries.ts scripts/my.csv http://localhost:8787 waw");
   console.error("\nThis script runs the complete gallery startup pipeline:");
   console.error("  1. Seeds the gallery (creates records)");
   console.error("  2. Scrapes the pages");
@@ -125,7 +132,7 @@ if (!csvPath || !apiUrl) {
   process.exit(1);
 }
 
-seedAndStartupGalleriesFromCSV(csvPath, apiUrl)
+seedAndStartupGalleriesFromCSV(market, csvPath, apiUrl)
   .then(() => {
     console.log("\nDone!");
     process.exit(0);

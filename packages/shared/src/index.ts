@@ -1,4 +1,5 @@
 export * from "./config/ai";
+export * from "./config/markets";
 export * from "./database/client";
 export * from "./database/vector";
 export * from "./ai/content";

@@ -7,9 +7,13 @@ interface EventCardsProps {
   onSaveToZine?: (event: SavedEventCard) => void;
 }
 
-function formatEventDate(start: string, end: string | null): string {
+function formatEventDate(
+  start: string,
+  end: string | null,
+  timezone: string
+): string {
   const formatter = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Europe/London",
+    timeZone: timezone,
     day: "numeric",
     month: "short",
     year: "numeric"
@@ -72,7 +76,7 @@ function EventCard({ event, onSaveToZine }: EventCardProps) {
         <div className="mt-4 space-y-2 text-xs text-[#0140B6]">
           <p className="flex items-start gap-2">
             <CalendarDays className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span>{formatEventDate(event.start_at, event.end_at)}</span>
+            <span>{formatEventDate(event.start_at, event.end_at, event.timezone)}</span>
           </p>
           {location ? (
             <p className="flex items-start gap-2">

@@ -1,6 +1,6 @@
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
-import { getPublicClient } from "@shared";
+import { getPublicClient, type MarketConfig } from "@shared";
 import { searchGalleries } from "./services/gallery-search";
 import { searchEvents } from "./services/event-search";
 import type { EventCardData } from "./types/chat-state";
@@ -134,7 +134,7 @@ const eventSubjectSchema = z.discriminatedUnion("kind", [
 ]);
 
 const eventLocationSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("anywhere_in_london") }).strict(),
+  z.object({ kind: z.literal("anywhere_in_market") }).strict(),
   z
     .object({
       kind: z.literal("area"),
@@ -181,13 +181,15 @@ function normalizeGalleryEvent(event: {
   description: string;
   start_at: string;
   end_at: string;
+  timezone: string | null;
   status: string;
   ticket_url: string;
+  source_url: string | null;
   artists: string[];
   tags: string[];
   images: string[];
   gallery: unknown;
-}): EventCardData {
+}, fallbackTimezone: string): EventCardData {
   const gallery =
     event.gallery && typeof event.gallery === "object"
       ? (event.gallery as Record<string, unknown>)
@@ -198,9 +200,10 @@ function normalizeGalleryEvent(event: {
     description: event.description ?? null,
     start_at: event.start_at,
     end_at: event.end_at ?? null,
+    timezone: event.timezone ?? fallbackTimezone,
     status: event.status,
     ticket_url: event.ticket_url ?? null,
-    source_url: null,
+    source_url: event.source_url,
     artists: event.artists ?? [],
     tags: event.tags ?? [],
     images: event.images ?? [],
@@ -215,7 +218,7 @@ function normalizeGalleryEvent(event: {
 }
 
 /** Build tools per turn so every execution uses this agent's typed bindings. */
-export function createZineTools(env: Env) {
+export function createZineTools(env: Env, config: MarketConfig) {
   /**
    * Tool 1: Retrieve galleries matching search criteria
    * Returns ALL matching galleries with complete details for LLM analysis
@@ -223,9 +226,9 @@ export function createZineTools(env: Env) {
   const retrieveGalleries = tool({
     description: `
     Retrieve galleries matching search criteria using semantic search and filters.
-    Returns ALL matching galleries with complete details (id, name, about, tags, London area).
+    Returns ALL matching galleries with complete details (id, name, about, tags, ${config.city} area).
 
-    Use mode "all" for the complete London catalogue and mode "search" for a
+    Use mode "all" for the complete ${config.city} catalogue and mode "search" for a
     discovery request. The result renders gallery cards automatically.
 
     After receiving results:
@@ -241,7 +244,8 @@ export function createZineTools(env: Env) {
       const { data, error } = await searchGalleries(
         supabase,
         params,
-        env.OPENROUTER_API_KEY
+        env.OPENROUTER_API_KEY,
+        config
       );
 
       if (error) {
@@ -251,6 +255,8 @@ export function createZineTools(env: Env) {
       // Return full data for LLM analysis
       return {
         type: "gallery-results" as const,
+        market: config.market,
+        city: config.city,
         found: data.length,
         nextAction:
           data.length > 0
@@ -278,9 +284,10 @@ export function createZineTools(env: Env) {
 
       const supabase = getPublicClient(env);
 
-      const { data, error } = await supabase.rpc("get_gallery_events", {
+      const { data, error } = await supabase.rpc("get_gallery_events_for_market", {
         gallery_uuid: galleryId,
-        event_limit: limit
+        event_limit: limit,
+        filter_market: config.market
       });
 
       if (error) {
@@ -292,11 +299,13 @@ export function createZineTools(env: Env) {
         .filter(
           (event) => Date.parse(event.end_at ?? event.start_at) >= cutoff
         )
-        .map(normalizeGalleryEvent);
+        .map((event) => normalizeGalleryEvent(event, config.timezone));
 
       return {
         type: "event-results" as const,
         source: "gallery" as const,
+        market: config.market,
+        city: config.city,
         galleryId,
         events: upcomingEvents
       };
@@ -316,7 +325,7 @@ export function createZineTools(env: Env) {
 
     Always provide four explicit discriminated dimensions:
     subject (any, semantic, artists, semantic_and_artists), location
-    (anywhere_in_london or area), and timing (current_and_upcoming, on_date,
+    (anywhere_in_market or area), and timing (current_and_upcoming, on_date,
     or date_range), and attendance (in_person, online, or any). Use in_person
     for a place-based visit unless the user explicitly asks for online events.
 
@@ -330,7 +339,8 @@ export function createZineTools(env: Env) {
       const { data, error } = await searchEvents(
         supabase,
         params,
-        env.OPENROUTER_API_KEY
+        env.OPENROUTER_API_KEY,
+        config
       );
 
       if (error) {
@@ -340,6 +350,8 @@ export function createZineTools(env: Env) {
       return {
         type: "event-results" as const,
         source: "search" as const,
+        market: config.market,
+        city: config.city,
         found: data.length,
         events: data.map((e) => ({
           event_id: e.event_id,
@@ -347,6 +359,7 @@ export function createZineTools(env: Env) {
           description: e.description,
           start_at: e.start_at,
           end_at: e.end_at,
+          timezone: e.timezone ?? config.timezone,
           status: e.status,
           ticket_url: e.ticket_url,
           source_url: e.source_url,

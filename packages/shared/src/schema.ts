@@ -17,7 +17,7 @@ export const galleryExtractionSchema = z.object({
     about: z.string().describe("About/mission paragraph in plain text"),
     email: z.string().describe("Primary contact email").optional(),
     phone: z.string().describe("Primary phone number").optional(),
-    area: z.string().describe("London area, borough, or neighbourhood where the gallery is located").optional(),
+    area: z.string().describe("City area, district, borough, or neighbourhood where the gallery is located").optional(),
     tags: z.array(z.string()).describe("List of tags or categories").optional(),
 }).describe("Structured gallery information to persist in gallery_info and gallery_hours tables");
 

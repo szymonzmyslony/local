@@ -66,6 +66,7 @@ function withPageStatus(page: PageWithRelations, eventsByPageId: Map<string, str
 }
 
 const SeedGalleryBodySchema = z.object({
+  market: z.enum(["ldn", "waw"]),
   mainUrl: z.string().trim().url(),
   aboutUrl: z
     .string()
@@ -90,6 +91,40 @@ const SeedGalleryBodySchema = z.object({
     .optional(),
   openingHours: z.string().trim().min(1).nullable().optional()
 });
+
+function observerGalleryRegistration(
+  body: z.infer<typeof SeedGalleryBodySchema>
+) {
+  const sources = body.eventsUrl
+    ? body.aboutUrl
+      ? {
+          kind: "homepage_events_and_about" as const,
+          mainUrl: body.mainUrl,
+          eventsUrl: body.eventsUrl,
+          aboutUrl: body.aboutUrl
+        }
+      : {
+          kind: "homepage_and_events" as const,
+          mainUrl: body.mainUrl,
+          eventsUrl: body.eventsUrl
+        }
+    : body.aboutUrl
+      ? {
+          kind: "homepage_and_about" as const,
+          mainUrl: body.mainUrl,
+          aboutUrl: body.aboutUrl
+        }
+      : { kind: "homepage" as const, mainUrl: body.mainUrl };
+
+  return {
+    market: body.market,
+    name: body.name ?? new URL(body.mainUrl).hostname,
+    sources,
+    location: body.address
+      ? { kind: "address_only" as const, address: body.address }
+      : { kind: "unknown" as const }
+  };
+}
 
 const DiscoverLinksBodySchema = z.object({
   galleryId: z.string().uuid(),
@@ -275,54 +310,18 @@ export default {
     // 0) Seed gallery (now uses full pipeline with SeedAndStartupGallery)
     if (request.method === "POST" && url.pathname === "/api/galleries/seed") {
       const body = SeedGalleryBodySchema.parse(await request.json());
-      const mainUrl = body.mainUrl;
-      const aboutUrl = body.aboutUrl ?? null;
-      const eventsUrl = body.eventsUrl ?? null;
-      const name = body.name ?? null;
-      const address = body.address ?? null;
-      const instagram = body.instagram ?? null;
-      const googleMapsUrl = body.googleMapsUrl ?? null;
-      const openingHours = body.openingHours ?? null;
       return observerRequest(env, "/internal/galleries", {
         method: "POST",
-        body: JSON.stringify({
-          mainUrl,
-          aboutUrl,
-          eventsUrl,
-          name: name ?? new URL(mainUrl).hostname,
-          address,
-          area: null,
-          instagram,
-          googleMapsUrl,
-          openingHours
-        })
+        body: JSON.stringify(observerGalleryRegistration(body))
       });
     }
 
     // 0b) Seed and startup gallery (full pipeline - explicit endpoint)
     if (request.method === "POST" && url.pathname === "/api/galleries/seed-and-startup") {
       const body = SeedGalleryBodySchema.parse(await request.json());
-      const mainUrl = body.mainUrl;
-      const aboutUrl = body.aboutUrl ?? null;
-      const eventsUrl = body.eventsUrl ?? null;
-      const name = body.name ?? null;
-      const address = body.address ?? null;
-      const instagram = body.instagram ?? null;
-      const googleMapsUrl = body.googleMapsUrl ?? null;
-      const openingHours = body.openingHours ?? null;
       return observerRequest(env, "/internal/galleries", {
         method: "POST",
-        body: JSON.stringify({
-          mainUrl,
-          aboutUrl,
-          eventsUrl,
-          name: name ?? new URL(mainUrl).hostname,
-          address,
-          area: null,
-          instagram,
-          googleMapsUrl,
-          openingHours
-        })
+        body: JSON.stringify(observerGalleryRegistration(body))
       });
     }
 

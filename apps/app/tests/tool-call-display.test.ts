@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getToolPresentation } from "../src/components/messages/tool-call-display";
 import { sanitizeEventUrl } from "../src/components/messages/event-cards";
+import { getMarketConfig } from "@shared";
 
 describe("human-readable tool activity", () => {
   it("describes a gallery search without exposing function arguments", () => {
@@ -62,6 +63,24 @@ describe("human-readable tool activity", () => {
       "2026-08-15",
       "In person"
     ]);
+  });
+
+  it("renders Warsaw activity without leaking London labels", () => {
+    const presentation = getToolPresentation(
+      "search_events",
+      {
+        mode: "discover",
+        subject: { kind: "any" },
+        location: { kind: "anywhere_in_market" },
+        timing: { kind: "current_and_upcoming" },
+        attendance: { kind: "in_person" }
+      },
+      { found: 3, city: "Warsaw" },
+      getMarketConfig("waw")
+    );
+
+    expect(presentation.loading).toBe("Searching Warsaw events…");
+    expect(presentation.details).toContain("Warsaw");
   });
 });
 

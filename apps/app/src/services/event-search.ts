@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@shared";
 import { createEmbedder, toPgVector } from "@shared";
-import { matchesLondonArea } from "./london-area";
+import type { MarketConfig } from "@shared";
+import { matchesMarketArea } from "./market-area";
 
 export type EventSubject =
   | { kind: "any" }
@@ -14,7 +15,7 @@ export type EventSubject =
     };
 
 export type EventLocation =
-  | { kind: "anywhere_in_london" }
+  | { kind: "anywhere_in_market" }
   | { kind: "area"; area: string };
 
 export type EventTiming =
@@ -71,29 +72,28 @@ type EventQueryResult = Database["public"]["Tables"]["events"]["Row"] & {
   }) | null;
 };
 
-const londonDateFormatter = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Europe/London",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit"
-});
-
-function toLondonDate(value: string): string {
-  return londonDateFormatter.format(new Date(value));
+function toMarketDate(value: string, timezone: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date(value));
 }
 
 export function eventMatchesTiming(
   event: Pick<EventSearchResult, "start_at" | "end_at">,
   timing: EventTiming,
-  now = new Date()
+  now = new Date(),
+  timezone = "Europe/London"
 ): boolean {
   const effectiveEnd = event.end_at ?? event.start_at;
   if (timing.kind === "current_and_upcoming") {
     return Date.parse(effectiveEnd) >= now.getTime();
   }
 
-  const eventStartDate = toLondonDate(event.start_at);
-  const eventEndDate = toLondonDate(effectiveEnd);
+  const eventStartDate = toMarketDate(event.start_at, timezone);
+  const eventEndDate = toMarketDate(effectiveEnd, timezone);
   if (timing.kind === "on_date") {
     return eventStartDate <= timing.date && eventEndDate >= timing.date;
   }
@@ -117,15 +117,16 @@ export function eventMatchesAttendance(
 function filterEvents(
   events: EventSearchResult[],
   params: EventSearchParams,
+  config: MarketConfig,
   now = new Date()
 ): EventSearchResult[] {
   return events.filter((event) => {
     const locationMatches =
-      params.location.kind === "anywhere_in_london" ||
-      matchesLondonArea(event.gallery_district, params.location.area);
+      params.location.kind === "anywhere_in_market" ||
+      matchesMarketArea(event.gallery_district, params.location.area, config.market);
     return (
       locationMatches &&
-      eventMatchesTiming(event, params.timing, now) &&
+      eventMatchesTiming(event, params.timing, now, config.timezone) &&
       eventMatchesAttendance(event, params.attendance)
     );
   });
@@ -151,7 +152,8 @@ export function deduplicateEvents(events: EventSearchResult[]): EventSearchResul
 export async function searchEvents(
   supabase: SupabaseClient<Database>,
   params: EventSearchParams,
-  openRouterApiKey: string
+  openRouterApiKey: string,
+  config: MarketConfig
 ): Promise<{ data: EventSearchResult[]; error: Error | null }> {
   const { subject } = params;
   const searchQuery =
@@ -174,7 +176,8 @@ export async function searchEvents(
 
       console.log("[event-search] Calling search_events_filtered RPC");
 
-      const { data, error } = await supabase.rpc("search_events_filtered", {
+      const { data, error } = await supabase.rpc("search_events_for_market", {
+        filter_market: config.market,
         query_embedding: embeddingVector,
         match_count: 100,
         match_threshold: 0.3,
@@ -223,7 +226,7 @@ export async function searchEvents(
         gallery_address: e.gallery_address ?? null,
       }));
 
-      const filteredResults = deduplicateEvents(filterEvents(results, params)).slice(
+      const filteredResults = deduplicateEvents(filterEvents(results, params, config)).slice(
         0,
         limit
       );
@@ -259,6 +262,7 @@ export async function searchEvents(
           gallery_info (
             name,
             area,
+            district,
             address
           )
         )
@@ -266,7 +270,7 @@ export async function searchEvents(
       )
       .order("start_at", { ascending: true })
       .limit(100)
-      .eq("galleries.market", "ldn")
+      .eq("galleries.market", config.market)
       .eq("published", true);
 
     if (artists && artists.length > 0) {
@@ -301,11 +305,12 @@ export async function searchEvents(
       gallery_id: e.gallery_id,
       gallery_name: e.galleries?.gallery_info?.name ?? null,
       gallery_main_url: e.galleries?.main_url ?? "",
-      gallery_district: e.galleries?.gallery_info?.area ?? null,
+      gallery_district:
+        e.galleries?.gallery_info?.area ?? e.galleries?.gallery_info?.district ?? null,
       gallery_address: e.galleries?.gallery_info?.address ?? null,
     }));
 
-    const filteredResults = deduplicateEvents(filterEvents(results, params)).slice(
+    const filteredResults = deduplicateEvents(filterEvents(results, params, config)).slice(
       0,
       limit
     );

@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { Loader2, ChevronDown, ChevronRight, CheckCircle2, XCircle } from "lucide-react";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
+import { getMarketConfig, type MarketConfig } from "@shared";
 
 interface ToolCallDisplayProps {
   part: ToolUIPart | DynamicToolUIPart;
   toolName: string;
   debugMode: boolean;
+  market: MarketConfig;
 }
 
 type ToolPresentation = {
@@ -59,9 +61,12 @@ function resultCount(output: unknown, key: "found" | "items" | "events"): number
 export function getToolPresentation(
   toolName: string,
   inputValue: unknown,
-  outputValue: unknown
+  outputValue: unknown,
+  config: MarketConfig = getMarketConfig("ldn")
 ): ToolPresentation {
   const input = asRecord(inputValue);
+  const output = asRecord(outputValue);
+  const city = typeof output.city === "string" ? output.city : config.city;
 
   if (toolName === "retrieve_galleries") {
     const allGalleries = input.mode === "all";
@@ -79,15 +84,15 @@ export function getToolPresentation(
 
     return {
       loading: allGalleries
-        ? "Loading the London gallery catalogue…"
-        : "Searching the London gallery catalogue…",
+        ? `Loading the ${city} gallery catalogue…`
+        : `Searching the ${city} gallery catalogue…`,
       complete:
         count === null
           ? allGalleries
-            ? "Loaded the London gallery catalogue"
-            : "Searched the London gallery catalogue"
+            ? `Loaded the ${city} gallery catalogue`
+            : `Searched the ${city} gallery catalogue`
           : `Checked ${count} ${count === 1 ? "gallery" : "galleries"}`,
-      details: allGalleries ? ["All London galleries"] : details
+      details: allGalleries ? [`All ${city} galleries`] : details
     };
   }
 
@@ -136,7 +141,7 @@ export function getToolPresentation(
         ? subject.artists.join(", ")
         : null
       ,
-      typeof location.area === "string" ? titleCase(location.area) : "London",
+      typeof location.area === "string" ? titleCase(location.area) : city,
       timingLabel,
       attendance.kind === "in_person"
         ? "In person"
@@ -146,10 +151,10 @@ export function getToolPresentation(
     ].filter((detail): detail is string => Boolean(detail));
     const count = resultCount(outputValue, "found");
     return {
-      loading: "Searching London events…",
+      loading: `Searching ${city} events…`,
       complete:
         count === null
-          ? "Searched London events"
+          ? `Searched ${city} events`
           : `Found ${count} ${count === 1 ? "event" : "events"}`,
       details
     };
@@ -162,7 +167,12 @@ export function getToolPresentation(
   };
 }
 
-export function ToolCallDisplay({ part, toolName, debugMode }: ToolCallDisplayProps) {
+export function ToolCallDisplay({
+  part,
+  toolName,
+  debugMode,
+  market
+}: ToolCallDisplayProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   // Tool states: "input-available" (executing) | "output-available" (done) | "output-error" (failed)
@@ -174,7 +184,8 @@ export function ToolCallDisplay({ part, toolName, debugMode }: ToolCallDisplayPr
   const presentation = getToolPresentation(
     toolName,
     part.input,
-    part.state === "output-available" ? part.output : null
+    part.state === "output-available" ? part.output : null,
+    market
   );
 
   return (

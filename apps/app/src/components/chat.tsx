@@ -4,6 +4,7 @@ import { ArrowUp, Loader2 } from "lucide-react";
 import { Messages } from "./messages";
 import { JsonDisplay } from "./messages/json-display";
 import type { SavedEventCard, ZineChatState } from "../types/chat-state";
+import type { MarketConfig } from "@shared";
 
 type MessageMeta = { createdAt: string; internal?: boolean };
 
@@ -18,6 +19,7 @@ interface ChatProps {
   onSaveToZine: (event: SavedEventCard) => Promise<void>;
   debugMode: boolean;
   agentState: ZineChatState | null;
+  market: MarketConfig;
 }
 
 export function Chat({
@@ -26,7 +28,8 @@ export function Chat({
   status,
   onSaveToZine,
   debugMode,
-  agentState
+  agentState,
+  market
 }: ChatProps) {
   const [inputValue, setInputValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -113,7 +116,7 @@ export function Chat({
             ZINE LOCAL
           </span>
           <span className="hidden text-[10px] uppercase tracking-[0.2em] text-[#0140B6] md:inline">
-            London / art / now
+            {market.city} / art / now
           </span>
         </div>
         <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.14em] text-[#0140B6]">
@@ -128,7 +131,9 @@ export function Chat({
           <div className="mx-auto w-full md:max-w-2xl xxl:max-w-3xl">
             <JsonDisplay
               data={{
-                savedCardsCount: agentState?.savedCards?.length || 0
+                market: market.market,
+                savedCardsCount:
+                  agentState?.kind === "ready" ? agentState.savedCards.length : 0
               }}
               title="Agent State"
               defaultExpanded={false}
@@ -151,6 +156,7 @@ export function Chat({
                 status={status}
                 onSaveToZine={onSaveToZine}
                 debugMode={debugMode}
+                market={market}
               />
               {status === "error" && !hasCompletedAssistantText && (
                 <div className="flex justify-start mt-3">
@@ -176,12 +182,20 @@ export function Chat({
                 </p>
               </div>
               <div className="prompt-cards grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                {[
-                  "Something calm in Peckham tonight",
-                  "Photography in Soho this weekend",
-                  "Experimental art in the East End",
-                  "A gallery open Sunday afternoon"
-                ].map((suggestion) => (
+                {(market.market === "waw"
+                  ? [
+                      "Co jest dziś ciekawego w Śródmieściu?",
+                      "Fotografia w Warszawie w ten weekend",
+                      "Eksperymentalna sztuka na Pradze",
+                      "Galeria otwarta w niedzielę po południu"
+                    ]
+                  : [
+                      "Something calm in Peckham tonight",
+                      "Photography in Soho this weekend",
+                      "Experimental art in the East End",
+                      "A gallery open Sunday afternoon"
+                    ]
+                ).map((suggestion) => (
                   <button
                     key={suggestion}
                     type="button"

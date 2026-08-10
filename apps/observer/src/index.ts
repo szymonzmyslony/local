@@ -1,4 +1,5 @@
 import { createZineLanguageModel } from "@gallery-agents/shared";
+import type { MarketCode } from "@gallery-agents/shared";
 import { getAgentByName, routeAgentRequest } from "agents";
 import { generateText } from "ai";
 import { GalleryObserver, LondonScout } from "./agent";
@@ -7,10 +8,16 @@ import { LONDON_EVAL_FIXTURES } from "./london-fixtures";
 import {
   observerDatabase,
   recentObservationRuns,
-  registerLondonGallery
+  registerMarketGallery
 } from "./repository";
-import { observeRequestSchema, registerGallerySchema } from "./schemas";
+import {
+  bootstrapRequestSchema,
+  evaluationRequestSchema,
+  observeRequestSchema,
+  registerGallerySchema
+} from "./schemas";
 import { GalleryObservationWorkflow } from "./workflow";
+import { WARSAW_EVAL_FIXTURES } from "./warsaw-fixtures";
 
 export { GalleryObserver, GalleryObservationWorkflow, LondonScout };
 
@@ -27,20 +34,29 @@ function isAuthorized(request: Request, env: Env) {
   );
 }
 
-async function seedFixtures(env: Env) {
+function fixturesForMarket(market: MarketCode) {
+  return market === "waw" ? WARSAW_EVAL_FIXTURES : LONDON_EVAL_FIXTURES;
+}
+
+async function seedFixtures(env: Env, market: MarketCode) {
   const db = observerDatabase(env);
   const galleryIds: string[] = [];
-  for (const fixture of LONDON_EVAL_FIXTURES) {
-    const galleryId = await registerLondonGallery(db, {
-      mainUrl: fixture.mainUrl,
-      eventsUrl: fixture.eventsUrl,
+  for (const fixture of fixturesForMarket(market)) {
+    const input = registerGallerySchema.parse({
+      market,
       name: fixture.name,
-      area: fixture.area
+      sources: {
+        kind: "homepage_and_events",
+        mainUrl: fixture.mainUrl,
+        eventsUrl: fixture.eventsUrl
+      },
+      location: { kind: "area_only", area: fixture.area }
     });
+    const galleryId = await registerMarketGallery(db, input);
     galleryIds.push(galleryId);
   }
-  const scout = await getAgentByName<Env, LondonScout>(env.LondonScout, "ldn");
-  await scout.activateScout();
+  const scout = await getAgentByName<Env, LondonScout>(env.LondonScout, market);
+  await scout.activateScout(market);
   await scout.reconcileObservers();
   return galleryIds;
 }
@@ -57,7 +73,7 @@ export default {
             env.OBSERVER_ADMIN_TOKEN
         ),
         service: "zine-observer",
-        market: "ldn",
+        markets: ["ldn", "waw"],
         model: "openai/gpt-5.6-luna",
         architecture: "agent-per-gallery"
       });
@@ -69,13 +85,20 @@ export default {
 
     try {
       if (request.method === "POST" && url.pathname === "/internal/bootstrap") {
-        const galleryIds = await seedFixtures(env);
-        return Response.json({ ok: true, seeded: galleryIds.length, galleryIds });
+        const body = bootstrapRequestSchema.parse(await request.json());
+        const markets: MarketCode[] =
+          body.mode === "all_markets" ? ["ldn", "waw"] : [body.market];
+        const seeded = [];
+        for (const market of markets) {
+          const galleryIds = await seedFixtures(env, market);
+          seeded.push({ market, count: galleryIds.length, galleryIds });
+        }
+        return Response.json({ ok: true, seeded });
       }
 
       if (request.method === "POST" && url.pathname === "/internal/galleries") {
         const body = registerGallerySchema.parse(await request.json());
-        const galleryId = await registerLondonGallery(observerDatabase(env), body);
+        const galleryId = await registerMarketGallery(observerDatabase(env), body);
         const observer = await getAgentByName<Env, GalleryObserver>(
           env.GalleryObserver,
           galleryId
@@ -91,10 +114,16 @@ export default {
           body.galleryId
         );
         await observer.configureGallery(body.galleryId);
-        const key = body.force
+        const key = body.mode === "force_extract"
           ? `manual:${body.galleryId}:${crypto.randomUUID()}`
           : `manual:${body.galleryId}:${new Date().toISOString().slice(0, 10)}`;
-        const workflowId = await observer.startObservation(key, Date.now());
+        const workflowId = await observer.startObservation(
+          key,
+          Date.now(),
+          body.mode === "force_extract"
+            ? { kind: "force_extract" }
+            : { kind: "change_only" }
+        );
         return Response.json({ ok: true, workflowId });
       }
 
@@ -107,13 +136,18 @@ export default {
       }
 
       if (request.method === "POST" && url.pathname === "/internal/evaluate") {
-        const body = (await request.json()) as {
-          fixtureIds?: string[];
-          techniques?: Array<"browser_markdown" | "http_html">;
-        };
-        const ids = new Set(body.fixtureIds ?? LONDON_EVAL_FIXTURES.slice(0, 3).map((f) => f.id));
-        const fixtures = LONDON_EVAL_FIXTURES.filter((fixture) => ids.has(fixture.id));
-        const techniques = body.techniques ?? ["browser_markdown", "http_html"];
+        const body = evaluationRequestSchema.parse(await request.json());
+        const marketFixtures = fixturesForMarket(body.market);
+        const ids = new Set(
+          body.mode === "selected"
+            ? body.fixtureIds
+            : marketFixtures.slice(0, 3).map((fixture) => fixture.id)
+        );
+        const fixtures = marketFixtures.filter((fixture) => ids.has(fixture.id));
+        const techniques =
+          body.mode === "selected"
+            ? body.techniques
+            : (["browser_markdown", "http_html"] as const);
         const results = [];
         for (const fixture of fixtures) {
           for (const technique of techniques) {
@@ -128,7 +162,7 @@ export default {
         const { error } = await observerDatabase(env)
           .from("galleries")
           .select("id", { count: "exact", head: true })
-          .eq("market", "ldn");
+          .in("market", ["ldn", "waw"]);
         if (error) throw error;
         const modelStarted = Date.now();
         const { text } = await generateText({

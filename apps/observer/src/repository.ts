@@ -1,17 +1,28 @@
 import {
   AI_CONFIG,
   createEmbedder,
+  getMarketConfig,
   getServiceClient,
+  isMarketCode,
+  type MarketCode,
   type Database,
   toPgVector
 } from "@gallery-agents/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   ExtractedEvent,
+  ConfiguredGalleryObserverState,
   GalleryObserverState,
   GallerySource,
-  ObservationExtraction
+  ObservationExtraction,
+  RegisterGalleryInput
 } from "./schemas";
+import {
+  eventMatchToleranceMs,
+  isSameCanonicalEvent,
+  normalizeEventTitle,
+  type ObservedEventIdentity
+} from "./event-identity";
 import { normalizeSourceUrl, sha256 } from "./url";
 
 type DatabaseClient = SupabaseClient<Database>;
@@ -22,8 +33,11 @@ export type GalleryRecord = {
   normalized_main_url: string;
   about_url: string | null;
   events_page: string | null;
-  market: "ldn";
-  timezone: "Europe/London";
+  market: MarketCode;
+  city: string;
+  country_code: string;
+  timezone: string;
+  last_observed_at: string | null;
   observation_status: "active" | "paused" | "failing" | "archived";
   gallery_info: {
     name: string | null;
@@ -58,13 +72,15 @@ export async function loadGalleryBundle(
   const { data: gallery, error: galleryError } = await db
     .from("galleries")
     .select(
-      "id, main_url, normalized_main_url, about_url, events_page, market, timezone, observation_status, gallery_info(name, address, area)"
+      "id, main_url, normalized_main_url, about_url, events_page, market, city, country_code, timezone, last_observed_at, observation_status, gallery_info(name, address, area)"
     )
     .eq("id", galleryId)
-    .eq("market", "ldn")
     .maybeSingle();
   throwIfError("loadGallery", galleryError);
-  if (!gallery) throw new Error(`London gallery not found: ${galleryId}`);
+  if (!gallery) throw new Error(`Gallery not found: ${galleryId}`);
+  if (!isMarketCode(gallery.market)) {
+    throw new Error(`Unsupported gallery market: ${gallery.market}`);
+  }
 
   const { data: sources, error: sourceError } = await db
     .from("gallery_sources")
@@ -82,14 +98,17 @@ export async function loadGalleryBundle(
   };
 }
 
-export async function listActiveLondonGalleries(db: DatabaseClient): Promise<string[]> {
+export async function listActiveMarketGalleries(
+  db: DatabaseClient,
+  market: MarketCode
+): Promise<string[]> {
   const { data, error } = await db
     .from("galleries")
     .select("id")
-    .eq("market", "ldn")
+    .eq("market", market)
     .eq("observation_status", "active")
     .order("id", { ascending: true });
-  throwIfError("listActiveLondonGalleries", error);
+  throwIfError("listActiveMarketGalleries", error);
   return (data ?? []).map((row: { id: string }) => row.id);
 }
 
@@ -98,12 +117,12 @@ export async function stateForGallery(
   galleryId: string
 ): Promise<GalleryObserverState> {
   const { gallery, sources } = await loadGalleryBundle(db, galleryId);
+  const market = getMarketConfig(gallery.market);
   return {
-    configured: true,
+    kind: "configured",
     galleryId: gallery.id,
-    name: gallery.gallery_info?.name ?? null,
-    market: "ldn",
-    timezone: "Europe/London",
+    name: gallery.gallery_info?.name ?? new URL(gallery.main_url).hostname,
+    market,
     status: gallery.observation_status,
     sources: sources.map((source) => ({
       id: source.id,
@@ -113,60 +132,99 @@ export async function stateForGallery(
       strategy: source.fetch_strategy,
       enabled: source.enabled
     })),
-    lastWorkflowId: null,
-    lastObservedAt: null
+    workflow: { kind: "idle" },
+    observation: gallery.last_observed_at
+      ? { kind: "observed", observedAt: gallery.last_observed_at }
+      : { kind: "never" }
   };
 }
 
-export async function registerLondonGallery(
+export async function registerMarketGallery(
   db: DatabaseClient,
-  input: {
-    mainUrl: string;
-    name: string;
-    eventsUrl?: string | null;
-    aboutUrl?: string | null;
-    address?: string | null;
-    area?: string | null;
-  }
+  input: RegisterGalleryInput
 ): Promise<string> {
-  const mainUrl = normalizeSourceUrl(input.mainUrl);
-  const eventsUrl = input.eventsUrl ? normalizeSourceUrl(input.eventsUrl) : null;
-  const aboutUrl = input.aboutUrl ? normalizeSourceUrl(input.aboutUrl) : null;
-  const { data: gallery, error: galleryError } = await db
-    .from("galleries")
-    .upsert(
-      {
-        main_url: mainUrl,
-        normalized_main_url: mainUrl,
-        events_page: eventsUrl,
-        about_url: aboutUrl,
-        market: "ldn",
-        city: "London",
-        country_code: "GB",
-        timezone: "Europe/London",
-        observation_status: "active",
-        observation_interval_hours: 24,
-        updated_at: new Date().toISOString()
-      },
-      { onConflict: "normalized_main_url" }
-    )
-    .select("id")
-    .single();
-  throwIfError("registerLondonGallery", galleryError);
+  const config = getMarketConfig(input.market);
+  const mainUrl = normalizeSourceUrl(input.sources.mainUrl);
+  const eventsUrl =
+    "eventsUrl" in input.sources
+      ? normalizeSourceUrl(input.sources.eventsUrl)
+      : null;
+  const aboutUrl =
+    "aboutUrl" in input.sources
+      ? normalizeSourceUrl(input.sources.aboutUrl)
+      : null;
+  const now = new Date().toISOString();
 
-  const galleryId = (gallery as { id: string }).id;
-  const { error: infoError } = await db.from("gallery_info").upsert(
-    {
-      gallery_id: galleryId,
-      name: input.name,
-      address: input.address ?? null,
-      area: input.area ?? null,
-      data: {},
-      updated_at: new Date().toISOString()
-    },
-    { onConflict: "gallery_id" }
-  );
-  throwIfError("registerLondonGalleryInfo", infoError);
+  const { data: exactGallery, error: exactError } = await db
+    .from("galleries")
+    .select("id")
+    .eq("market", input.market)
+    .eq("normalized_main_url", mainUrl)
+    .maybeSingle();
+  throwIfError("findGalleryByUrl", exactError);
+
+  let galleryId = exactGallery?.id ?? null;
+  if (!galleryId) {
+    const { data: nameMatches, error: nameError } = await db
+      .from("gallery_info")
+      .select("gallery_id, galleries!inner(market)")
+      .eq("name", input.name)
+      .eq("galleries.market", input.market)
+      .limit(2);
+    throwIfError("findGalleryByName", nameError);
+    if ((nameMatches ?? []).length > 1) {
+      throw new Error(`Gallery name is ambiguous in ${config.city}: ${input.name}`);
+    }
+    galleryId = nameMatches?.[0]?.gallery_id ?? null;
+  }
+
+  const galleryValues = {
+    main_url: mainUrl,
+    normalized_main_url: mainUrl,
+    market: config.market,
+    city: config.city,
+    country_code: config.countryCode,
+    timezone: config.timezone,
+    observation_status: "active",
+    observation_interval_hours: 24,
+    updated_at: now,
+    ...(eventsUrl ? { events_page: eventsUrl } : {}),
+    ...(aboutUrl ? { about_url: aboutUrl } : {})
+  };
+
+  if (galleryId) {
+    const { error } = await db
+      .from("galleries")
+      .update(galleryValues)
+      .eq("id", galleryId)
+      .eq("market", config.market);
+    throwIfError("activateMarketGallery", error);
+  } else {
+    const { data: gallery, error } = await db
+      .from("galleries")
+      .insert(galleryValues)
+      .select("id")
+      .single();
+    throwIfError("registerMarketGallery", error);
+    if (!gallery) throw new Error(`Failed to register gallery: ${input.name}`);
+    galleryId = gallery.id;
+  }
+
+  const infoValues = {
+    gallery_id: galleryId,
+    name: input.name,
+    updated_at: now,
+    ...(input.location.kind === "known" || input.location.kind === "address_only"
+      ? { address: input.location.address }
+      : {}),
+    ...(input.location.kind === "known" || input.location.kind === "area_only"
+      ? { area: input.location.area }
+      : {})
+  };
+  const { error: infoError } = await db
+    .from("gallery_info")
+    .upsert(infoValues, { onConflict: "gallery_id" });
+  throwIfError("registerMarketGalleryInfo", infoError);
 
   const candidates = [
     { url: mainUrl, kind: "home" as const },
@@ -271,13 +329,19 @@ export async function summarizeObservationRun(
 ): Promise<{ candidates: number; published: number }> {
   const { data, error } = await db
     .from("event_candidates")
-    .select("id, decision")
+    .select("id, decision, canonical_event_id")
     .eq("run_id", runId);
   throwIfError("summarizeObservationRun", error);
   const rows = data ?? [];
   return {
     candidates: rows.length,
-    published: rows.filter((row) => row.decision === "published").length
+    published: new Set(
+      rows
+        .filter(
+          (row) => row.decision === "published" && row.canonical_event_id
+        )
+        .map((row) => row.canonical_event_id)
+    ).size
   };
 }
 
@@ -318,14 +382,29 @@ export async function recordSnapshot(
   const { error: sourceError } = await db
     .from("gallery_sources")
     .update({
-      last_content_hash: input.contentHash,
       last_checked_at: now,
-      last_changed_at: input.changed ? now : undefined,
       consecutive_failures: 0,
       updated_at: now
     })
     .eq("id", input.source.id);
   throwIfError("updateGallerySourceSnapshot", sourceError);
+}
+
+export async function commitSourceSnapshot(
+  db: DatabaseClient,
+  input: { sourceId: string; contentHash: string; changed: boolean }
+): Promise<void> {
+  const now = new Date().toISOString();
+  const { error } = await db
+    .from("gallery_sources")
+    .update({
+      last_content_hash: input.contentHash,
+      last_changed_at: input.changed ? now : undefined,
+      consecutive_failures: 0,
+      updated_at: now
+    })
+    .eq("id", input.sourceId);
+  throwIfError("commitGallerySourceSnapshot", error);
 }
 
 function cleanUrl(input: string | null): string | null {
@@ -350,6 +429,8 @@ function evaluateCandidate(event: ExtractedEvent, now: Date) {
   }
   if (event.confidence < 0.82) reasons.push("confidence_below_publish_threshold");
   if (event.evidence.length === 0) reasons.push("missing_evidence");
+  if (event.venue.kind === "outside_market") reasons.push("venue_outside_market");
+  if (event.venue.kind === "unknown") reasons.push("venue_unverified");
   return reasons;
 }
 
@@ -358,12 +439,11 @@ export async function persistObservation(
   env: Pick<Env, "OPENROUTER_API_KEY">,
   input: {
     runId: string;
-    state: GalleryObserverState;
+    state: ConfiguredGalleryObserverState;
     source: GallerySource;
     extraction: ObservationExtraction;
   }
 ): Promise<{ candidates: number; published: number }> {
-  if (!input.state.galleryId) throw new Error("Observer is not configured");
   const galleryId = input.state.galleryId;
   const now = new Date();
   const embed = createEmbedder(env.OPENROUTER_API_KEY);
@@ -386,8 +466,15 @@ export async function persistObservation(
   }
 
   for (const event of input.extraction.events) {
-    const fingerprint = await sha256(
-      [galleryId, event.event_url ?? input.source.normalizedUrl, event.title, event.start_at ?? ""].join("|")
+    const normalizedTitle = normalizeEventTitle(
+      event.title,
+      input.state.market.locale
+    );
+    const canonicalFingerprint = await sha256(
+      [galleryId, normalizedTitle, event.start_at ?? ""].join("|")
+    );
+    const candidateFingerprint = await sha256(
+      [canonicalFingerprint, input.source.normalizedUrl].join("|")
     );
     const rejectionReasons = evaluateCandidate(event, now);
     const decision =
@@ -399,30 +486,74 @@ export async function persistObservation(
     let canonicalEventId: string | null = null;
 
     if (decision === "published" && event.start_at) {
-      const { data: canonical, error: eventError } = await db
+      const startAt = new Date(event.start_at);
+      const observedIdentity: ObservedEventIdentity = event.end_at
+        ? {
+            kind: "range",
+            title: event.title,
+            startAt,
+            endAt: new Date(event.end_at)
+          }
+        : { kind: "point", title: event.title, startAt };
+      const matchToleranceMs = eventMatchToleranceMs(observedIdentity);
+      const { data: nearbyEvents, error: nearbyError } = await db
         .from("events")
-        .upsert(
-          {
-            gallery_id: galleryId,
-            page_id: null,
-            title: event.title.trim(),
-            start_at: new Date(event.start_at).toISOString(),
-            end_at: event.end_at ? new Date(event.end_at).toISOString() : null,
-            timezone: "Europe/London",
-            status: event.status,
-            ticket_url: cleanUrl(event.ticket_url),
-            source_url: cleanUrl(event.event_url) ?? input.source.normalizedUrl,
-            source_fingerprint: fingerprint,
-            confidence: event.confidence,
-            published: true,
-            updated_at: now.toISOString()
-          },
-          { onConflict: "gallery_id,source_fingerprint" }
-        )
-        .select("id")
-        .single();
-      throwIfError("publishEvent", eventError);
-      canonicalEventId = (canonical as { id: string }).id;
+        .select("id, title, start_at")
+        .eq("gallery_id", galleryId)
+        .gte("start_at", new Date(startAt.valueOf() - matchToleranceMs).toISOString())
+        .lte("start_at", new Date(startAt.valueOf() + matchToleranceMs).toISOString())
+        .limit(50);
+      throwIfError("findCanonicalEvent", nearbyError);
+      const existingEvent = nearbyEvents?.find(
+        (candidate) =>
+          isSameCanonicalEvent({
+            existing: {
+              title: candidate.title,
+              startAt: new Date(candidate.start_at)
+            },
+            observed: observedIdentity,
+            locale: input.state.market.locale,
+            timezone: input.state.market.timezone
+          })
+      );
+      const canonicalValues = {
+        gallery_id: galleryId,
+        page_id: null,
+        title: event.title.trim(),
+        start_at: startAt.toISOString(),
+        end_at: event.end_at ? new Date(event.end_at).toISOString() : null,
+        timezone: input.state.market.timezone,
+        status: event.status,
+        ticket_url: cleanUrl(event.ticket_url),
+        source_url: cleanUrl(event.event_url) ?? input.source.normalizedUrl,
+        confidence: event.confidence,
+        published: true,
+        updated_at: now.toISOString()
+      };
+
+      if (existingEvent) {
+        const { data: canonical, error: eventError } = await db
+          .from("events")
+          .update(canonicalValues)
+          .eq("id", existingEvent.id)
+          .select("id")
+          .single();
+        throwIfError("updateCanonicalEvent", eventError);
+        if (!canonical) throw new Error("Canonical event update returned no row");
+        canonicalEventId = canonical.id;
+      } else {
+        const { data: canonical, error: eventError } = await db
+          .from("events")
+          .upsert(
+            { ...canonicalValues, source_fingerprint: canonicalFingerprint },
+            { onConflict: "gallery_id,source_fingerprint" }
+          )
+          .select("id")
+          .single();
+        throwIfError("publishEvent", eventError);
+        if (!canonical) throw new Error("Canonical event upsert returned no row");
+        canonicalEventId = canonical.id;
+      }
 
       const embeddingText = [event.title, event.description, ...event.artists, ...event.tags]
         .filter(Boolean)
@@ -451,7 +582,7 @@ export async function persistObservation(
         run_id: input.runId,
         gallery_id: galleryId,
         source_url: input.source.normalizedUrl,
-        source_fingerprint: fingerprint,
+        source_fingerprint: candidateFingerprint,
         payload: event,
         confidence: event.confidence,
         decision,

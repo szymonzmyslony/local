@@ -7,10 +7,13 @@ import {
   getEventSearchStart
 } from "../src/services/event-search";
 import type { EventSearchResult } from "../src/services/event-search";
+import { getMarketConfig } from "@shared";
+import { resolveMarket } from "../src/market";
+import { matchesMarketArea } from "../src/services/market-area";
 
 describe("Zine channel prompts", () => {
   it("adds WhatsApp-specific concise formatting guidance", () => {
-    const prompt = getZineSystemPrompt("whatsapp");
+    const prompt = getZineSystemPrompt("whatsapp", getMarketConfig("ldn"));
 
     expect(prompt).toContain("Channel: WhatsApp");
     expect(prompt).toContain("WhatsApp bold (*text*)");
@@ -18,11 +21,20 @@ describe("Zine channel prompts", () => {
   });
 
   it("keeps visual card guidance on the web channel", () => {
-    const prompt = getZineSystemPrompt("web");
+    const prompt = getZineSystemPrompt("web", getMarketConfig("ldn"));
 
     expect(prompt).toContain("Channel: Web");
     expect(prompt).toContain("visual cards automatically");
     expect(prompt).toContain("Never invent or infer an address");
+  });
+
+  it("builds Warsaw guidance from the closed market configuration", () => {
+    const prompt = getZineSystemPrompt("web", getMarketConfig("waw"));
+
+    expect(prompt).toContain("events in Warsaw");
+    expect(prompt).toContain("Europe/Warsaw");
+    expect(prompt).toContain("Polish source material");
+    expect(prompt).not.toContain("events in London");
   });
 });
 
@@ -96,5 +108,26 @@ describe("event search cutoff", () => {
         { kind: "in_person" }
       )
     ).toBe(false);
+  });
+});
+
+describe("market routing", () => {
+  it("keeps London as the default and gives Warsaw an isolated path", () => {
+    expect(
+      resolveMarket({ hostname: "chat.zinelocal.com", pathname: "/", search: "" })
+    ).toBe("ldn");
+    expect(
+      resolveMarket({
+        hostname: "chat.zinelocal.com",
+        pathname: "/warsaw",
+        search: ""
+      })
+    ).toBe("waw");
+  });
+
+  it("normalizes Polish district names and aliases", () => {
+    expect(matchesMarketArea("Srodmiescie", "Śródmieście", "waw")).toBe(true);
+    expect(matchesMarketArea("Srodmiescie", "centrum", "waw")).toBe(true);
+    expect(matchesMarketArea("Praga", "Praga-Północ", "waw")).toBe(true);
   });
 });

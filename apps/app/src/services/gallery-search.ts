@@ -1,8 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "@shared";
+import type { Database, MarketConfig } from "@shared";
 import { createEmbedder, toPgVector } from "@shared";
 import type { GalleryDistrict } from "../types/chat-state";
-import { isLondonWideArea, matchesLondonArea } from "./london-area";
+import { isMarketWideArea, matchesMarketArea } from "./market-area";
 
 export type GalleryVisitTime =
   | { precision: "day"; weekday: number }
@@ -57,14 +57,16 @@ type GalleryQueryResult = Database["public"]["Tables"]["galleries"]["Row"] & {
 export async function searchGalleries(
   supabase: SupabaseClient<Database>,
   params: GallerySearchParams,
-  openRouterApiKey: string
+  openRouterApiKey: string,
+  config: MarketConfig
 ): Promise<{ data: GallerySearchResult[]; error: Error | null }> {
   const criteria = params.mode === "search" ? params.criteria : null;
   const searchQuery =
     criteria && "searchQuery" in criteria ? criteria.searchQuery : undefined;
   const area = criteria && "area" in criteria ? criteria.area : undefined;
   const openAt = criteria && "openAt" in criteria ? criteria.openAt : undefined;
-  const limit = 20;
+  const resultLimit = params.mode === "all" ? 100 : 20;
+  const catalogueFetchLimit = 100;
 
   console.log("[gallery-search] Searching with params:", params);
 
@@ -79,9 +81,10 @@ export async function searchGalleries(
 
       console.log("[gallery-search] Calling search_galleries_filtered RPC");
 
-      const { data, error } = await supabase.rpc("search_galleries_filtered", {
+      const { data, error } = await supabase.rpc("search_galleries_for_market", {
+        filter_market: config.market,
         query_embedding: embeddingVector,
-        match_count: limit,
+        match_count: resultLimit,
         match_threshold: 0.3,
         filter_district: area ?? undefined,
         filter_weekday: openAt?.weekday ?? undefined,
@@ -119,7 +122,7 @@ export async function searchGalleries(
       }
 
       // A new or partially enriched catalogue may not have gallery embeddings
-      // yet. Return the browsable London catalogue instead of encouraging the
+      // yet. Return the browsable market catalogue instead of encouraging the
       // agent to retry the same empty semantic search.
       console.warn("[gallery-search] Semantic search was empty; falling back to catalogue retrieval");
     }
@@ -140,6 +143,7 @@ export async function searchGalleries(
           name,
           about,
           area,
+          district,
           address,
           tags,
           email,
@@ -149,10 +153,10 @@ export async function searchGalleries(
         )
       `
       )
-      .limit(limit);
+      .limit(catalogueFetchLimit);
 
-    query = query.eq("market", "ldn");
-    const isWideArea = area ? isLondonWideArea(area) : false;
+    query = query.eq("market", config.market);
+    const isWideArea = area ? isMarketWideArea(area, config.market) : false;
     const { data, error } = await query;
 
     if (error) {
@@ -168,7 +172,7 @@ export async function searchGalleries(
       id: g.id,
       name: g.gallery_info?.name ?? null,
       about: g.gallery_info?.about ?? null,
-      district: g.gallery_info?.area ?? null,
+      district: g.gallery_info?.area ?? g.gallery_info?.district ?? null,
       address: g.gallery_info?.address ?? null,
       tags: g.gallery_info?.tags ?? null,
       main_url: g.main_url,
@@ -181,7 +185,9 @@ export async function searchGalleries(
     }));
 
     if (area && !isWideArea) {
-      results = results.filter((gallery) => matchesLondonArea(gallery.district, area));
+      results = results.filter((gallery) =>
+        matchesMarketArea(gallery.district, area, config.market)
+      );
     }
 
     // Apply hours filter if specified (only for non-embedding search)
@@ -230,6 +236,7 @@ export async function searchGalleries(
       }
     }
 
+    results = results.slice(0, resultLimit);
     console.log(`[gallery-search] Found ${results.length} galleries via basic filter`);
     return { data: results, error: null };
   } catch (err) {
@@ -245,7 +252,8 @@ export async function searchGalleries(
  */
 export async function getGalleriesByIds(
   supabase: SupabaseClient<Database>,
-  galleryIds: string[]
+  galleryIds: string[],
+  config: MarketConfig
 ): Promise<{ data: GallerySearchResult[]; error: Error | null }> {
   console.log("[gallery-search] Fetching galleries by IDs:", galleryIds);
 
@@ -263,6 +271,7 @@ export async function getGalleriesByIds(
           name,
           about,
           area,
+          district,
           address,
           tags,
           email,
@@ -273,7 +282,7 @@ export async function getGalleriesByIds(
       `
       )
       .in("id", galleryIds)
-      .eq("market", "ldn");
+      .eq("market", config.market);
 
     if (error) {
       console.error("[gallery-search] Error fetching by IDs:", error);
@@ -288,7 +297,7 @@ export async function getGalleriesByIds(
       id: g.id,
       name: g.gallery_info?.name ?? null,
       about: g.gallery_info?.about ?? null,
-      district: g.gallery_info?.area ?? null,
+      district: g.gallery_info?.area ?? g.gallery_info?.district ?? null,
       address: g.gallery_info?.address ?? null,
       tags: g.gallery_info?.tags ?? null,
       main_url: g.main_url,

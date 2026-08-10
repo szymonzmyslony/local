@@ -5,12 +5,15 @@ import {
 import { generateText, Output } from "ai";
 import { fetchSource } from "./fetching";
 import { observerDatabase } from "./repository";
-import { observationExtractionSchema } from "./schemas";
-import type { LondonFixture } from "./london-fixtures";
+import {
+  fallbackObservationExtractionSchema,
+  fromFallbackObservationExtraction
+} from "./schemas";
+import type { MarketFixture } from "./london-fixtures";
 
 export async function evaluateFixture(
   env: Env,
-  fixture: LondonFixture,
+  fixture: MarketFixture,
   technique: "browser_markdown" | "http_html"
 ) {
   const started = Date.now();
@@ -24,20 +27,24 @@ export async function evaluateFixture(
       enabled: true
     });
     const provider = createZineProvider(env.OPENROUTER_API_KEY);
-    const { output, usage } = await generateText({
+    const { output: fallbackOutput, usage } = await generateText({
       model: provider(AI_CONFIG.CHAT_MODEL),
-      output: Output.object({ schema: observationExtractionSchema }),
+      output: Output.object({ schema: fallbackObservationExtractionSchema }),
       maxRetries: 1,
       prompt: [
-        `Evaluate event extraction for ${fixture.name} in London.`,
+        `Evaluate event extraction for ${fixture.name} in ${fixture.market.city}.`,
         "Extract current or upcoming exhibitions and public art events only.",
+        `Include only events taking place at the gallery or within ${fixture.market.city}; mark other cities/countries as outside_market and ambiguous venues as unknown.`,
         "Use null for unsupported facts. Include short evidence for every event.",
+        `Interpret local dates in ${fixture.market.timezone}; preserve official names from ${fixture.market.language} source material.`,
+        "For each event return required venue_scope, venue_detail, and venue_evidence fields.",
         `Official URL: ${fixture.eventsUrl}`,
         `Captured at: ${new Date().toISOString()}`,
         "---",
         snapshot.content.slice(0, 75_000)
       ].join("\n")
     });
+    const output = fromFallbackObservationExtraction(fallbackOutput);
     const validItems = output.events.filter(
       (event) => event.title.trim() && event.evidence.length > 0
     ).length;

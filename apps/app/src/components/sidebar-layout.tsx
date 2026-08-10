@@ -2,16 +2,20 @@ import { useState } from "react";
 import { PanelLeft } from "lucide-react";
 import type { SavedEventCard } from "../types/chat-state";
 import { EventDetailPopover } from "./event-detail-popover";
+import { getMarketConfig, type MarketCode } from "@shared";
+import { marketHomePath, otherMarket } from "../market";
 
 interface SidebarLayoutProps {
   children: React.ReactNode;
   savedEvents: SavedEventCard[];
+  market: MarketCode;
 }
 
-export function SidebarLayout({ children, savedEvents }: SidebarLayoutProps) {
+export function SidebarLayout({ children, savedEvents, market }: SidebarLayoutProps) {
   const [isOpen, setIsOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth >= 768
   );
+  const alternative = getMarketConfig(otherMarket(market));
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-white text-[#161A23]">
@@ -74,8 +78,14 @@ export function SidebarLayout({ children, savedEvents }: SidebarLayoutProps) {
               </div>
             )}
             <a
-              href="https://zinelocal.com"
+              href={marketHomePath(alternative.market)}
               className="mt-6 inline-flex text-[10px] uppercase tracking-[0.16em] text-[#0140B6] hover:underline"
+            >
+              Switch to {alternative.city} →
+            </a>
+            <a
+              href="https://zinelocal.com"
+              className="mt-3 block text-[10px] uppercase tracking-[0.16em] text-[#0140B6] hover:underline"
             >
               Back to the guide ↗
             </a>

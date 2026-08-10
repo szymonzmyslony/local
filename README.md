@@ -1,6 +1,6 @@
 # Zine Local gallery agents
 
-Zine Local is a London-first art discovery system running on Cloudflare and Supabase. It combines an end-user web/WhatsApp agent, an agent-per-gallery observation service, a protected admin dashboard, and a public landing page.
+Zine Local is a multi-market art discovery system running on Cloudflare and Supabase. London is served at `https://chat.zinelocal.com/`; the parallel Warsaw guide is served at `https://chat.zinelocal.com/warsaw`. Each market has isolated chat sessions, catalogue queries, timezones, observer schedules, and fixtures while sharing the same infrastructure.
 
 The AI route is centralized through OpenRouter. Chat, extraction, and classification use OpenAI `gpt-5.6-luna`; semantic search uses `openai/text-embedding-3-small` through the same provider.
 
@@ -9,7 +9,7 @@ The AI route is centralized through OpenRouter. Chat, extraction, and classifica
 ```text
 apps/
   app/           browser chat and first-party Chat SDK WhatsApp ingress
-  observer/      London scout, one Think agent per gallery, workflows and evals
+  observer/      market scouts, one Think agent per gallery, workflows and evals
   dash/          protected admin UI and legacy/manual ingestion workflows
   landing-page/  static public site
 packages/
@@ -18,7 +18,7 @@ supabase/
   migrations/    canonical schema, RLS and observer control-plane migrations
 docs/
   architecture.md
-scripts/         legacy/import utilities and the preserved Warsaw seed set
+scripts/         explicit-market import utilities and legacy seed data
 ```
 
 Read [docs/architecture.md](docs/architecture.md) for the data model, crawl strategy, security boundaries, schedules, evaluation results, and operational runbook.
@@ -70,7 +70,7 @@ bun run build
 bun run lint
 ```
 
-The observer test set is defined in `apps/observer/src/london-fixtures.ts`. Its protected `/internal/evaluate` endpoint compares `browser_markdown` and `http_html` with the same Luna extraction schema and writes results to `extraction_evaluations`.
+The observer test sets are defined in `apps/observer/src/london-fixtures.ts` and `apps/observer/src/warsaw-fixtures.ts`. The protected `/internal/evaluate` endpoint compares `browser_markdown` and `http_html` with the same Luna extraction schema and writes results to `extraction_evaluations`.
 
 ## Deployment
 
@@ -78,6 +78,7 @@ Production endpoints:
 
 - `https://zinelocal.com` — landing page
 - `https://chat.zinelocal.com` — end-user chat and `/webhook`
+- `https://chat.zinelocal.com/warsaw` — Warsaw end-user chat
 - `https://admin.zinelocal.com` — protected admin dashboard
 - `https://zine-observer.szymon-zmyslony.workers.dev` — observer health; internal routes require a bearer token
 

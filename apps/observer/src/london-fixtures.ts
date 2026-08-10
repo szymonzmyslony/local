@@ -1,4 +1,6 @@
-export type LondonFixture = {
+import type { MarketConfig } from "@gallery-agents/shared";
+
+export type MarketFixture = {
   id: string;
   name: string;
   mainUrl: string;
@@ -7,13 +9,14 @@ export type LondonFixture = {
   tier: "national" | "institution" | "independent";
   renderProfile: "static" | "hybrid" | "javascript";
   expectedMinimumItems: number;
+  market: MarketConfig;
 };
 
 /**
  * Deliberately stratified London pilot: large institutions, mid-sized venues,
  * and independents with static, hybrid, and client-rendered listings.
  */
-export const LONDON_EVAL_FIXTURES: LondonFixture[] = [
+const LONDON_FIXTURE_DATA: Array<Omit<MarketFixture, "market">> = [
   {
     id: "tate-modern",
     name: "Tate Modern",
@@ -215,3 +218,16 @@ export const LONDON_EVAL_FIXTURES: LondonFixture[] = [
     expectedMinimumItems: 1
   }
 ];
+
+const LONDON_MARKET = {
+  market: "ldn",
+  city: "London",
+  countryCode: "GB",
+  timezone: "Europe/London",
+  locale: "en-GB",
+  language: "English"
+} as const satisfies MarketConfig;
+
+export const LONDON_EVAL_FIXTURES: MarketFixture[] = LONDON_FIXTURE_DATA.map(
+  (fixture) => ({ ...fixture, market: LONDON_MARKET })
+);
