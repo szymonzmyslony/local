@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { Badge, Button, Card, CardBody, CardTitle } from "@shared/ui";
 import { cn } from "@shared";
@@ -73,27 +73,14 @@ export function GalleryDetailLayout() {
     items: PreviewDialogItem[];
   } | null>(null);
 
+  // Clear transient feedback whenever navigation selects another gallery.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: galleryId is the navigation signal.
   useEffect(() => {
     setStatus(null);
     setError(null);
   }, [galleryId]);
 
-  useEffect(() => {
-    if (!galleryId) {
-      setGallery(null);
-      return;
-    }
-    void loadGallery(galleryId, { silent: dataVersion > 0 });
-  }, [galleryId, dataVersion]);
-
-  useEffect(() => {
-    if (!galleries.length && !galleriesLoading) {
-      void refreshGalleries();
-    }
-  }, [galleries.length, galleriesLoading, refreshGalleries]);
-
-
-  async function loadGallery(id: string, options?: { silent?: boolean }) {
+  const loadGallery = useCallback(async (id: string, options?: { silent?: boolean }) => {
     if (!options?.silent) {
       setLoadingGallery(true);
     }
@@ -106,8 +93,21 @@ export function GalleryDetailLayout() {
     } finally {
       setLoadingGallery(false);
     }
-  }
+  }, []);
 
+  useEffect(() => {
+    if (!galleryId) {
+      setGallery(null);
+      return;
+    }
+    void loadGallery(galleryId, { silent: dataVersion > 0 });
+  }, [galleryId, dataVersion, loadGallery]);
+
+  useEffect(() => {
+    if (!galleries.length && !galleriesLoading) {
+      void refreshGalleries();
+    }
+  }, [galleries.length, galleriesLoading, refreshGalleries]);
   function bumpDataVersion(): void {
     setDataVersion(current => current + 1);
   }

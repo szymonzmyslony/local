@@ -13,8 +13,10 @@ export type EventSearchParams = {
   limit?: number;           // OPTIONAL - default: 20
 };
 
-// Fixed date for filtering - only show events after this date
-const TODAY = "2025-10-14T00:00:00Z";
+/** Return the current instant in the format expected by Supabase/Postgres. */
+export function getEventSearchStart(now = new Date()): string {
+  return now.toISOString();
+}
 
 /**
  * Complete event data with linked gallery info
@@ -51,9 +53,10 @@ type EventQueryResult = Database["public"]["Tables"]["events"]["Row"] & {
 export async function searchEvents(
   supabase: SupabaseClient<Database>,
   params: EventSearchParams,
-  openaiApiKey: string
+  openRouterApiKey: string
 ): Promise<{ data: EventSearchResult[]; error: Error | null }> {
   const { searchQuery, artists, limit = 20 } = params;
+  const searchStart = getEventSearchStart();
 
   // Validate: at least one search criterion required
   if (!searchQuery && (!artists || artists.length === 0)) {
@@ -65,14 +68,14 @@ export async function searchEvents(
   }
 
   console.log("[event-search] Searching with params:", params);
-  console.log("[event-search] Auto-filtering events after:", TODAY);
+  console.log("[event-search] Auto-filtering events after:", searchStart);
 
   try {
     // If searchQuery provided, use embedding-based semantic search
-    if (searchQuery && searchQuery.trim()) {
+    if (searchQuery?.trim()) {
       console.log("[event-search] Generating embedding for query:", searchQuery);
 
-      const embedder = createEmbedder(openaiApiKey);
+      const embedder = createEmbedder(openRouterApiKey);
       const embedding = await embedder(searchQuery.trim());
       const embeddingVector = toPgVector(embedding);
 
@@ -82,7 +85,7 @@ export async function searchEvents(
         query_embedding: embeddingVector,
         match_count: limit,
         match_threshold: 0.3,
-        filter_start_after: TODAY,
+        filter_start_after: searchStart,
         filter_artists: artists ?? undefined,
       });
 
@@ -140,11 +143,12 @@ export async function searchEvents(
           tags,
           images
         ),
-        galleries (
+        galleries!inner (
           main_url,
+          market,
           gallery_info (
             name,
-            district,
+            area,
             address
           )
         )
@@ -152,7 +156,9 @@ export async function searchEvents(
       )
       .order("start_at", { ascending: true })
       .limit(limit)
-      .gt("start_at", TODAY);
+      .gt("start_at", searchStart)
+      .eq("galleries.market", "ldn")
+      .eq("published", true);
 
     if (artists && artists.length > 0) {
       query = query.overlaps("event_info.artists", artists);
@@ -185,7 +191,7 @@ export async function searchEvents(
       gallery_id: e.gallery_id,
       gallery_name: e.galleries?.gallery_info?.name ?? null,
       gallery_main_url: e.galleries?.main_url ?? "",
-      gallery_district: e.galleries?.gallery_info?.district ?? null,
+      gallery_district: e.galleries?.gallery_info?.area ?? null,
       gallery_address: e.galleries?.gallery_info?.address ?? null,
     }));
 

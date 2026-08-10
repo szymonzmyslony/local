@@ -6,16 +6,26 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "dash",
 	"main": "worker/index.ts",
-	"compatibility_date": "2025-10-11",
+	"compatibility_date": "2026-08-08",
 	"compatibility_flags": [
 		"nodejs_compat"
 	],
+	"keep_names": true,
 	"assets": {
+		"binding": "ASSETS",
 		"directory": "dist",
-		"not_found_handling": "single-page-application"
+		"not_found_handling": "single-page-application",
+		"run_worker_first": true
 	},
 	"observability": {
 		"enabled": true
+	},
+	"browser": { "binding": "BROWSER", "remote": true },
+	"services": [
+		{ "binding": "OBSERVER", "service": "zine-observer" }
+	],
+	"vars": {
+		"DASH_ADMIN_USERNAME": "zine"
 	},
 	"workers_dev": false,
 	"routes": [

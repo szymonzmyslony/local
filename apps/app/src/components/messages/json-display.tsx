@@ -14,6 +14,7 @@ export function JsonDisplay({ data, title, defaultExpanded = false }: JsonDispla
   return (
     <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800">
       <button
+        type="button"
         onClick={() => setIsExpanded(!isExpanded)}
         className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
       >

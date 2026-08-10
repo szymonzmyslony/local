@@ -20,6 +20,7 @@ export function GalleryEventsPage() {
   const [loadingData, setLoadingData] = useState(false);
 
   useEffect(() => {
+    void dataVersion;
     if (!galleryId) {
       setEvents([]);
       setPages([]);

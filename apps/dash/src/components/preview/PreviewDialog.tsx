@@ -49,7 +49,7 @@ export function PreviewDialog({
           <EmptyState>{emptyMessage}</EmptyState>
         ) : (
           items.map((item, index) => (
-            <section key={`${item.title}-${index}`} className="space-y-2">
+            <section key={`${item.title}-${item.content ?? "empty"}`} className="space-y-2">
               <header className="flex items-center justify-between gap-3">
                 <h3 className="text-sm font-semibold text-slate-900">{item.title}</h3>
                 {items.length > 1 ? (

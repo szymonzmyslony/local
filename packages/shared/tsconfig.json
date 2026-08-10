@@ -9,7 +9,7 @@
     "outDir": "dist",
     "noEmit": false,
     "jsx": "react-jsx",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "paths": {
       "@gallery-agents/shared": [
         "./src/index.ts"

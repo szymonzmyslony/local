@@ -1,6 +1,6 @@
 import type { Database } from "@shared";
 
-export type GalleryDistrict = Database["public"]["Enums"]["gallery_district"];
+export type GalleryDistrict = string;
 
 /**
  * Gallery-specific user requirements
@@ -18,9 +18,7 @@ export interface GalleryRequirements {
 /**
  * Event-specific requirements (empty for now - implement later)
  */
-export interface EventRequirements {
-  // TODO: Implement when adding event search
-}
+export type EventRequirements = Record<string, never>;
 
 /**
  * Complete user requirements separated by domain

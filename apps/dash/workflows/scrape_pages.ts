@@ -1,6 +1,5 @@
 import { WorkflowEntrypoint } from "cloudflare:workers";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
-import { z } from "zod";
 import {
   getServiceClient,
   selectPagesByIds,
@@ -8,7 +7,7 @@ import {
   updatePageById
 } from "@shared";
 import type { PageContentInsert, PageUpdate } from "@shared";
-import { getFirecrawl } from "./utils/firecrawl";
+import { fetchMarkdown } from "./utils/links";
 
 type Params = { pageIds: string[] };
 
@@ -16,7 +15,6 @@ export class ScrapePages extends WorkflowEntrypoint<Env, Params> {
     async run(event: WorkflowEvent<Params>, step: WorkflowStep) {
         const { pageIds } = event.payload;
         const supabase = getServiceClient(this.env);
-        const firecrawl = getFirecrawl(this.env.FIRECRAWL_API_KEY);
 
         console.log(`[ScrapePages] Starting - ${pageIds.length} pages to scrape`);
 
@@ -31,15 +29,10 @@ export class ScrapePages extends WorkflowEntrypoint<Env, Params> {
         let successCount = 0;
         let errorCount = 0;
 
-        const markdownSchema = z.object({ markdown: z.string().optional() });
-
         for (const p of pages) {
             try {
                 const markdown: string | null = await step.do(`scrape:${p.id}`, async () => {
-                    const doc = await firecrawl.scrape(p.normalized_url, { formats: ["markdown"] });
-                    const parsed = markdownSchema.safeParse(doc);
-                    if (!parsed.success) return null;
-                    return parsed.data.markdown ?? null;
+                    return fetchMarkdown(this.env.BROWSER, p.normalized_url);
                 });
 
                 await step.do(`save-content:${p.id}`, async () => {

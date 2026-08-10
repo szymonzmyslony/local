@@ -1,10 +1,9 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { useAgent } from "agents/react";
-import { useAgentChat } from "agents/ai-react";
-import type { UIMessage } from "@ai-sdk/react";
+import { useAgentChat } from "@cloudflare/think/react";
+import type { UIMessage } from "ai";
 import { SidebarLayout } from "./components/sidebar-layout";
 import { Chat } from "./components/chat";
-import { JsonDisplay } from "./components/messages/json-display";
 import type { ZineChatState, SavedEventCard } from "./types/chat-state";
 
 type MessageMeta = { createdAt: string; internal?: boolean };
@@ -28,19 +27,16 @@ export default function App() {
     });
   }, []);
 
-
-
   const agent = useAgent<ZineChatState>({
     agent: "zine",
-    onStateUpdate: setAgentState,
+    onStateUpdate: setAgentState
   });
 
   const { messages, sendMessage, status } = useAgentChat<
     ZineChatState,
     UIMessage<MessageMeta>
   >({
-    agent,
-    experimental_automaticToolResolution: true
+    agent
   });
 
   const handleSaveToZine = useCallback(
@@ -48,11 +44,14 @@ export default function App() {
       if (!agentState) return;
 
       const savedCards = agentState.savedCards ?? [];
-      const existingIndex = savedCards.findIndex((card) => card.event_id === event.event_id);
+      const existingIndex = savedCards.findIndex(
+        (card) => card.event_id === event.event_id
+      );
 
-      const newSavedCards = existingIndex >= 0
-        ? savedCards.map((card, i) => i === existingIndex ? event : card)
-        : [...savedCards, event];
+      const newSavedCards =
+        existingIndex >= 0
+          ? savedCards.map((card, i) => (i === existingIndex ? event : card))
+          : [...savedCards, event];
 
       agent.setState({
         ...agentState,
@@ -68,6 +67,7 @@ export default function App() {
     <>
       {/* Debug Toggle Button */}
       <button
+        type="button"
         onClick={toggleDebugMode}
         className="fixed bottom-4 right-4 z-50 px-3 py-2 text-xs font-medium rounded-lg shadow-lg transition-all hover:scale-105 bg-slate-800 text-slate-100 hover:bg-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600"
         title="Toggle debug mode (Ctrl/Cmd+D)"
@@ -77,7 +77,6 @@ export default function App() {
 
       <SidebarLayout savedEvents={savedEvents}>
         <Chat
-          title="Assistant"
           messages={messages}
           sendMessage={sendMessage}
           status={status}

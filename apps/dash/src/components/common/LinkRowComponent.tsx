@@ -24,6 +24,7 @@ export function LinkRowComponent({ href, label, description, leading }: LinkRowC
       </span>
       <span className="mt-1 text-slate-400" aria-hidden="true">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <title>Open in a new tab</title>
           <path
             d="M4.66699 4.66675H11.3337V11.3334"
             stroke="currentColor"

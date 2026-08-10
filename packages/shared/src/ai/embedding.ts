@@ -1,12 +1,12 @@
 import { embed } from "ai";
-import { createOpenAI } from "@ai-sdk/openai";
 import { AI_CONFIG } from "../config/ai";
+import { createZineProvider } from "./provider";
 
 export type Embedder = (text: string) => Promise<number[]>;
 
 export function createEmbedder(apiKey: string): Embedder {
-  const openai = createOpenAI({ apiKey });
-  const model = openai.embedding(AI_CONFIG.EMBEDDING_MODEL);
+  const openrouter = createZineProvider(apiKey);
+  const model = openrouter.textEmbeddingModel(AI_CONFIG.EMBEDDING_MODEL);
 
   return async (text: string) => {
     const trimmed = text.trim();

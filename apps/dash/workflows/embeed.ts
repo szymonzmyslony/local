@@ -26,7 +26,7 @@ export class Embed extends WorkflowEntrypoint<Env, Params> {
     async run(event: WorkflowEvent<Params>, step: WorkflowStep) {
         const { eventIds = [], galleryIds = [] } = event.payload;
         const supabase = getServiceClient(this.env);
-        const embedder = createEmbedder(this.env.OPENAI_API_KEY);
+        const embedder = createEmbedder(this.env.OPENROUTER_API_KEY);
 
         if (eventIds.length) {
             const res = await step.do("embed-call:events", async () => {

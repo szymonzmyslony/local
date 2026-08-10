@@ -262,8 +262,12 @@ export type EventsQueryParams = {
 export async function listEventsAll(params: EventsQueryParams = {}): Promise<EventListEntry[]> {
   const searchParams = new URLSearchParams();
 
-  params.statuses?.forEach(status => searchParams.append("status", status));
-  params.galleryIds?.forEach(id => searchParams.append("galleryId", id));
+  params.statuses?.forEach(status => {
+    searchParams.append("status", status);
+  });
+  params.galleryIds?.forEach(id => {
+    searchParams.append("galleryId", id);
+  });
 
   if (params.upcoming) {
     searchParams.set("upcoming", "true");

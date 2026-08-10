@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Constants } from "@shared/types/database_types";
+import { Constants } from "./types/database_types";
 
 /** Common helpers */
 export const isoDateTime = z.string().datetime({ offset: true }).or(z.string());
@@ -17,7 +17,7 @@ export const galleryExtractionSchema = z.object({
     about: z.string().describe("About/mission paragraph in plain text"),
     email: z.string().describe("Primary contact email").optional(),
     phone: z.string().describe("Primary phone number").optional(),
-    district: z.enum(Constants.public.Enums.gallery_district).describe("Warsaw district where the gallery is located (e.g., Mokotow, Srodmiescie)").optional(),
+    area: z.string().describe("London area, borough, or neighbourhood where the gallery is located").optional(),
     tags: z.array(z.string()).describe("List of tags or categories").optional(),
 }).describe("Structured gallery information to persist in gallery_info and gallery_hours tables");
 

@@ -1,15 +1,13 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { UIMessage } from "@ai-sdk/react";
+import type { ChatStatus, UIMessage } from "ai";
 import { ArrowUp, Loader2 } from "lucide-react";
 import { Messages } from "./messages";
 import { JsonDisplay } from "./messages/json-display";
 import type { SavedEventCard, ZineChatState } from "../types/chat-state";
-import { ChatStatus } from "ai";
 
 type MessageMeta = { createdAt: string; internal?: boolean };
 
 interface ChatProps {
-  title: string;
   messages: UIMessage<MessageMeta>[];
   sendMessage: (message: {
     role: "user";
@@ -23,7 +21,6 @@ interface ChatProps {
 }
 
 export function Chat({
-  title,
   messages,
   sendMessage,
   status,
@@ -34,9 +31,11 @@ export function Chat({
   const [inputValue, setInputValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLFormElement>(null);
-  const inputRef = useRef<HTMLDivElement>(null);
-  const desktopInputRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const desktopInputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Scroll after the transcript changes, including streamed message updates.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: messages is the transcript update signal.
   useEffect(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
@@ -46,21 +45,19 @@ export function Chat({
   const hasMessages = messages.some((msg) => !msg.metadata?.internal);
 
   const handleInputChange = useCallback(
-    (e: React.FormEvent<HTMLDivElement>) => {
-      const text = e.currentTarget.textContent || "";
-      setInputValue(text);
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      setInputValue(e.currentTarget.value);
     },
     []
   );
 
   const handleKeyDown = useCallback(
-    async (e: React.KeyboardEvent<HTMLDivElement>) => {
+    async (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        const content = e.currentTarget.textContent?.trim() || "";
+        const content = e.currentTarget.value.trim();
         if (content && status !== "submitted" && status !== "streaming") {
           setInputValue("");
-          e.currentTarget.textContent = "";
           await sendMessage({
             role: "user",
             parts: [{ type: "text", text: content }],
@@ -75,8 +72,8 @@ export function Chat({
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     // Get content from the active input refs or fallback to state
-    const desktopContent = desktopInputRef.current?.textContent?.trim() || "";
-    const bottomContent = inputRef.current?.textContent?.trim() || "";
+    const desktopContent = desktopInputRef.current?.value.trim() || "";
+    const bottomContent = inputRef.current?.value.trim() || "";
     const content = desktopContent || bottomContent || inputValue.trim();
 
     if (!content || status === "submitted" || status === "streaming") {
@@ -84,14 +81,6 @@ export function Chat({
     }
 
     setInputValue("");
-    // Clear both inputs
-    if (inputRef.current) {
-      inputRef.current.textContent = "";
-    }
-    if (desktopInputRef.current) {
-      desktopInputRef.current.textContent = "";
-    }
-
     await sendMessage({
       role: "user",
       parts: [{ type: "text", text: content }],
@@ -165,7 +154,7 @@ export function Chat({
                 {[
                   "Quiet exhibitions in Praga this weekend",
                   "Calm galleries to visit on Sunday",
-                  "Playful art around Mokotów tonight",
+                  "Playful art around Shoreditch tonight",
                   "Experimental installations near Old Town"
                 ].map((suggestion) => (
                   <button
@@ -183,16 +172,15 @@ export function Chat({
               <div className="hidden md:block mt-8">
                 <form onSubmit={handleSubmit}>
                   <div className="relative flex items-center">
-                    <div
+                    <textarea
                       ref={desktopInputRef}
-                      contentEditable
-                      onInput={handleInputChange}
+                      value={inputValue}
+                      onChange={handleInputChange}
                       onKeyDown={handleKeyDown}
-                      className="min-h-[40px] max-h-[120px] text-start flex-1 overflow-y-auto rounded-[28px] border border-slate-200 bg-white px-4 pr-14 py-3 text-xs leading-normal text-slate-900 outline-none focus:border-slate-300 empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-slate-600 dark:empty:before:text-slate-500"
-                      role="textbox"
+                      rows={1}
+                      className="min-h-[40px] max-h-[120px] resize-none text-start flex-1 overflow-y-auto rounded-[28px] border border-slate-200 bg-white px-4 pr-14 py-3 text-xs leading-normal text-slate-900 outline-none focus:border-slate-300 placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-slate-600 dark:placeholder:text-slate-500"
                       aria-label="Message"
-                      data-placeholder="Add your mood, time and place, I will take care of the rest..."
-                      suppressContentEditableWarning
+                      placeholder="Add your mood, time and place, I will take care of the rest..."
                     />
                     <button
                       type="submit"
@@ -225,16 +213,15 @@ export function Chat({
         <div className="mx-auto w-full md:max-w-2xl xxl:max-w-3xl">
           <form ref={composerRef} onSubmit={handleSubmit}>
             <div className="relative flex items-center">
-              <div
+              <textarea
                 ref={inputRef}
-                contentEditable
-                onInput={handleInputChange}
+                value={inputValue}
+                onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
-                className="min-h-[40px] max-h-[120px] text-start flex-1 overflow-y-auto rounded-[28px] border border-slate-200 bg-white px-4 pr-14 py-3 text-xs leading-normal text-slate-900 outline-none focus:border-slate-300 empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-slate-600 dark:empty:before:text-slate-500"
-                role="textbox"
+                rows={1}
+                className="min-h-[40px] max-h-[120px] resize-none text-start flex-1 overflow-y-auto rounded-[28px] border border-slate-200 bg-white px-4 pr-14 py-3 text-xs leading-normal text-slate-900 outline-none focus:border-slate-300 placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-slate-600 dark:placeholder:text-slate-500"
                 aria-label="Message"
-                data-placeholder="Add your mood, time and place, I will take care of the rest..."
-                suppressContentEditableWarning
+                placeholder="Add your mood, time and place, I will take care of the rest..."
               />
               <button
                 type="submit"

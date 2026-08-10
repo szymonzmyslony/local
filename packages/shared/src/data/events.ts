@@ -186,10 +186,15 @@ export async function updateEventInfoEmbedding(
   eventId: string,
   update: EventInfoUpdate
 ): Promise<void> {
-  const { error } = await client
-    .from("event_info")
-    .update(update)
-    .eq("event_id", eventId);
+  if (!update.embedding || !update.embedding_model || !update.embedding_created_at) {
+    throw new Error("updateEventInfoEmbedding requires a complete embedding update");
+  }
+  const { error } = await client.rpc("set_event_info_embedding", {
+    p_event_id: eventId,
+    p_embedding: update.embedding,
+    p_embedding_model: update.embedding_model,
+    p_embedding_created_at: update.embedding_created_at
+  });
 
   if (error) {
     throw toError("updateEventInfoEmbedding", error);
@@ -201,10 +206,12 @@ export async function updateGalleryInfoEmbedding(
   galleryId: string,
   update: { embedding: string; embedding_model: string; embedding_created_at: string }
 ): Promise<void> {
-  const { error } = await client
-    .from("gallery_info")
-    .update(update)
-    .eq("gallery_id", galleryId);
+  const { error } = await client.rpc("set_gallery_info_embedding", {
+    p_gallery_id: galleryId,
+    p_embedding: update.embedding,
+    p_embedding_model: update.embedding_model,
+    p_embedding_created_at: update.embedding_created_at
+  });
 
   if (error) {
     throw toError("updateGalleryInfoEmbedding", error);

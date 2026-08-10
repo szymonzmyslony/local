@@ -9,17 +9,18 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "cd packages/shared && bun run build && cd ../../apps/dash && bun run build && cd ../app && bun run build",
+    "build": "cd packages/shared && bun run build && cd ../../apps/observer && bun run build && cd ../dash && bun run build && cd ../app && bun run build",
     "build:shared": "cd packages/shared && bun run build",
     "build:dash": "cd apps/dash && bun run build",
     "build:app": "cd apps/app && bun run build",
+    "build:observer": "cd apps/observer && bun run build",
     "check": "cd apps/dash && bun run lint && cd ../app && bun run lint && cd ../.. && bun run typecheck",
     "format": "prettier --write .",
     "lint": "biome lint .",
     "start": "cd apps/dash && bun run dev",
     "dev": "cd apps/dash && bun run dev",
-    "test": "cd apps/app && bun run test",
-    "typecheck": "tsc -b packages/shared/tsconfig.json apps/dash/tsconfig.json apps/app/tsconfig.json"
+    "test": "cd apps/app && bun run test && cd ../observer && bun run test",
+    "typecheck": "tsc -b packages/shared/tsconfig.json apps/observer/tsconfig.json apps/dash/tsconfig.json apps/app/tsconfig.json"
   },
   "keywords": [
     "cloudflare",
@@ -29,26 +30,26 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "@biomejs/biome": "^2.2.5",
-    "@cloudflare/vite-plugin": "^1.14.1",
-    "@cloudflare/vitest-pool-workers": "^0.9.12",
-    "@tailwindcss/vite": "^4.1.16",
-    "@types/node": "^24.9.1",
-    "@types/react": "^19.2.2",
-    "@types/react-dom": "^19.2.1",
-    "@vitejs/plugin-react": "^5.0.4",
-    "prettier": "^3.6.2",
-    "tailwindcss": "^4.1.16",
-    "typescript": "^5.9.3",
-    "vite": "^7.1.9",
-    "vitest": "3.2.4",
-    "wrangler": "^4.47.0"
+    "@biomejs/biome": "^2.5.7",
+    "@cloudflare/vite-plugin": "^1.51.1",
+    "@cloudflare/vitest-pool-workers": "^0.20.3",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "prettier": "^3.9.6",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1",
+    "vitest": "4.1.10",
+    "wrangler": "^4.120.0"
   },
   "dependencies": {
-    "@cloudflare/workers-types": "^4.20251111.0",
-    "@radix-ui/react-navigation-menu": "^1.2.14",
-    "@radix-ui/react-popover": "^1.1.15",
-    "@radix-ui/react-separator": "^1.1.8",
-    "csv-parse": "^6.1.0"
+    "@cloudflare/workers-types": "^5.20260810.1",
+    "@radix-ui/react-navigation-menu": "^1.2.22",
+    "@radix-ui/react-popover": "^1.1.23",
+    "@radix-ui/react-separator": "^1.1.15",
+    "csv-parse": "^7.0.2"
   }
 }

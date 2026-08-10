@@ -1,7 +1,7 @@
 import { WorkflowEntrypoint } from "cloudflare:workers";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
-import { createOpenAI } from "@ai-sdk/openai";
 import {
+  createZineProvider,
   extractPageContentFromMarkdown,
   getPageMarkdown,
   getServiceClient,
@@ -18,8 +18,7 @@ import type {
   PageStructuredInsert,
   PageUpdate,
   EventInsert,
-  EventInfoInsert,
-  PageSummary
+  EventInfoInsert
 } from "@shared";
 import type { EventExtraction } from "@shared";
 
@@ -34,7 +33,7 @@ export class ExtractEventPages extends WorkflowEntrypoint<Env, Params> {
     async run(event: WorkflowEvent<Params>, step: WorkflowStep) {
         const { pageIds } = event.payload;
         const supabase = getServiceClient(this.env);
-        const openai = createOpenAI({ apiKey: this.env.OPENAI_API_KEY });
+        const openai = createZineProvider(this.env.OPENROUTER_API_KEY);
 
         console.log(`[ExtractEventPages] Starting - ${pageIds.length} pages to extract`);
 
@@ -155,7 +154,7 @@ export class ExtractEventPages extends WorkflowEntrypoint<Env, Params> {
 
         for (const extraction of eventExtractions) {
             const page = pageMap.get(extraction.pageId);
-            if (!page || !page.gallery_id) {
+            if (!page?.gallery_id) {
                 console.log(`[ExtractEventPages] Skipping event processing for page ${extraction.pageId} - missing gallery`);
                 continue;
             }
@@ -169,7 +168,7 @@ export class ExtractEventPages extends WorkflowEntrypoint<Env, Params> {
                 const firstOccurrence = payload.occurrences?.[0];
                 const start_at = firstOccurrence?.start_at ?? payload.start_at;
                 const end_at = firstOccurrence?.end_at ?? payload.end_at ?? null;
-                const timezone = firstOccurrence?.timezone ?? 'Europe/Warsaw';
+                const timezone = firstOccurrence?.timezone ?? 'Europe/London';
 
                 if (!start_at) {
                     console.warn(`[ExtractEventPages] Event "${payload.title}" has no start_at, using current timestamp`);

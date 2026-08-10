@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
 import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@shared/ui";
-import { DataTable, DataTableColumnHeader } from "../components/data-table";
+import {
+  DataTable,
+  DataTableColumnHeader,
+  type DataTableColumnDef
+} from "../components/data-table";
 import { DashboardShell } from "../components/layout";
 import { StatusMessages } from "../components/status";
 import {
@@ -47,7 +50,7 @@ export function EventsPage() {
 
   const shellStatus = loading ? "Loading events…" : semanticSearching ? "Running vector search…" : null;
 
-  const columns = useMemo<ColumnDef<EventListEntry>[]>(
+  const columns = useMemo<DataTableColumnDef<EventListEntry>[]>(
     () => [
       {
         accessorKey: "title",

@@ -7,7 +7,6 @@
   ],
   "compilerOptions": {
     "types": ["./worker-configuration.d.ts"],
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
       "@gallery-agents/shared": ["../../packages/shared/src/index.ts"],

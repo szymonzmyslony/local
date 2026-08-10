@@ -3,6 +3,7 @@ export * from "./database/client";
 export * from "./database/vector";
 export * from "./ai/content";
 export * from "./ai/embedding";
+export * from "./ai/provider";
 export {
   isoDateTime,
   pricesSchema,

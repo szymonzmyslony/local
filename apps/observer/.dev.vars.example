@@ -1,0 +1,4 @@
+OPENROUTER_API_KEY=your_openrouter_key
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+OBSERVER_ADMIN_TOKEN=generate_a_long_random_value

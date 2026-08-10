@@ -8,11 +8,11 @@ export default defineConfig({
   plugins: [cloudflare(), react(), tailwindcss()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
-      "@shared": path.resolve(__dirname, "../../packages/shared/src"),
-      "@shared/ui": path.resolve(__dirname, "../../packages/shared/src/ui"),
-      "@gallery-agents/shared": path.resolve(__dirname, "../../packages/shared/src"),
-      "@gallery-agents/shared/ui": path.resolve(__dirname, "../../packages/shared/src/ui")
+      "@": path.resolve(import.meta.dirname, "./src"),
+      "@shared": path.resolve(import.meta.dirname, "../../packages/shared/src"),
+      "@shared/ui": path.resolve(import.meta.dirname, "../../packages/shared/src/ui"),
+      "@gallery-agents/shared": path.resolve(import.meta.dirname, "../../packages/shared/src"),
+      "@gallery-agents/shared/ui": path.resolve(import.meta.dirname, "../../packages/shared/src/ui")
     }
   },
   build: {

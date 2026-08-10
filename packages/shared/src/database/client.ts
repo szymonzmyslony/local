@@ -6,18 +6,29 @@ export type SupabaseServiceClient = SupabaseClient<Database>;
 interface SupabaseConfig {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
-  SUPABASE_ANON_KEY?: string;
 }
 
 export function getServiceClient(env: SupabaseConfig): SupabaseServiceClient {
-  const key = env.SUPABASE_SERVICE_ROLE_KEY ?? env.SUPABASE_ANON_KEY;
-
-  if (!key) {
-    throw new Error("Missing Supabase key (SUPABASE_SERVICE_ROLE_KEY or SUPABASE_ANON_KEY)");
+  if (!env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
   }
 
-  return createClient<Database>(env.SUPABASE_URL, key, {
+  return createClient<Database>(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false },
     global: { fetch },
+  });
+}
+
+export function getPublicClient(env: {
+  SUPABASE_URL: string;
+  SUPABASE_ANON_KEY: string;
+}): SupabaseServiceClient {
+  if (!env.SUPABASE_ANON_KEY) {
+    throw new Error("Missing SUPABASE_ANON_KEY");
+  }
+
+  return createClient<Database>(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, {
+    auth: { persistSession: false },
+    global: { fetch }
   });
 }

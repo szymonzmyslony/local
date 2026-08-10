@@ -1,6 +1,5 @@
 import { useMemo } from "react";
-import type { UIMessage } from "@ai-sdk/react";
-import { ChatStatus, isToolUIPart } from "ai";
+import { isToolUIPart, type ChatStatus, type UIMessage } from "ai";
 import { TextMessage } from "./messages/text-message";
 import { ToolMessage } from "./messages/tool-message";
 import { ThinkingMessage } from "./messages/thinking-message";
@@ -43,11 +42,11 @@ export function Messages({ messages, status, onSaveToZine, debugMode }: Messages
 
         return (
           <div key={message.id} className="space-y-1.5">
-            {message.parts?.map((part, partIndex) => {
+            {message.parts?.map((part) => {
               if (part.type === "text") {
                 return (
                   <TextMessage
-                    key={`${message.id}-text-${partIndex}`}
+                    key={`${message.id}-text-${part.text}`}
                     text={part.text}
                     timestamp={timestamp}
                     isUser={isUser}
@@ -58,7 +57,7 @@ export function Messages({ messages, status, onSaveToZine, debugMode }: Messages
               if (isToolUIPart(part)) {
                 return (
                   <ToolMessage
-                    key={`${message.id}-tool-${partIndex}`}
+                    key={`${message.id}-tool-${part.toolCallId}`}
                     part={part}
                     timestamp={timestamp}
                     onSaveToZine={onSaveToZine}

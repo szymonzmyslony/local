@@ -8,7 +8,6 @@
       "node",
       "./worker-configuration.d.ts"
     ],
-    "baseUrl": ".",
     "paths": {
       "@gallery-agents/shared": [
         "../../packages/shared/src/index.ts"

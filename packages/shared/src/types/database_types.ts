@@ -14,6 +14,70 @@ export type Database = {
   }
   public: {
     Tables: {
+      event_candidates: {
+        Row: {
+          canonical_event_id: string | null
+          confidence: number
+          decision: string
+          gallery_id: string
+          id: string
+          observed_at: string
+          payload: Json
+          rejection_reasons: string[]
+          run_id: string
+          source_fingerprint: string
+          source_url: string
+        }
+        Insert: {
+          canonical_event_id?: string | null
+          confidence: number
+          decision: string
+          gallery_id: string
+          id?: string
+          observed_at?: string
+          payload: Json
+          rejection_reasons?: string[]
+          run_id: string
+          source_fingerprint: string
+          source_url: string
+        }
+        Update: {
+          canonical_event_id?: string | null
+          confidence?: number
+          decision?: string
+          gallery_id?: string
+          id?: string
+          observed_at?: string
+          payload?: Json
+          rejection_reasons?: string[]
+          run_id?: string
+          source_fingerprint?: string
+          source_url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_candidates_canonical_event_id_fkey"
+            columns: ["canonical_event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_candidates_gallery_id_fkey"
+            columns: ["gallery_id"]
+            isOneToOne: false
+            referencedRelation: "galleries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_candidates_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "observation_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_info: {
         Row: {
           artists: string[] | null
@@ -73,11 +137,15 @@ export type Database = {
       }
       events: {
         Row: {
+          confidence: number | null
           created_at: string
           end_at: string | null
           gallery_id: string
           id: string
           page_id: string | null
+          published: boolean
+          source_fingerprint: string | null
+          source_url: string | null
           start_at: string
           status: Database["public"]["Enums"]["event_status"]
           ticket_url: string | null
@@ -86,11 +154,15 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          confidence?: number | null
           created_at?: string
           end_at?: string | null
           gallery_id: string
           id?: string
           page_id?: string | null
+          published?: boolean
+          source_fingerprint?: string | null
+          source_url?: string | null
           start_at: string
           status?: Database["public"]["Enums"]["event_status"]
           ticket_url?: string | null
@@ -99,11 +171,15 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          confidence?: number | null
           created_at?: string
           end_at?: string | null
           gallery_id?: string
           id?: string
           page_id?: string | null
+          published?: boolean
+          source_fingerprint?: string | null
+          source_url?: string | null
           start_at?: string
           status?: Database["public"]["Enums"]["event_status"]
           ticket_url?: string | null
@@ -128,32 +204,110 @@ export type Database = {
           },
         ]
       }
+      extraction_evaluations: {
+        Row: {
+          created_at: string
+          duration_ms: number
+          error: string | null
+          field_accuracy: number | null
+          fixture_id: string
+          id: string
+          model: string
+          precision_score: number | null
+          recall_score: number | null
+          result: Json
+          source_url: string
+          success: boolean
+          technique: string
+          token_usage: Json
+        }
+        Insert: {
+          created_at?: string
+          duration_ms: number
+          error?: string | null
+          field_accuracy?: number | null
+          fixture_id: string
+          id?: string
+          model: string
+          precision_score?: number | null
+          recall_score?: number | null
+          result?: Json
+          source_url: string
+          success: boolean
+          technique: string
+          token_usage?: Json
+        }
+        Update: {
+          created_at?: string
+          duration_ms?: number
+          error?: string | null
+          field_accuracy?: number | null
+          fixture_id?: string
+          id?: string
+          model?: string
+          precision_score?: number | null
+          recall_score?: number | null
+          result?: Json
+          source_url?: string
+          success?: boolean
+          technique?: string
+          token_usage?: Json
+        }
+        Relationships: []
+      }
       galleries: {
         Row: {
           about_url: string | null
+          city: string
+          country_code: string
           created_at: string
           events_page: string | null
           id: string
+          last_observed_at: string | null
           main_url: string
+          market: string
+          next_observation_at: string | null
           normalized_main_url: string
+          observation_interval_hours: number
+          observation_status: string
+          source_config: Json
+          timezone: string
           updated_at: string
         }
         Insert: {
           about_url?: string | null
+          city?: string
+          country_code?: string
           created_at?: string
           events_page?: string | null
           id?: string
+          last_observed_at?: string | null
           main_url: string
+          market?: string
+          next_observation_at?: string | null
           normalized_main_url: string
+          observation_interval_hours?: number
+          observation_status?: string
+          source_config?: Json
+          timezone?: string
           updated_at?: string
         }
         Update: {
           about_url?: string | null
+          city?: string
+          country_code?: string
           created_at?: string
           events_page?: string | null
           id?: string
+          last_observed_at?: string | null
           main_url?: string
+          market?: string
+          next_observation_at?: string | null
           normalized_main_url?: string
+          observation_interval_hours?: number
+          observation_status?: string
+          source_config?: Json
+          timezone?: string
           updated_at?: string
         }
         Relationships: []
@@ -191,6 +345,7 @@ export type Database = {
         Row: {
           about: string | null
           address: string | null
+          area: string | null
           data: Json
           district: Database["public"]["Enums"]["gallery_district"] | null
           email: string | null
@@ -200,6 +355,8 @@ export type Database = {
           gallery_id: string
           google_maps_url: string | null
           instagram: string | null
+          latitude: number | null
+          longitude: number | null
           name: string | null
           phone: string | null
           tags: string[] | null
@@ -208,6 +365,7 @@ export type Database = {
         Insert: {
           about?: string | null
           address?: string | null
+          area?: string | null
           data?: Json
           district?: Database["public"]["Enums"]["gallery_district"] | null
           email?: string | null
@@ -217,6 +375,8 @@ export type Database = {
           gallery_id: string
           google_maps_url?: string | null
           instagram?: string | null
+          latitude?: number | null
+          longitude?: number | null
           name?: string | null
           phone?: string | null
           tags?: string[] | null
@@ -225,6 +385,7 @@ export type Database = {
         Update: {
           about?: string | null
           address?: string | null
+          area?: string | null
           data?: Json
           district?: Database["public"]["Enums"]["gallery_district"] | null
           email?: string | null
@@ -234,6 +395,8 @@ export type Database = {
           gallery_id?: string
           google_maps_url?: string | null
           instagram?: string | null
+          latitude?: number | null
+          longitude?: number | null
           name?: string | null
           phone?: string | null
           tags?: string[] | null
@@ -244,6 +407,130 @@ export type Database = {
             foreignKeyName: "gallery_info_gallery_id_fkey"
             columns: ["gallery_id"]
             isOneToOne: true
+            referencedRelation: "galleries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gallery_sources: {
+        Row: {
+          consecutive_failures: number
+          created_at: string
+          enabled: boolean
+          fetch_strategy: string
+          gallery_id: string
+          id: string
+          kind: string
+          last_changed_at: string | null
+          last_checked_at: string | null
+          last_content_hash: string | null
+          last_etag: string | null
+          last_modified: string | null
+          normalized_url: string
+          updated_at: string
+          url: string
+        }
+        Insert: {
+          consecutive_failures?: number
+          created_at?: string
+          enabled?: boolean
+          fetch_strategy?: string
+          gallery_id: string
+          id?: string
+          kind?: string
+          last_changed_at?: string | null
+          last_checked_at?: string | null
+          last_content_hash?: string | null
+          last_etag?: string | null
+          last_modified?: string | null
+          normalized_url: string
+          updated_at?: string
+          url: string
+        }
+        Update: {
+          consecutive_failures?: number
+          created_at?: string
+          enabled?: boolean
+          fetch_strategy?: string
+          gallery_id?: string
+          id?: string
+          kind?: string
+          last_changed_at?: string | null
+          last_checked_at?: string | null
+          last_content_hash?: string | null
+          last_etag?: string | null
+          last_modified?: string | null
+          normalized_url?: string
+          updated_at?: string
+          url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gallery_sources_gallery_id_fkey"
+            columns: ["gallery_id"]
+            isOneToOne: false
+            referencedRelation: "galleries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      observation_runs: {
+        Row: {
+          candidates_found: number
+          completed_at: string | null
+          error: string | null
+          events_published: number
+          gallery_id: string
+          id: string
+          idempotency_key: string
+          metadata: Json
+          model: string
+          scheduled_for: string
+          sources_attempted: number
+          sources_changed: number
+          started_at: string
+          status: string
+          workflow_id: string | null
+        }
+        Insert: {
+          candidates_found?: number
+          completed_at?: string | null
+          error?: string | null
+          events_published?: number
+          gallery_id: string
+          id?: string
+          idempotency_key: string
+          metadata?: Json
+          model: string
+          scheduled_for: string
+          sources_attempted?: number
+          sources_changed?: number
+          started_at?: string
+          status?: string
+          workflow_id?: string | null
+        }
+        Update: {
+          candidates_found?: number
+          completed_at?: string | null
+          error?: string | null
+          events_published?: number
+          gallery_id?: string
+          id?: string
+          idempotency_key?: string
+          metadata?: Json
+          model?: string
+          scheduled_for?: string
+          sources_attempted?: number
+          sources_changed?: number
+          started_at?: string
+          status?: string
+          workflow_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "observation_runs_gallery_id_fkey"
+            columns: ["gallery_id"]
+            isOneToOne: false
             referencedRelation: "galleries"
             referencedColumns: ["id"]
           },
@@ -357,6 +644,72 @@ export type Database = {
           },
         ]
       }
+      source_snapshots: {
+        Row: {
+          browser_ms: number | null
+          byte_length: number
+          changed: boolean
+          content_hash: string
+          content_type: string | null
+          fetched_at: string
+          http_status: number | null
+          id: string
+          metadata: Json
+          r2_key: string
+          run_id: string
+          source_id: string | null
+          source_url: string
+          strategy: string
+        }
+        Insert: {
+          browser_ms?: number | null
+          byte_length: number
+          changed: boolean
+          content_hash: string
+          content_type?: string | null
+          fetched_at?: string
+          http_status?: number | null
+          id?: string
+          metadata?: Json
+          r2_key: string
+          run_id: string
+          source_id?: string | null
+          source_url: string
+          strategy: string
+        }
+        Update: {
+          browser_ms?: number | null
+          byte_length?: number
+          changed?: boolean
+          content_hash?: string
+          content_type?: string | null
+          fetched_at?: string
+          http_status?: number | null
+          id?: string
+          metadata?: Json
+          r2_key?: string
+          run_id?: string
+          source_id?: string | null
+          source_url?: string
+          strategy?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "source_snapshots_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "observation_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "source_snapshots_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "gallery_sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -375,7 +728,6 @@ export type Database = {
           status: string
           tags: string[]
           ticket_url: string
-          timezone: string
           title: string
         }[]
       }
@@ -478,6 +830,38 @@ export type Database = {
           phone: string
           tags: string[]
         }[]
+      }
+      set_event_info_embedding: {
+        Args: {
+          p_embedding: string
+          p_embedding_created_at: string
+          p_embedding_model: string
+          p_event_id: string
+        }
+        Returns: undefined
+      }
+      set_gallery_info_embedding: {
+        Args: {
+          p_embedding: string
+          p_embedding_created_at: string
+          p_embedding_model: string
+          p_gallery_id: string
+        }
+        Returns: undefined
+      }
+      upsert_observed_event_info: {
+        Args: {
+          p_artists: string[]
+          p_data: Json
+          p_description: string | null
+          p_embedding: string
+          p_embedding_created_at: string
+          p_embedding_model: string
+          p_event_id: string
+          p_images: string[]
+          p_tags: string[]
+        }
+        Returns: undefined
       }
     }
     Enums: {

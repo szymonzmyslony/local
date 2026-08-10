@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { ColumnDef, RowSelectionState } from "@tanstack/react-table";
+import type { RowSelectionState } from "@tanstack/react-table";
 import { Badge, Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@shared/ui";
-import { DataTable, DataTableColumnHeader } from "../../components/data-table";
+import {
+  DataTable,
+  DataTableColumnHeader,
+  type DataTableColumnDef
+} from "../../components/data-table";
 import { FETCH_STATUSES, PAGE_KINDS, type PageStatus } from "../../api";
 import type { DashboardAction, FetchStatus, GalleryDetail, GalleryPage, PageKind, PageKindUpdate } from "../../api";
 
@@ -49,7 +53,6 @@ export function PageLinksView({
           return a.normalized_url.localeCompare(b.normalized_url);
         case "oldest":
           return (a.created_at ?? "").localeCompare(b.created_at ?? "");
-        case "newest":
         default:
           return (b.created_at ?? "").localeCompare(a.created_at ?? "");
       }
@@ -67,11 +70,13 @@ export function PageLinksView({
     [pages, selectedPageIds]
   );
 
+  // Selection belongs to the current page result set and must reset on refresh.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: pages is the refresh signal.
   useEffect(() => {
     setRowSelection({});
   }, [pages]);
 
-  const columns = useMemo<ColumnDef<GalleryPage>[]>(
+  const columns = useMemo<DataTableColumnDef<GalleryPage>[]>(
     () => [
       {
         id: "select",
@@ -83,7 +88,9 @@ export function PageLinksView({
             checked={table.getIsAllPageRowsSelected()}
             ref={input => {
               if (input) {
-                input.indeterminate = table.getIsSomePageRowsSelected();
+                input.indeterminate =
+                  table.getIsSomePageRowsSelected() &&
+                  !table.getIsAllPageRowsSelected();
               }
             }}
             onChange={event => table.toggleAllPageRowsSelected(event.target.checked)}
@@ -296,10 +303,10 @@ function handlePreview(page: GalleryPage, onPreviewPages: PageLinksViewProps["on
 
 function FieldGroup({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="flex w-full flex-col gap-2 text-sm text-slate-700">
-      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</span>
+    <fieldset className="flex w-full flex-col gap-2 text-sm text-slate-700">
+      <legend className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</legend>
       {children}
-    </label>
+    </fieldset>
   );
 }
 

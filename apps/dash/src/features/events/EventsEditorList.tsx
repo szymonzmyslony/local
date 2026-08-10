@@ -272,20 +272,20 @@ function EventEditorCard({ event, page, pendingAction, onSave, onProcess }: Even
 
 function FilterField({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-      {label}
+    <fieldset className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+      <legend>{label}</legend>
       {children}
-    </label>
+    </fieldset>
   );
 }
 
 function Field({ label, description, fullWidth = false, children }: { label: string; description?: string; fullWidth?: boolean; children: ReactNode }) {
   return (
-    <label className={fullWidth ? "flex flex-col gap-2 md:col-span-2" : "flex flex-col gap-2"}>
-      <span className="text-sm font-medium text-slate-700">{label}</span>
+    <fieldset className={fullWidth ? "flex flex-col gap-2 md:col-span-2" : "flex flex-col gap-2"}>
+      <legend className="text-sm font-medium text-slate-700">{label}</legend>
       {children}
       {description ? <span className="text-xs text-slate-500">{description}</span> : null}
-    </label>
+    </fieldset>
   );
 }
 

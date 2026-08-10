@@ -1,11 +1,11 @@
-import type { ToolUIPart } from "ai";
+import type { DynamicToolUIPart, ToolUIPart } from "ai";
 import { getToolName } from "ai";
 import { ToolCallDisplay } from "./tool-call-display";
 import { ToolResult } from "./tool-result";
 import type { SavedEventCard } from "../../types/chat-state"; // was SavedEventCard from "../../types/tool-results";
 
 interface ToolMessageProps {
-  part: ToolUIPart;
+  part: ToolUIPart | DynamicToolUIPart;
   timestamp: string;
   onSaveToZine?: (event: SavedEventCard) => void;
   debugMode: boolean;

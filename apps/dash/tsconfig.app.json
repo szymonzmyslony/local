@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
       "@gallery-agents/shared": ["../../packages/shared/src/index.ts"],
@@ -35,5 +34,5 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["src", "workflows/utils"]
+  "include": ["src"]
 }

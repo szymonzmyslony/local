@@ -1,293 +1,108 @@
-# Gallery Agents - Development Guide
+# Zine Local gallery agents
 
-A monorepo for gallery agent workers and shared libraries. This project includes a chat interface (browser + WhatsApp), an admin dashboard, and shared utilities.
+Zine Local is a London-first art discovery system running on Cloudflare and Supabase. It combines an end-user web/WhatsApp agent, an agent-per-gallery observation service, a protected admin dashboard, and a public landing page.
 
-## 📁 Project Structure
+The AI route is centralized through OpenRouter. Chat, extraction, and classification use OpenAI `gpt-5.6-luna`; semantic search uses `openai/text-embedding-3-small` through the same provider.
 
+## Repository map
+
+```text
+apps/
+  app/           browser chat and first-party Chat SDK WhatsApp ingress
+  observer/      London scout, one Think agent per gallery, workflows and evals
+  dash/          protected admin UI and legacy/manual ingestion workflows
+  landing-page/  static public site
+packages/
+  shared/        OpenRouter provider, embeddings, Supabase clients, schemas and UI
+supabase/
+  migrations/    canonical schema, RLS and observer control-plane migrations
+docs/
+  architecture.md
+scripts/         legacy/import utilities and the preserved Warsaw seed set
 ```
-├── apps/
-│   ├── app/          # Chat interface (browser + WhatsApp) - End-user facing
-│   ├── dash/         # Admin dashboard - Manage galleries, events, pages
-│   └── landing-page/ # Landing page (static)
-├── packages/
-│   └── shared/       # Shared code (UI components, database, AI utilities)
-└── scripts/          # Utility scripts for seeding galleries
-```
 
-## 🚀 Quick Start
+Read [docs/architecture.md](docs/architecture.md) for the data model, crawl strategy, security boundaries, schedules, evaluation results, and operational runbook.
 
-### Prerequisites
+## Local development
 
-- **Bun** (package manager and runtime)
-- **OpenAI API Key** (for chat functionality)
-- **Cloudflare Account** (for deployment)
-
-### Initial Setup
-
-1. **Install dependencies:**
-
-   ```bash
-   bun install
-   ```
-
-2. **Set up environment variables:**
-
-   Create `apps/app/.dev.vars`:
-
-   ```bash
-   OPENAI_API_KEY=your_openai_api_key_here
-   ```
-
-## 🛠️ Development
-
-### Running Applications
-
-You need **two terminal windows** to run both apps simultaneously:
-
-#### Terminal 1: Chat Interface (`apps/app`)
+Prerequisites: Bun, a Cloudflare account with Browser Rendering/Run, and a Supabase project with the checked-in migrations applied.
 
 ```bash
-cd apps/app
-rm -rf .wrangler  # Clear cache before starting
-bun run dev
+bun install
+cp apps/app/.dev.vars.example apps/app/.dev.vars
 ```
 
-**Access:** `http://localhost:5173` (check terminal for exact port)
+Set these secrets locally:
 
-#### Terminal 2: Admin Panel (`apps/dash`)
+```dotenv
+OPENROUTER_API_KEY=...
+SUPABASE_URL=...
+SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+OBSERVER_ADMIN_TOKEN=...
+DASH_ADMIN_PASSWORD=...
+```
+
+WhatsApp is optional and fail-closed. It activates only when all four values exist:
+
+```dotenv
+WHATSAPP_ACCESS_TOKEN=...
+WHATSAPP_APP_SECRET=...
+WHATSAPP_PHONE_NUMBER_ID=...
+WHATSAPP_VERIFY_TOKEN=...
+```
+
+Run each service in a separate terminal:
 
 ```bash
-cd apps/dash
-rm -rf .wrangler  # Clear cache before starting
-bun run dev
+cd apps/app && bun run dev
+cd apps/observer && bun run dev
+cd apps/dash && bun run dev
+cd apps/landing-page && bun run dev
 ```
 
-**Access:** `http://localhost:5174` (or next available port)
-
-### Restarting Applications
-
-**Always clear Wrangler cache before restarting:**
-
-```bash
-# For chat interface
-cd apps/app
-rm -rf .wrangler
-bun run dev
-
-# For admin panel
-cd apps/dash
-rm -rf .wrangler
-bun run dev
-```
-
-Or clear both at once from root:
-
-```bash
-rm -rf apps/app/.wrangler apps/dash/.wrangler
-```
-
-### Why Clear Cache?
-
-The `.wrangler` directories contain cached worker runtime code. Clearing them prevents:
-
-- Stale build artifacts causing conflicts
-- Development server crashes
-- Worker runtime errors
-
-## 📱 Applications Overview
-
-### 1. Chat Interface (`apps/app`)
-
-**Purpose:** End-user chat agent UI for both browser and WhatsApp
-
-**Features:**
-
-- Browser-based chat interface
-- WhatsApp integration via webhook (`/webhook`)
-- AI-powered gallery and event search
-- Conversation state management via Durable Objects
-
-**Key Files:**
-
-- `src/server.ts` - Worker entry point, handles web and WhatsApp routes
-- `src/app.tsx` - Browser chat UI
-- `src/tools.ts` - AI agent tools for searching galleries/events
-- `src/services/whatsapp-api.ts` - WhatsApp API integration
-
-**Development:**
-
-```bash
-cd apps/app
-rm -rf .wrangler
-bun run dev
-```
-
-### 2. Admin Dashboard (`apps/dash`)
-
-**Purpose:** Admin interface for managing galleries, events, and pages
-
-**Features:**
-
-- Gallery management (seed, scrape, extract)
-- Event editing and management
-- Page discovery and classification
-- Workflow management (scraping, embedding, extraction)
-
-**Key Files:**
-
-- `worker/index.ts` - Worker API endpoints
-- `workflows/` - Cloudflare Workflows for async processing
-- `src/routes/` - React Router pages
-
-**Development:**
-
-```bash
-cd apps/dash
-rm -rf .wrangler
-bun run dev
-```
-
-### 3. Landing Page (`apps/landing-page`)
-
-**Purpose:** Static landing page
-
-**Development:**
-
-```bash
-cd apps/landing-page
-bun run dev
-```
-
-## 🔧 Common Tasks
-
-### Building All Apps
-
-```bash
-# Build everything
-bun run build
-
-# Build specific app
-bun run build:app      # Chat interface
-bun run build:dash     # Admin dashboard
-bun run build:shared   # Shared package
-```
-
-### Type Checking
+## Quality checks
 
 ```bash
 bun run typecheck
-```
-
-### Linting
-
-```bash
+bun run test
+bun run build
 bun run lint
 ```
 
-### Testing
+The observer test set is defined in `apps/observer/src/london-fixtures.ts`. Its protected `/internal/evaluate` endpoint compares `browser_markdown` and `http_html` with the same Luna extraction schema and writes results to `extraction_evaluations`.
+
+## Deployment
+
+Production endpoints:
+
+- `https://zinelocal.com` — landing page
+- `https://chat.zinelocal.com` — end-user chat and `/webhook`
+- `https://admin.zinelocal.com` — protected admin dashboard
+- `https://zine-observer.szymon-zmyslony.workers.dev` — observer health; internal routes require a bearer token
+
+Deploy code with:
 
 ```bash
-bun run test  # Runs tests for apps/app
-```
-
-## 📦 Shared Package (`packages/shared`)
-
-Contains reusable code used across apps:
-
-- **UI Components** (`src/ui/`) - React components (buttons, cards, dialogs, etc.)
-- **Database** (`src/database/`) - Supabase client and vector search
-- **AI Utilities** (`src/ai/`) - Content generation and embeddings
-- **Data Access** (`src/data/`) - Database queries for galleries, events, pages
-- **Types** (`src/types/`) - Shared TypeScript types
-
-**Build shared package:**
-
-```bash
-cd packages/shared
-bun run build
-```
-
-## 🗄️ Database & Scripts
-
-### Seeding Galleries
-
-See `scripts/README.md` for detailed instructions on importing galleries from CSV files.
-
-**Quick example:**
-
-```bash
-bun run scripts/seed-and-startup-galleries.ts scripts/zine.csv http://localhost:8787
-```
-
-## 🐛 Troubleshooting
-
-### Development Server Crashes
-
-1. **Clear Wrangler cache:**
-
-   ```bash
-   rm -rf apps/app/.wrangler apps/dash/.wrangler
-   ```
-
-2. **Check environment variables:**
-   - Ensure `apps/app/.dev.vars` exists with `OPENAI_API_KEY`
-
-3. **Reinstall dependencies:**
-   ```bash
-   bun install
-   ```
-
-### Port Already in Use
-
-If port 5173 is taken, Vite will automatically use the next available port. Check terminal output for the actual URL.
-
-### Worker Runtime Errors
-
-If you see "SyntaxError: Invalid or unexpected token":
-
-- Clear `.wrangler` cache
-- Restart the dev server
-- See `apps/app/FINDING.md` for detailed troubleshooting
-
-## 📚 Additional Documentation
-
-- `apps/app/FINDING.md` - Troubleshooting guide for chat interface
-- `scripts/README.md` - Gallery import scripts documentation
-- `packages/shared/DESIGN_SYSTEM.md` - Design system documentation
-- `.github/DEPLOYMENT.md` - Deployment instructions
-
-## 🔑 Environment Variables
-
-### Required for `apps/app`:
-
-Create `apps/app/.dev.vars`:
-
-```
-OPENAI_API_KEY=your_key_here
-```
-
-### Optional (for scripts):
-
-```bash
-export SUPABASE_URL="https://your-project.supabase.co"
-export SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
-```
-
-## 🚢 Deployment
-
-See `.github/DEPLOYMENT.md` for deployment instructions.
-
-**Manual deployment:**
-
-```bash
-# Build all apps
-bun run build
-
-# Deploy specific app
+cd apps/observer && bun run deploy
 cd apps/app && bun run deploy
 cd apps/dash && bun run deploy
+cd apps/landing-page && bun run deploy
 ```
 
----
+Worker secrets are configured with `wrangler secret put`; never place service-role or admin credentials in `wrangler.jsonc`. GitHub Actions deploys all four services from `main` or `master`, while runtime Worker secrets remain managed in Cloudflare.
 
-**Need help?** Check the troubleshooting section or review the app-specific documentation files.
+## Security model
+
+- Browser code receives only the Supabase anon key.
+- Service-role access exists only in the dashboard and observer Workers.
+- RLS is enabled on every public table.
+- Anonymous/authenticated roles can only read the published catalogue tables.
+- Raw pages, source snapshots, candidates, evaluations, and run ledgers are service-only.
+- The dashboard requires Basic auth; Cloudflare Access is the recommended next hardening layer.
+- Observer control routes require `Authorization: Bearer $OBSERVER_ADMIN_TOKEN`.
+- Source fetching is restricted to normalized, same-origin official gallery URLs.
+
+## WhatsApp activation
+
+The app uses the official `@chat-adapter/whatsapp` integration supplied through Chat SDK/Think. Configure Meta's callback as `https://chat.zinelocal.com/webhook`, subscribe to messages, and set the four WhatsApp secrets above. `/health` returns `whatsappConfigured: true` only when the complete credential set is present.

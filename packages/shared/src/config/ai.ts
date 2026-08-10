@@ -1,7 +1,7 @@
 export const AI_CONFIG = {
-  CHAT_MODEL: "gpt-5",
-  EMBEDDING_MODEL: "text-embedding-3-small",
-  EMBEDDING_DIMENSIONS: 384,
+  CHAT_MODEL: "openai/gpt-5.6-luna",
+  EMBEDDING_MODEL: "openai/text-embedding-3-small",
+  EMBEDDING_DIMENSIONS: 1536,
   MAX_RETRIES: 2,
   MAX_PARALLEL_CALLS: 5
 } as const;

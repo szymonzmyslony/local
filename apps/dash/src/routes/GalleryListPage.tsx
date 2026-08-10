@@ -1,9 +1,12 @@
 import { useMemo, useState } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
 import { useNavigate } from "react-router-dom";
 import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@shared/ui";
 import { searchGalleries, type GalleryListItem, type GallerySearchMatch } from "../api";
-import { DataTable, DataTableColumnHeader } from "../components/data-table";
+import {
+  DataTable,
+  DataTableColumnHeader,
+  type DataTableColumnDef
+} from "../components/data-table";
 import { DashboardShell } from "../components/layout";
 import { Modal } from "../components/modal";
 import { StatusMessages } from "../components/status";
@@ -39,7 +42,7 @@ export function GalleryListPage() {
     return base.filter(gallery => isOpenOnDay(gallery, weekday));
   }, [galleries, search, weekdayFilter]);
 
-  const columns = useMemo<ColumnDef<GalleryListItem>[]>(
+  const columns = useMemo<DataTableColumnDef<GalleryListItem>[]>(
     () => [
       {
         id: "name",
@@ -55,7 +58,7 @@ export function GalleryListPage() {
             </div>
           );
         },
-        sortingFn: (a, b) => {
+        sortFn: (a, b) => {
           const left = (a.original.gallery_info?.name ?? a.original.normalized_main_url).toLowerCase();
           const right = (b.original.gallery_info?.name ?? b.original.normalized_main_url).toLowerCase();
           return left.localeCompare(right);

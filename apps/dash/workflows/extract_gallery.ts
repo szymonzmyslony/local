@@ -1,16 +1,15 @@
 import { WorkflowEntrypoint } from "cloudflare:workers";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
-import { createOpenAI } from "@ai-sdk/openai";
 import {
+    createZineProvider,
     extractGalleryInfoFromMarkdown,
     getGalleryWithInfo,
     getPageMarkdownBulk,
     getServiceClient,
     selectPagesByGallery,
-    upsertGalleryHours,
     upsertGalleryInfo
 } from "@shared";
-import type { GalleryInfoInsert, GalleryHoursInsert, Page } from "@shared";
+import type { GalleryInfoInsert, Page } from "@shared";
 
 type Params = { galleryId: string };
 
@@ -18,7 +17,7 @@ export class ExtractGallery extends WorkflowEntrypoint<Env, Params> {
     async run(event: WorkflowEvent<Params>, step: WorkflowStep) {
         const { galleryId } = event.payload;
         const supabase = getServiceClient(this.env);
-        const openai = createOpenAI({ apiKey: this.env.OPENAI_API_KEY });
+        const openai = createZineProvider(this.env.OPENROUTER_API_KEY);
 
         console.log(`[ExtractGallery] Starting - gallery ${galleryId}`);
 
@@ -127,12 +126,12 @@ export class ExtractGallery extends WorkflowEntrypoint<Env, Params> {
                 google_maps_url: seededGoogleMapsUrl ?? null, // Preserve seeded Google Maps URL
                 email: result.email ?? null,
                 phone: result.phone ?? null,
-                district: result.district ?? null,
+                area: result.area ?? null,
                 tags: result.tags ?? null,
                 data: result,
                 updated_at: new Date().toISOString(),
             };
-            console.log(`[ExtractGallery] Saving gallery_info payload (email="${galleryInfoData.email}", district="${galleryInfoData.district}", address="${galleryInfoData.address}", google_maps_url="${galleryInfoData.google_maps_url}")`);
+            console.log(`[ExtractGallery] Saving gallery_info payload (email="${galleryInfoData.email}", area="${galleryInfoData.area}", address="${galleryInfoData.address}", google_maps_url="${galleryInfoData.google_maps_url}")`);
             await upsertGalleryInfo(supabase, galleryInfoData);
             console.log(`[ExtractGallery] Successfully saved gallery_info for gallery ${galleryId}`);
         });

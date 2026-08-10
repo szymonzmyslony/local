@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "@shared/ui";
 import { ArrowUpRight } from "lucide-react";
-import { SavedEventCard } from "@/types/chat-state";
+import type { SavedEventCard } from "@/types/chat-state";
 
 interface EventCardsProps {
   events: SavedEventCard[];
@@ -86,6 +86,7 @@ function EventCard({ event, onSaveToZine }: EventCardProps) {
           </p>
           {needsTruncation && (
             <button
+              type="button"
               onClick={() => setIsExpanded(!isExpanded)}
               className="text-xs text-text-tertiary hover:text-text-primary mt-1 font-medium"
             >

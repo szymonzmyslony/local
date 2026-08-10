@@ -152,7 +152,7 @@ const EventBasePayloadSchema = z.object({
   status: eventStatusEnum,
   start_at: z.string(), // Required now
   end_at: z.string().nullable(),
-  timezone: z.string().nullable().default('Europe/Warsaw'),
+  timezone: z.string().nullable().default('Europe/London'),
   ticket_url: z.string().trim().url().nullable()
 });
 
@@ -166,6 +166,65 @@ const EventStructuredPayloadSchema = z.object({
   event: EventBasePayloadSchema,
   info: EventInfoPayloadSchema
 });
+
+async function secureEqual(left: string, right: string): Promise<boolean> {
+  const encode = (value: string) => new TextEncoder().encode(value);
+  const [leftHash, rightHash] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encode(left)),
+    crypto.subtle.digest("SHA-256", encode(right))
+  ]);
+  const leftBytes = new Uint8Array(leftHash);
+  const rightBytes = new Uint8Array(rightHash);
+  let mismatch = leftBytes.length ^ rightBytes.length;
+  for (let index = 0; index < leftBytes.length; index += 1) {
+    mismatch |= leftBytes[index] ^ rightBytes[index];
+  }
+  return mismatch === 0;
+}
+
+async function requireDashboardAdmin(request: Request, env: Env): Promise<Response | null> {
+  if (!env.DASH_ADMIN_USERNAME || !env.DASH_ADMIN_PASSWORD) {
+    console.error(JSON.stringify({ event: "dashboard_auth_not_configured" }));
+    return new Response("Dashboard authentication is not configured", { status: 503 });
+  }
+  const authorization = request.headers.get("authorization");
+  if (!authorization?.startsWith("Basic ")) {
+    return new Response("Authentication required", {
+      status: 401,
+      headers: { "www-authenticate": 'Basic realm="Zine Admin", charset="UTF-8"' }
+    });
+  }
+  try {
+    const decoded = atob(authorization.slice(6));
+    const separator = decoded.indexOf(":");
+    const username = separator >= 0 ? decoded.slice(0, separator) : "";
+    const password = separator >= 0 ? decoded.slice(separator + 1) : "";
+    const [usernameOk, passwordOk] = await Promise.all([
+      secureEqual(username, env.DASH_ADMIN_USERNAME),
+      secureEqual(password, env.DASH_ADMIN_PASSWORD)
+    ]);
+    if (usernameOk && passwordOk) return null;
+  } catch {
+    // Fall through to the same response for malformed and invalid credentials.
+  }
+  return new Response("Invalid credentials", {
+    status: 401,
+    headers: { "www-authenticate": 'Basic realm="Zine Admin", charset="UTF-8"' }
+  });
+}
+
+function observerRequest(
+  env: Env,
+  path: string,
+  init: RequestInit = {}
+): Promise<Response> {
+  const headers = new Headers(init.headers);
+  headers.set("authorization", `Bearer ${env.OBSERVER_ADMIN_TOKEN}`);
+  if (init.body && !headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
+  return env.OBSERVER.fetch(`https://zine-observer${path}`, { ...init, headers });
+}
 // Re-export workflow entrypoints so the runtime can find them by class_name
 export { DiscoverLinks } from "../workflows/discover_links";
 export { ScrapePages } from "../workflows/scrape_pages";
@@ -179,6 +238,37 @@ export { SeedAndStartupGallery } from "../workflows/seedAndStartupGallery";
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.pathname === "/health") {
+      return Response.json({
+        ok: Boolean(
+          env.SUPABASE_URL &&
+            env.SUPABASE_SERVICE_ROLE_KEY &&
+            env.DASH_ADMIN_PASSWORD &&
+            env.OBSERVER_ADMIN_TOKEN
+        ),
+        service: "zine-admin"
+      });
+    }
+
+    const authFailure = await requireDashboardAdmin(request, env);
+    if (authFailure) return authFailure;
+
+    if (url.pathname === "/api/observer/runs" && request.method === "GET") {
+      return observerRequest(env, `/internal/runs${url.search}`, { method: "GET" });
+    }
+    if (
+      request.method === "POST" &&
+      ["bootstrap", "observe", "evaluate", "diagnostics"].includes(
+        url.pathname.replace("/api/observer/", "")
+      )
+    ) {
+      const action = url.pathname.replace("/api/observer/", "");
+      return observerRequest(env, `/internal/${action}`, {
+        method: "POST",
+        body: await request.text()
+      });
+    }
+
     const supabase = getServiceClient(env);
     console.log(`[dash-worker] ${request.method} ${url.pathname}${url.search}`);
 
@@ -193,11 +283,20 @@ export default {
       const instagram = body.instagram ?? null;
       const googleMapsUrl = body.googleMapsUrl ?? null;
       const openingHours = body.openingHours ?? null;
-      console.log("[dash-worker] Starting SeedAndStartupGallery workflow (via seed endpoint)", { mainUrl, aboutUrl, eventsUrl, name, address, instagram, googleMapsUrl, openingHours });
-      const run = await env.SEED_AND_STARTUP_GALLERY.create({ params: { mainUrl, aboutUrl, eventsUrl, name, address, instagram, googleMapsUrl, openingHours } });
-      const workflowId = run.id ?? run;
-
-      return Response.json({ id: workflowId });
+      return observerRequest(env, "/internal/galleries", {
+        method: "POST",
+        body: JSON.stringify({
+          mainUrl,
+          aboutUrl,
+          eventsUrl,
+          name: name ?? new URL(mainUrl).hostname,
+          address,
+          area: null,
+          instagram,
+          googleMapsUrl,
+          openingHours
+        })
+      });
     }
 
     // 0b) Seed and startup gallery (full pipeline - explicit endpoint)
@@ -211,11 +310,20 @@ export default {
       const instagram = body.instagram ?? null;
       const googleMapsUrl = body.googleMapsUrl ?? null;
       const openingHours = body.openingHours ?? null;
-      console.log("[dash-worker] Starting SeedAndStartupGallery workflow (explicit endpoint)", { mainUrl, aboutUrl, eventsUrl, name, address, instagram, googleMapsUrl, openingHours });
-      const run = await env.SEED_AND_STARTUP_GALLERY.create({ params: { mainUrl, aboutUrl, eventsUrl, name, address, instagram, googleMapsUrl, openingHours } });
-      const workflowId = run.id ?? run;
-
-      return Response.json({ id: workflowId });
+      return observerRequest(env, "/internal/galleries", {
+        method: "POST",
+        body: JSON.stringify({
+          mainUrl,
+          aboutUrl,
+          eventsUrl,
+          name: name ?? new URL(mainUrl).hostname,
+          address,
+          area: null,
+          instagram,
+          googleMapsUrl,
+          openingHours
+        })
+      });
     }
 
     // List galleries
@@ -233,10 +341,10 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/search/galleries") {
       try {
         const body = GallerySearchBodySchema.parse(await request.json());
-        if (!env.OPENAI_API_KEY) {
-          throw new Error("Missing OPENAI_API_KEY");
+        if (!env.OPENROUTER_API_KEY) {
+          throw new Error("Missing OPENROUTER_API_KEY");
         }
-        const embed = createEmbedder(env.OPENAI_API_KEY);
+        const embed = createEmbedder(env.OPENROUTER_API_KEY);
         const vector = await embed(body.query);
         if (!vector.length) {
           return Response.json([]);
@@ -260,10 +368,10 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/search/events") {
       try {
         const body = EventSearchBodySchema.parse(await request.json());
-        if (!env.OPENAI_API_KEY) {
-          throw new Error("Missing OPENAI_API_KEY");
+        if (!env.OPENROUTER_API_KEY) {
+          throw new Error("Missing OPENROUTER_API_KEY");
         }
-        const embed = createEmbedder(env.OPENAI_API_KEY);
+        const embed = createEmbedder(env.OPENROUTER_API_KEY);
         const vector = await embed(body.query);
         if (!vector.length) {
           return Response.json([]);
@@ -292,7 +400,7 @@ export default {
         const limitParam = Number.parseInt(url.searchParams.get("limit") ?? "200", 10);
         const limit = Number.isNaN(limitParam) ? 200 : Math.min(Math.max(limitParam, 1), 500);
         const orderParam = url.searchParams.get("order");
-        const ascending = orderParam === "desc" ? false : true;
+        const ascending = orderParam !== "desc";
 
         let query = supabase
           .from("events")
@@ -538,6 +646,6 @@ export default {
     }
 
     console.log(`[dash-worker] No route matched ${request.method} ${url.pathname}`);
-    return new Response(null, { status: 404 });
+    return env.ASSETS.fetch(request);
   },
 } satisfies ExportedHandler<Env>;

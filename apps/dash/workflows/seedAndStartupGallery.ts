@@ -1,7 +1,7 @@
 import { WorkflowEntrypoint } from "cloudflare:workers";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
-import { createOpenAI } from "@ai-sdk/openai";
 import {
+    createZineProvider,
     extractOpeningHoursFromText,
     getServiceClient,
     normalizeUrl,
@@ -199,7 +199,7 @@ export class SeedAndStartupGallery extends WorkflowEntrypoint<Env, Params> {
             const hoursResult = await step.do("extract-opening-hours", async () => {
                 try {
                     console.log(`[SeedAndStartupGallery] Extracting opening hours for gallery ${galleryId}`);
-                    const openai = createOpenAI({ apiKey: this.env.OPENAI_API_KEY });
+                    const openai = createZineProvider(this.env.OPENROUTER_API_KEY);
 
                     const extracted = await extractOpeningHoursFromText(openai, openingHours);
                     console.log(`[SeedAndStartupGallery] Extracted ${extracted.hours.length} days of hours`);

@@ -9,28 +9,27 @@
     "typecheck": "tsc -b",
     "lint": "biome lint src worker workflows",
     "preview": "bun run build && vite preview",
-    "deploy": "bun run build && wrangler deploy",
+    "deploy": "bun run build && wrangler deploy --config dist/dash/wrangler.json",
     "cf:typegen": "wrangler types"
   },
   "dependencies": {
     "@gallery-agents/shared": "workspace:*",
-    "@mendable/firecrawl-js": "^4.4.1",
-    "@radix-ui/react-collapsible": "^1.1.12",
-    "@tanstack/react-table": "^8.20.5",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "react-router-dom": "^7.1.1",
-    "zod": "^4.1.12"
+    "@radix-ui/react-collapsible": "^1.1.20",
+    "@tanstack/react-table": "^9.1.2",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.2",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.1.16",
-    "@cloudflare/vite-plugin": "^1.13.16",
-    "@types/react": "^19.2.2",
-    "@types/react-dom": "^19.2.1",
-    "@vitejs/plugin-react": "^5.0.4",
-    "tailwindcss": "^4.1.16",
-    "typescript": "^5.9.3",
-    "vite": "^7.1.9",
-    "wrangler": "^4.45.1"
+    "@tailwindcss/vite": "^4.3.3",
+    "@cloudflare/vite-plugin": "^1.51.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1",
+    "wrangler": "^4.120.0"
   }
 }

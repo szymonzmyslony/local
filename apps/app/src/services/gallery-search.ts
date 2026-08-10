@@ -5,11 +5,11 @@ import type { GalleryDistrict } from "../types/chat-state";
 
 /**
  * Gallery search parameters
- * At least ONE of searchQuery, district, or openAt must be provided
+ * At least ONE of searchQuery, area, or openAt must be provided
  */
 export type GallerySearchParams = {
   searchQuery?: string;             // OPTIONAL - semantic search via embeddings
-  district?: GalleryDistrict;       // OPTIONAL - filter by district
+  area?: string;                    // OPTIONAL - London area/neighbourhood
   openAt?: {
     weekday: number;                // 0-6 (0=Sunday)
     timeMinutes?: number;           // 0-1439 (minutes since midnight) - optional
@@ -47,16 +47,16 @@ type GalleryQueryResult = Database["public"]["Tables"]["galleries"]["Row"] & {
 export async function searchGalleries(
   supabase: SupabaseClient<Database>,
   params: GallerySearchParams,
-  openaiApiKey: string
+  openRouterApiKey: string
 ): Promise<{ data: GallerySearchResult[]; error: Error | null }> {
-  const { searchQuery, district, openAt, limit = 20 } = params;
+  const { searchQuery, area, openAt, limit = 20 } = params;
 
   // Validate: at least one search criterion must be provided
-  if (!searchQuery && !district && !openAt) {
+  if (!searchQuery && !area && !openAt) {
     console.error("[gallery-search] No search parameters provided");
     return {
       data: [],
-      error: new Error("At least one search parameter required (searchQuery, district, or openAt)")
+      error: new Error("At least one search parameter required (searchQuery, area, or openAt)")
     };
   }
 
@@ -64,10 +64,10 @@ export async function searchGalleries(
 
   try {
     // If searchQuery provided, use embedding-based semantic search
-    if (searchQuery && searchQuery.trim()) {
+    if (searchQuery?.trim()) {
       console.log("[gallery-search] Generating embedding for query:", searchQuery);
 
-      const embedder = createEmbedder(openaiApiKey);
+      const embedder = createEmbedder(openRouterApiKey);
       const embedding = await embedder(searchQuery.trim());
       const embeddingVector = toPgVector(embedding);
 
@@ -77,7 +77,7 @@ export async function searchGalleries(
         query_embedding: embeddingVector,
         match_count: limit,
         match_threshold: 0.3,
-        filter_district: district ?? undefined,
+        filter_district: area ?? undefined,
         filter_weekday: openAt?.weekday ?? undefined,
         filter_time_minutes: openAt?.timeMinutes ?? undefined,
       });
@@ -127,7 +127,7 @@ export async function searchGalleries(
         gallery_info!inner (
           name,
           about,
-          district,
+          area,
           address,
           tags,
           email,
@@ -139,8 +139,9 @@ export async function searchGalleries(
       )
       .limit(limit);
 
-    if (district) {
-      query = query.eq("gallery_info.district", district);
+    query = query.eq("market", "ldn");
+    if (area) {
+      query = query.ilike("gallery_info.area", `%${area}%`);
     }
 
     const { data, error } = await query;
@@ -158,7 +159,7 @@ export async function searchGalleries(
       id: g.id,
       name: g.gallery_info?.name ?? null,
       about: g.gallery_info?.about ?? null,
-      district: g.gallery_info?.district ?? null,
+      district: g.gallery_info?.area ?? null,
       address: g.gallery_info?.address ?? null,
       tags: g.gallery_info?.tags ?? null,
       main_url: g.main_url,
@@ -244,7 +245,7 @@ export async function getGalleriesByIds(
         gallery_info!inner (
           name,
           about,
-          district,
+          area,
           address,
           tags,
           email,
@@ -254,7 +255,8 @@ export async function getGalleriesByIds(
         )
       `
       )
-      .in("id", galleryIds);
+      .in("id", galleryIds)
+      .eq("market", "ldn");
 
     if (error) {
       console.error("[gallery-search] Error fetching by IDs:", error);
@@ -269,7 +271,7 @@ export async function getGalleriesByIds(
       id: g.id,
       name: g.gallery_info?.name ?? null,
       about: g.gallery_info?.about ?? null,
-      district: g.gallery_info?.district ?? null,
+      district: g.gallery_info?.area ?? null,
       address: g.gallery_info?.address ?? null,
       tags: g.gallery_info?.tags ?? null,
       main_url: g.main_url,

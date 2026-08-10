@@ -1,24 +1,11 @@
 import { useState } from "react";
-import { Bookmark, PanelLeft, Layers } from "lucide-react";
+import { PanelLeft } from "lucide-react";
 import type { SavedEventCard } from "../types/chat-state";
 import { EventDetailPopover } from "./event-detail-popover";
 
 interface SidebarLayoutProps {
   children: React.ReactNode;
   savedEvents: SavedEventCard[];
-}
-
-function formatDate(value: string | null | undefined): string {
-  if (!value) return "";
-  try {
-    const date = new Date(value);
-    return date.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric"
-    });
-  } catch {
-    return "";
-  }
 }
 
 export function SidebarLayout({ children, savedEvents }: SidebarLayoutProps) {
@@ -36,6 +23,8 @@ export function SidebarLayout({ children, savedEvents }: SidebarLayoutProps) {
       >
         <div className="p-3 flex items-center justify-end">
           <button
+            type="button"
+            aria-label={isOpen ? "Collapse saved events" : "Expand saved events"}
             onClick={() => setIsOpen(!isOpen)}
             className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
           >
@@ -57,7 +46,7 @@ export function SidebarLayout({ children, savedEvents }: SidebarLayoutProps) {
                   const gallery = event.gallery as unknown as { name?: string } | null;
                   return (
                     <EventDetailPopover key={event.event_id} event={event}>
-                      <button className="w-full text-left rounded-lg px-2 py-2 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors">
+                      <button type="button" className="w-full text-left rounded-lg px-2 py-2 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors">
                         <div className="text-xs font-medium text-slate-900 dark:text-slate-100 line-clamp-2">
                           {event.title}
                         </div>

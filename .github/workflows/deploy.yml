@@ -26,6 +26,12 @@ jobs:
       - name: Build shared package
         run: bun run build:shared
 
+      - name: Deploy London observer worker
+        run: cd apps/observer && bun run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Build and deploy app worker
         run: cd apps/app && bun run deploy
         env:

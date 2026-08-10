@@ -26,6 +26,7 @@ export function GalleryOverviewPage() {
   const [loadingPages, setLoadingPages] = useState(false);
 
   useEffect(() => {
+    void dataVersion;
     if (!galleryId) {
       setPages([]);
       return;

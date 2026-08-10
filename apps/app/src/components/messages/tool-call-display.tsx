@@ -1,27 +1,24 @@
 import { useState } from "react";
-import { Loader2, ChevronDown, ChevronRight, Search, Settings, CheckCircle2, XCircle } from "lucide-react";
-import type { ToolUIPart } from "ai";
+import { Loader2, ChevronDown, ChevronRight, CheckCircle2, XCircle } from "lucide-react";
+import type { DynamicToolUIPart, ToolUIPart } from "ai";
 
 interface ToolCallDisplayProps {
-  part: ToolUIPart;
+  part: ToolUIPart | DynamicToolUIPart;
   toolName: string;
 }
 
-const TOOL_LABELS: Record<string, { label: string; loadingLabel: string; icon: typeof Search }> = {
+const TOOL_LABELS: Record<string, { label: string; loadingLabel: string }> = {
   match_event: {
     label: "Searched events",
-    loadingLabel: "Searching for events...",
-    icon: Search
+    loadingLabel: "Searching for events..."
   },
   match_gallery: {
     label: "Searched galleries",
-    loadingLabel: "Searching for galleries...",
-    icon: Search
+    loadingLabel: "Searching for galleries..."
   },
   update_user_requirements: {
     label: "Updated preferences",
-    loadingLabel: "Updating preferences...",
-    icon: Settings
+    loadingLabel: "Updating preferences..."
   }
 };
 
@@ -36,10 +33,8 @@ export function ToolCallDisplay({ part, toolName }: ToolCallDisplayProps) {
 
   const toolConfig = TOOL_LABELS[toolName] || {
     label: toolName,
-    loadingLabel: `${toolName}...`,
-    icon: Settings
+    loadingLabel: `${toolName}...`
   };
-  const Icon = toolConfig.icon;
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 overflow-hidden">
@@ -68,6 +63,7 @@ export function ToolCallDisplay({ part, toolName }: ToolCallDisplayProps) {
         {hasInput && (
           <>
             <button
+              type="button"
               onClick={() => setIsExpanded(!isExpanded)}
               className="mt-2 flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"
             >

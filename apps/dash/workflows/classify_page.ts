@@ -1,8 +1,8 @@
 import { WorkflowEntrypoint } from "cloudflare:workers";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
-import { createOpenAI } from "@ai-sdk/openai";
 import {
     classifyPageKindFromMarkdown,
+    createZineProvider,
     getServiceClient,
     selectPagesByIds,
     getPageMarkdownBulk,
@@ -23,7 +23,7 @@ export class ClassifyPage extends WorkflowEntrypoint<Env, Params> {
         }
 
         const supabase = getServiceClient(this.env);
-        const openai = createOpenAI({ apiKey: this.env.OPENAI_API_KEY });
+        const openai = createZineProvider(this.env.OPENROUTER_API_KEY);
 
         // Load pages to check current classification status (idempotency)
         const pages = await step.do("load-pages", async () => {

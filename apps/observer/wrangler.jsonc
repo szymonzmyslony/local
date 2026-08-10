@@ -1,0 +1,41 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "zine-observer",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "keep_names": true,
+  "workers_dev": true,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": { "enabled": true, "invocation_logs": true }
+  },
+  "browser": { "binding": "BROWSER", "remote": true },
+  "r2_buckets": [
+    {
+      "binding": "SNAPSHOTS",
+      "bucket_name": "zine-gallery-snapshots",
+      "preview_bucket_name": "zine-gallery-snapshots-preview"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "GalleryObserver", "class_name": "GalleryObserver" },
+      { "name": "LondonScout", "class_name": "LondonScout" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["GalleryObserver", "LondonScout"]
+    }
+  ],
+  "workflows": [
+    {
+      "name": "gallery-observation",
+      "binding": "GALLERY_OBSERVATION",
+      "class_name": "GalleryObservationWorkflow"
+    }
+  ]
+}

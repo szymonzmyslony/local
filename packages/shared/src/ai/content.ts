@@ -1,7 +1,7 @@
-import { generateObject } from "ai";
+import { generateText, Output } from "ai";
 import { z } from "zod";
-import type { OpenAIProvider } from "@ai-sdk/openai";
 import { AI_CONFIG } from "../config/ai";
+import type { ZineModelProvider } from "./provider";
 import {
     galleryExtractionSchema,
     eventExtractionSchema,
@@ -18,10 +18,10 @@ const pageKindSchema = z.object({
     kind: z.enum(Constants.public.Enums.page_kind).describe("Predicted page_kind classification")
 });
 
-export async function classifyPageKindFromMarkdown(openai: OpenAIProvider, md: string, url: string): Promise<z.infer<typeof pageKindSchema>["kind"]> {
-    const { object } = await generateObject({
-        model: openai(AI_CONFIG.CHAT_MODEL),
-        schema: pageKindSchema,
+export async function classifyPageKindFromMarkdown(provider: ZineModelProvider, md: string, url: string): Promise<z.infer<typeof pageKindSchema>["kind"]> {
+    const { output } = await generateText({
+        model: provider(AI_CONFIG.CHAT_MODEL),
+        output: Output.object({ schema: pageKindSchema }),
         prompt: [
             "Classify the Markdown content below into one of the following page kinds:",
             "- gallery_main (home/landing page for the gallery)",
@@ -38,18 +38,17 @@ export async function classifyPageKindFromMarkdown(openai: OpenAIProvider, md: s
         ].join("\n")
     });
 
-    return object.kind;
+    return output.kind;
 }
 
-export async function extractGalleryInfoFromMarkdown(openai: OpenAIProvider, md: string, url: string, seededAddress?: string | null): Promise<GalleryExtraction> {
+export async function extractGalleryInfoFromMarkdown(provider: ZineModelProvider, md: string, url: string, seededAddress?: string | null): Promise<GalleryExtraction> {
     try {
         const promptParts = [
-            "Extract gallery information (name, about, district, contacts, socials, tags, weekly hours and exceptions if present) from the Markdown below.",
+            "Extract gallery information (name, about, London area, contacts, socials, tags, weekly hours and exceptions if present) from the Markdown below.",
             "Return a JSON object matching the gallery extraction schema.",
             "Only include facts explicitly present in the content.",
             "",
-            "For district: Extract the Warsaw district (dzielnica) where the gallery is located.",
-            "Valid districts: Ochota, Srodmiescie, Wola, Bemowo, Mokotow, Praga, Zoliborz",
+            "For area: extract the London area, borough, or neighbourhood stated in the source.",
         ];
 
         if (seededAddress) {
@@ -58,13 +57,13 @@ export async function extractGalleryInfoFromMarkdown(openai: OpenAIProvider, md:
 
         promptParts.push("", `URL: ${url}`, "---", md.slice(0, MAX_MD_LENGTH));
 
-        const { object } = await generateObject({
-            model: openai(AI_CONFIG.CHAT_MODEL),
-            schema: galleryExtractionSchema,
+        const { output } = await generateText({
+            model: provider(AI_CONFIG.CHAT_MODEL),
+            output: Output.object({ schema: galleryExtractionSchema }),
             prompt: promptParts.join("\n")
         });
 
-        return object;
+        return output;
     } catch (error) {
         console.error("[extractGalleryInfoFromMarkdown] Failed to generate object", {
             url,
@@ -75,11 +74,11 @@ export async function extractGalleryInfoFromMarkdown(openai: OpenAIProvider, md:
     }
 }
 
-export async function extractPageContentFromMarkdown(openai: OpenAIProvider, md: string, url: string): Promise<PageExtraction> {
+export async function extractPageContentFromMarkdown(provider: ZineModelProvider, md: string, url: string): Promise<PageExtraction> {
     try {
-        const { object } = await generateObject({
-            model: openai(AI_CONFIG.CHAT_MODEL),
-            schema: eventExtractionSchema,
+        const { output } = await generateText({
+            model: provider(AI_CONFIG.CHAT_MODEL),
+            output: Output.object({ schema: eventExtractionSchema }),
             prompt: [
                 "You are given Markdown content for a page that describes a *single* event.",
                 "Extract structured event information matching the event extraction schema.",
@@ -91,7 +90,7 @@ export async function extractPageContentFromMarkdown(openai: OpenAIProvider, md:
             ].join("\n")
         });
 
-        return { type: "event", payload: object };
+        return { type: "event", payload: output };
     } catch (error) {
         console.error("[extractPageContentFromMarkdown] Failed to generate object", {
             url,
@@ -102,11 +101,11 @@ export async function extractPageContentFromMarkdown(openai: OpenAIProvider, md:
     }
 }
 
-export async function extractOpeningHoursFromText(openai: OpenAIProvider, hoursText: string): Promise<OpeningHoursExtraction> {
+export async function extractOpeningHoursFromText(provider: ZineModelProvider, hoursText: string): Promise<OpeningHoursExtraction> {
     try {
-        const { object } = await generateObject({
-            model: openai(AI_CONFIG.CHAT_MODEL),
-            schema: openingHoursExtractionSchema,
+        const { output } = await generateText({
+            model: provider(AI_CONFIG.CHAT_MODEL),
+            output: Output.object({ schema: openingHoursExtractionSchema }),
             prompt: [
                 "You are given text describing gallery/museum opening hours in Polish.",
                 "Extract structured opening hours for each day of the week.",
@@ -124,7 +123,7 @@ export async function extractOpeningHoursFromText(openai: OpenAIProvider, hoursT
             ].join("\n")
         });
 
-        return object;
+        return output;
     } catch (error) {
         console.error("[extractOpeningHoursFromText] Failed to generate object", {
             hoursText,

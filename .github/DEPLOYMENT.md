@@ -5,6 +5,7 @@ This repository is configured to automatically deploy all Cloudflare Workers whe
 ## Workers Deployed
 
 - **app** (zine worker) - `apps/app`
+- **observer** (London gallery observation agents) - `apps/observer`
 - **dash** (admin dashboard with workflows) - `apps/dash`
 - **landing-page** - `apps/landing-page`
 
@@ -52,21 +53,23 @@ Find your Account ID:
 The workflow (`.github/workflows/deploy.yml`) will:
 1. Trigger on every push to `master` or `main` branch
 2. Install dependencies with `bun install`
-3. Build all workers with `bun run build`
-4. Deploy each worker individually using `bunx wrangler deploy`
+3. Build the shared package
+4. Deploy the observer, chat app, dashboard, and landing page with their package scripts
+
+Runtime application secrets are configured separately with `wrangler secret put`
+and are not copied from GitHub Actions. See `docs/architecture.md` for the required
+Worker secret names and service boundaries.
 
 ## Manual Deployment
 
 You can still deploy manually:
 
 ```bash
-# Build all workers
-bun run build
-
 # Deploy specific worker
-cd apps/app && bunx wrangler deploy
-cd apps/dash && bunx wrangler deploy
-cd apps/landing-page && bunx wrangler deploy
+cd apps/observer && bun run deploy
+cd apps/app && bun run deploy
+cd apps/dash && bun run deploy
+cd apps/landing-page && bun run deploy
 ```
 
 ## Troubleshooting

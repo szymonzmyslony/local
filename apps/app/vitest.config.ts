@@ -1,23 +1,30 @@
-import { defineWorkersConfig } from "@cloudflare/vitest-pool-workers/config";
+import path from "node:path";
+import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { defineConfig } from "vitest/config";
 
-export default defineWorkersConfig({
-  environments: {
-    ssr: {
-      keepProcessEnv: true
+export default defineConfig({
+  plugins: [
+    cloudflareTest({
+      wrangler: { configPath: "./wrangler.jsonc" }
+    })
+  ],
+  resolve: {
+    alias: {
+      "@": path.resolve(import.meta.dirname, "./src"),
+      "@gallery-agents/shared": path.resolve(
+        import.meta.dirname,
+        "../../packages/shared/src"
+      ),
+      "@shared": path.resolve(import.meta.dirname, "../../packages/shared/src")
     }
   },
   test: {
-    // https://github.com/cloudflare/workers-sdk/issues/9822
     deps: {
       optimizer: {
         ssr: {
+          enabled: true,
           include: ["ajv"]
         }
-      }
-    },
-    poolOptions: {
-      workers: {
-        wrangler: { configPath: "./wrangler.jsonc" }
       }
     }
   }

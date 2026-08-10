@@ -3,19 +3,25 @@ import type {
   ColumnDef,
   ColumnFiltersState,
   SortingState,
-  VisibilityState,
+  ColumnVisibilityState,
   RowSelectionState,
   OnChangeFn,
-  Row
+  Row,
+  RowData,
+  Table as TableInstance
 } from "@tanstack/react-table";
 import {
+  columnFilteringFeature,
+  columnVisibilityFeature,
+  createFilteredRowModel,
+  createPaginatedRowModel,
+  createSortedRowModel,
   flexRender,
-  getCoreRowModel,
-  getFilteredRowModel,
-  getPaginationRowModel,
-  getSortedRowModel,
-  useReactTable,
-  type Table as TableInstance
+  rowPaginationFeature,
+  rowSelectionFeature,
+  rowSortingFeature,
+  tableFeatures,
+  useTable
 } from "@tanstack/react-table";
 import { Button, Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from "@shared/ui";
 import { cn } from "@shared";
@@ -25,18 +31,36 @@ type ColumnMeta = {
   cellClassName?: string;
 };
 
-type DataTableProps<TData> = {
-  columns: ColumnDef<TData, unknown>[];
+export const dataTableFeatures = tableFeatures({
+  columnFilteringFeature,
+  rowSortingFeature,
+  rowPaginationFeature,
+  rowSelectionFeature,
+  columnVisibilityFeature,
+  filteredRowModel: createFilteredRowModel(),
+  sortedRowModel: createSortedRowModel(),
+  paginatedRowModel: createPaginatedRowModel()
+});
+
+export type DataTableFeatures = typeof dataTableFeatures;
+export type DataTableColumnDef<TData extends RowData> = ColumnDef<
+  DataTableFeatures,
+  TData,
+  unknown
+>;
+
+type DataTableProps<TData extends RowData> = {
+  columns: DataTableColumnDef<TData>[];
   data: TData[];
   /**
    * Called with the table instance to render toolbar controls (search, filters).
    */
-  renderToolbar?: (table: TableInstance<TData>) => ReactNode;
+  renderToolbar?: (table: TableInstance<DataTableFeatures, TData>) => ReactNode;
   /**
    * Called with the table instance to render a custom footer.
    * When omitted, the default pagination footer is shown.
    */
-  renderFooter?: (table: TableInstance<TData>) => ReactNode;
+  renderFooter?: (table: TableInstance<DataTableFeatures, TData>) => ReactNode;
   /**
    * Text displayed when the filtered result set is empty.
    */
@@ -61,10 +85,10 @@ type DataTableProps<TData> = {
   /**
    * When provided, rows become clickable and this handler is invoked.
    */
-  onRowClick?: (row: Row<TData>) => void;
+  onRowClick?: (row: Row<DataTableFeatures, TData>) => void;
 };
 
-export function DataTable<TData>({
+export function DataTable<TData extends RowData>({
   columns,
   data,
   renderToolbar,
@@ -79,13 +103,14 @@ export function DataTable<TData>({
 }: DataTableProps<TData>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>({});
   const [uncontrolledRowSelection, setUncontrolledRowSelection] = useState<RowSelectionState>({});
 
   const rowSelection = controlledRowSelection ?? uncontrolledRowSelection;
   const handleRowSelectionChange = onRowSelectionChange ?? setUncontrolledRowSelection;
 
-  const table = useReactTable({
+  const table = useTable({
+    features: dataTableFeatures,
     data,
     columns,
     getRowId,
@@ -99,10 +124,6 @@ export function DataTable<TData>({
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
     onRowSelectionChange: handleRowSelectionChange,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
     enableRowSelection
   });
 
@@ -197,15 +218,15 @@ function resolveMeta(meta: unknown): ColumnMeta {
   };
 }
 
-type DataTablePaginationProps<TData> = {
-  table: TableInstance<TData>;
+type DataTablePaginationProps<TData extends RowData> = {
+  table: TableInstance<DataTableFeatures, TData>;
 };
 
-export function DataTablePagination<TData>({ table }: DataTablePaginationProps<TData>) {
-  const pageSize = table.getState().pagination.pageSize;
+export function DataTablePagination<TData extends RowData>({ table }: DataTablePaginationProps<TData>) {
+  const pageSize = table.store.state.pagination.pageSize;
   const totalRows = table.getFilteredRowModel().rows.length;
   const pageCount = table.getPageCount();
-  const pageIndex = table.getState().pagination.pageIndex;
+  const pageIndex = table.store.state.pagination.pageIndex;
 
   return (
     <div className="flex flex-col gap-3 border-t border-slate-200 pt-4 text-sm text-slate-600 md:flex-row md:items-center md:justify-between">

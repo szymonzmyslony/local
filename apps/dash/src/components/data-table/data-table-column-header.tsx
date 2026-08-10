@@ -1,14 +1,15 @@
-import type { Column } from "@tanstack/react-table";
+import type { Column, RowData } from "@tanstack/react-table";
 import { Button } from "@shared/ui";
 import { cn } from "@shared";
+import type { DataTableFeatures } from "./data-table";
 
-type DataTableColumnHeaderProps<TData, TValue> = {
-  column: Column<TData, TValue>;
+type DataTableColumnHeaderProps<TData extends RowData, TValue> = {
+  column: Column<DataTableFeatures, TData, TValue>;
   title: string;
   className?: string;
 };
 
-export function DataTableColumnHeader<TData, TValue>({
+export function DataTableColumnHeader<TData extends RowData, TValue>({
   column,
   title,
   className

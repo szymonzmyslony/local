@@ -22,7 +22,7 @@ export class DiscoverLinks extends WorkflowEntrypoint<Env, Params> {
         const allDiscoveredPageIds: string[] = [];
 
         for (const listUrl of listUrls) {
-            const links = await step.do(`fetch_links:${listUrl}`, () => fetchLinks(this.env.CLOUDFLARE_ACCOUNT_ID, this.env.CLOUDFLARE_API_TOKEN, listUrl));
+            const links = await step.do(`fetch_links:${listUrl}`, () => fetchLinks(this.env.BROWSER, listUrl));
             const top = links.slice(0, limit);
             if (!top.length) continue;
 
@@ -64,7 +64,7 @@ export class DiscoverLinks extends WorkflowEntrypoint<Env, Params> {
                     return { count: newRows.length, pageIds: [] };
                 }
 
-                const pageIds = (data ?? []).map((row: any) => row.id);
+                const pageIds = (data ?? []).map((row) => row.id);
                 console.log(`[DiscoverLinks] ✓ Inserted ${newRows.length} new pages from ${listUrl}`);
                 return { count: newRows.length, pageIds };
             });

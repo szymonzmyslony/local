@@ -1,0 +1,9 @@
+interface Env {
+  OPENROUTER_API_KEY: string;
+  SUPABASE_URL: string;
+  SUPABASE_ANON_KEY: string;
+  WHATSAPP_ACCESS_TOKEN: string;
+  WHATSAPP_APP_SECRET: string;
+  WHATSAPP_PHONE_NUMBER_ID: string;
+  WHATSAPP_VERIFY_TOKEN: string;
+}

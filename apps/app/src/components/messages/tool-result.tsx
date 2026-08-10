@@ -1,4 +1,4 @@
-import type { ToolUIPart } from "ai";
+import type { DynamicToolUIPart, ToolUIPart } from "ai";
 import { getToolName } from "ai";
 import { EventCards } from "./event-cards";
 import { GalleryCards } from "./gallery-cards";
@@ -7,7 +7,7 @@ import type { SavedEventCard } from "../../types/chat-state";
 import type { EventToolResult, GalleryToolResult } from "../../types/tool-results";
 
 interface ToolResultProps {
-  part: ToolUIPart;
+  part: ToolUIPart | DynamicToolUIPart;
   onSaveToZine?: (event: SavedEventCard) => void;
   debugMode: boolean;
 }

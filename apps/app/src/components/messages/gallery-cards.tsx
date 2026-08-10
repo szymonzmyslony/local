@@ -62,6 +62,7 @@ function GalleryCard({ gallery }: GalleryCardProps) {
         </p>
         {needsTruncation && (
           <button
+            type="button"
             onClick={() => setIsExpanded(!isExpanded)}
             className="text-xs text-gray-600 hover:text-gray-900 mt-1 font-medium"
           >
@@ -73,6 +74,7 @@ function GalleryCard({ gallery }: GalleryCardProps) {
       <div className="flex gap-2 mt-4">
         {primaryLink && (
           <button
+            type="button"
             onClick={(e) => {
               e.preventDefault();
               window.open(primaryLink, "_blank", "noopener,noreferrer");
@@ -83,6 +85,7 @@ function GalleryCard({ gallery }: GalleryCardProps) {
           </button>
         )}
         <button
+          type="button"
           onClick={() => {
             // TODO: Implement share functionality
           }}
