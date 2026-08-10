@@ -14,6 +14,7 @@ import type {
   ExtractedEvent,
   ConfiguredGalleryObserverState,
   GalleryObserverState,
+  GalleryProfileExtraction,
   GallerySource,
   ObservationExtraction,
   RegisterGalleryInput
@@ -53,10 +54,15 @@ export type SourceRecord = {
   url: string;
   normalized_url: string;
   kind: GallerySource["kind"];
+  purpose: GallerySource["purpose"];
   fetch_strategy: GallerySource["strategy"];
   enabled: boolean;
   last_content_hash: string | null;
   consecutive_failures: number;
+  last_checked_at: string | null;
+  next_check_at: string;
+  poll_interval_hours: number;
+  unchanged_checks: number;
 };
 
 export function observerDatabase(
@@ -89,7 +95,7 @@ export async function loadGalleryBundle(
   const { data: sources, error: sourceError } = await db
     .from("gallery_sources")
     .select(
-      "id, gallery_id, url, normalized_url, kind, fetch_strategy, enabled, last_content_hash, consecutive_failures"
+      "id, gallery_id, url, normalized_url, kind, purpose, fetch_strategy, enabled, last_content_hash, last_checked_at, next_check_at, poll_interval_hours, unchanged_checks, consecutive_failures"
     )
     .eq("gallery_id", galleryId)
     .eq("enabled", true)
@@ -133,8 +139,14 @@ export async function stateForGallery(
       url: source.url,
       normalizedUrl: source.normalized_url,
       kind: source.kind,
+      purpose: source.purpose,
       strategy: source.fetch_strategy,
-      enabled: source.enabled
+      enabled: source.enabled,
+      polling: !source.last_checked_at
+        ? { kind: "never_checked" }
+        : Date.parse(source.next_check_at) <= Date.now()
+          ? { kind: "due" }
+          : { kind: "scheduled", nextCheckAt: source.next_check_at }
     })),
     workflow: { kind: "idle" },
     observation: gallery.last_observed_at
@@ -234,12 +246,23 @@ export async function registerMarketGallery(
   throwIfError("registerMarketGalleryInfo", infoError);
 
   const candidates = [
-    { url: mainUrl, kind: "home" as const },
-    ...(eventsUrl ? [{ url: eventsUrl, kind: "events" as const }] : []),
-    ...(aboutUrl ? [{ url: aboutUrl, kind: "about" as const }] : [])
+    { url: mainUrl, kind: "home" as const, purpose: "bootstrap" as const },
+    ...(eventsUrl
+      ? [{ url: eventsUrl, kind: "events" as const, purpose: "listing" as const }]
+      : []),
+    ...(aboutUrl
+      ? [{ url: aboutUrl, kind: "about" as const, purpose: "profile" as const }]
+      : [])
   ];
   for (const source of candidates) {
-    await upsertGallerySource(db, galleryId, source.url, source.kind, 1);
+    await upsertGallerySource(
+      db,
+      galleryId,
+      source.url,
+      source.kind,
+      source.purpose,
+      1
+    );
     const { error: staleSourceError } = await db
       .from("gallery_sources")
       .update({ enabled: false, updated_at: now })
@@ -257,6 +280,7 @@ export async function upsertGallerySource(
   galleryId: string,
   url: string,
   kind: GallerySource["kind"],
+  purpose: GallerySource["purpose"],
   confidence: number
 ): Promise<void> {
   if (confidence < 0.8) return;
@@ -267,6 +291,8 @@ export async function upsertGallerySource(
       url: normalizedUrl,
       normalized_url: normalizedUrl,
       kind,
+      purpose,
+      poll_interval_hours: purpose === "listing" || purpose === "bootstrap" ? 24 : 168,
       fetch_strategy: "browser_markdown",
       enabled: true,
       updated_at: new Date().toISOString()
@@ -428,19 +454,196 @@ export async function recordSourceFailure(
 
 export async function commitSourceSnapshot(
   db: DatabaseClient,
-  input: { sourceId: string; contentHash: string; changed: boolean }
+  input: {
+    sourceId: string;
+    purpose: GallerySource["purpose"];
+    contentHash: string;
+    changed: boolean;
+  }
 ): Promise<void> {
   const now = new Date().toISOString();
+  const { data: current, error: readError } = await db
+    .from("gallery_sources")
+    .select("unchanged_checks")
+    .eq("id", input.sourceId)
+    .single();
+  throwIfError("readGallerySourceLifecycle", readError);
+  const unchangedChecks = input.changed
+    ? 0
+    : (current?.unchanged_checks ?? 0) + 1;
+  const intervalHours =
+    input.purpose === "listing" || input.purpose === "bootstrap" ? 24 : 168;
   const { error } = await db
     .from("gallery_sources")
     .update({
       last_content_hash: input.contentHash,
       last_changed_at: input.changed ? now : undefined,
+      next_check_at: new Date(
+        Date.now() + intervalHours * 60 * 60 * 1000
+      ).toISOString(),
+      poll_interval_hours: intervalHours,
+      unchanged_checks: unchangedChecks,
+      enabled: !(input.purpose === "detail" && unchangedChecks >= 2),
       consecutive_failures: 0,
       updated_at: now
     })
     .eq("id", input.sourceId);
   throwIfError("commitGallerySourceSnapshot", error);
+}
+
+async function classifyObservedSource(
+  db: DatabaseClient,
+  source: GallerySource,
+  extraction: ObservationExtraction
+): Promise<void> {
+  const purpose: GallerySource["purpose"] =
+    source.kind === "about"
+      ? "profile"
+      : extraction.page_kind === "event"
+        ? "detail"
+        : extraction.page_kind === "events" || extraction.page_kind === "calendar"
+          ? "listing"
+          : source.kind === "home" && extraction.discovered_sources.length > 0
+            ? "profile"
+            : source.purpose;
+  if (purpose === source.purpose) return;
+  const { error } = await db
+    .from("gallery_sources")
+    .update({
+      purpose,
+      poll_interval_hours: purpose === "listing" || purpose === "bootstrap" ? 24 : 168,
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", source.id);
+  throwIfError("classifyObservedSource", error);
+}
+
+export async function persistGalleryProfile(
+  db: DatabaseClient,
+  env: Pick<Env, "OPENROUTER_API_KEY">,
+  input: {
+    galleryId: string;
+    profile: GalleryProfileExtraction;
+    sourceUrl: string;
+  }
+): Promise<void> {
+  const { data: existing, error: readError } = await db
+    .from("gallery_info")
+    .select("name, about, address, area, tags, data, embedding")
+    .eq("gallery_id", input.galleryId)
+    .maybeSingle();
+  throwIfError("loadGalleryProfile", readError);
+
+  const incomingName =
+    input.profile.name.kind === "known" ? input.profile.name.value.trim() : "";
+  const extractedAbout =
+    input.profile.about.kind === "known"
+      ? input.profile.about.value.trim()
+      : "";
+  const incomingAbout = /^(?:we(?:'re| are)|currently) (?:now )?closed\b/i.test(
+    extractedAbout
+  )
+    ? ""
+    : extractedAbout;
+  const incomingAddress =
+    input.profile.location.kind === "address" ||
+    input.profile.location.kind === "address_and_area"
+      ? input.profile.location.address.trim()
+      : "";
+  const incomingArea =
+    input.profile.location.kind === "area" ||
+    input.profile.location.kind === "address_and_area"
+      ? input.profile.location.area.trim()
+      : "";
+  const existingAbout = existing?.about?.trim() ?? "";
+  const about =
+    incomingAbout.length > existingAbout.length ? incomingAbout : existingAbout;
+  const tags = uniqueNonEmpty([...(existing?.tags ?? []), ...input.profile.tags]);
+  const existingEvidence = existing
+    ? dataStringArray(existing.data, "profileEvidence")
+    : [];
+  const profileEvidence = uniqueNonEmpty([
+    ...existingEvidence,
+    ...input.profile.evidence
+  ]);
+  const now = new Date().toISOString();
+  const values = {
+    gallery_id: input.galleryId,
+    name: incomingName || existing?.name || new URL(input.sourceUrl).hostname,
+    about: about || null,
+    address: incomingAddress || existing?.address || null,
+    area: incomingArea || existing?.area || null,
+    tags,
+    data: {
+      ...(existing?.data &&
+      typeof existing.data === "object" &&
+      !Array.isArray(existing.data)
+        ? existing.data
+        : {}),
+      profileEvidence,
+      profileSources: uniqueNonEmpty([
+        ...(existing ? dataStringArray(existing.data, "profileSources") : []),
+        input.sourceUrl
+      ])
+    },
+    updated_at: now
+  };
+  const { error: writeError } = await db
+    .from("gallery_info")
+    .upsert(values, { onConflict: "gallery_id" });
+  throwIfError("persistGalleryProfile", writeError);
+
+  if (input.profile.hours.kind === "weekly") {
+    const rows = input.profile.hours.days
+      .map((day) => ({
+        gallery_id: input.galleryId,
+        weekday: day.weekday,
+        open_minutes: day.ranges
+          .filter((range) => range.closesAtMinutes > range.opensAtMinutes)
+          .map((range) => [range.opensAtMinutes, range.closesAtMinutes])
+      }))
+      .filter((day) => day.open_minutes.length > 0);
+    if (rows.length > 0) {
+      const { error: deleteError } = await db
+        .from("gallery_hours")
+        .delete()
+        .eq("gallery_id", input.galleryId);
+      throwIfError("replaceGalleryHours", deleteError);
+      const { error: hoursError } = await db.from("gallery_hours").insert(rows);
+      throwIfError("persistGalleryHours", hoursError);
+    }
+  }
+
+  const embeddingText = [
+    values.name,
+    values.about,
+    values.address,
+    values.area,
+    ...values.tags
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .slice(0, 12_000);
+  const semanticProfileChanged =
+    !existing?.embedding ||
+    values.name !== existing.name ||
+    values.about !== existing.about ||
+    values.address !== existing.address ||
+    values.area !== existing.area ||
+    JSON.stringify(values.tags) !== JSON.stringify(existing.tags ?? []);
+  if (semanticProfileChanged) {
+    const vector = await createEmbedder(env.OPENROUTER_API_KEY)(embeddingText);
+    const { error: embeddingError } = await db.rpc(
+      "set_gallery_info_embedding",
+      {
+        p_gallery_id: input.galleryId,
+        p_embedding: toPgVector(vector),
+        p_embedding_model: AI_CONFIG.EMBEDDING_MODEL,
+        p_embedding_created_at: now
+      }
+    );
+    throwIfError("embedGalleryProfile", embeddingError);
+  }
 }
 
 function cleanUrl(input: string | null): string | null {
@@ -583,6 +786,8 @@ export async function persistObservation(
   const embed = createEmbedder(env.OPENROUTER_API_KEY);
   let published = 0;
 
+  await classifyObservedSource(db, input.source, input.extraction);
+
   for (const discovered of input.extraction.discovered_sources) {
     try {
       const currentOrigin = new URL(input.source.normalizedUrl).origin;
@@ -596,6 +801,7 @@ export async function persistObservation(
         galleryId,
         new URL(discovered.url, input.source.normalizedUrl).toString(),
         discovered.kind,
+        discovered.purpose,
         discovered.confidence
       );
     } catch {
@@ -715,7 +921,7 @@ export async function persistObservation(
 
       const { data: existingInfo, error: existingInfoError } = await db
         .from("event_info")
-        .select("description, artists, tags, images, data")
+        .select("description, artists, tags, images, data, embedding")
         .eq("event_id", canonicalEventId)
         .maybeSingle();
       throwIfError("loadExistingEventInfo", existingInfoError);
@@ -738,18 +944,38 @@ export async function persistObservation(
         .filter(Boolean)
         .join("\n")
         .slice(0, 12_000);
-      const vector = embeddingText ? await embed(embeddingText) : [];
-      const { error: infoError } = await db.rpc("upsert_observed_event_info", {
-        p_event_id: canonicalEventId,
-        p_description: mergedInfo.description,
-        p_artists: mergedInfo.artists,
-        p_tags: mergedInfo.tags,
-        p_images: mergedInfo.images,
-        p_data: mergedInfo.data,
-        p_embedding: toPgVector(vector),
-        p_embedding_model: AI_CONFIG.EMBEDDING_MODEL,
-        p_embedding_created_at: now.toISOString()
-      });
+      const semanticEventChanged =
+        !existingInfo?.embedding ||
+        existingEvent?.title !== canonicalValues.title ||
+        existingInfo.description !== mergedInfo.description ||
+        JSON.stringify(existingInfo.artists) !==
+          JSON.stringify(mergedInfo.artists) ||
+        JSON.stringify(existingInfo.tags) !== JSON.stringify(mergedInfo.tags);
+      const infoWrite = semanticEventChanged
+        ? await db.rpc("upsert_observed_event_info", {
+            p_event_id: canonicalEventId,
+            p_description: mergedInfo.description,
+            p_artists: mergedInfo.artists,
+            p_tags: mergedInfo.tags,
+            p_images: mergedInfo.images,
+            p_data: mergedInfo.data,
+            p_embedding: toPgVector(await embed(embeddingText)),
+            p_embedding_model: AI_CONFIG.EMBEDDING_MODEL,
+            p_embedding_created_at: now.toISOString()
+          })
+        : await db.from("event_info").upsert(
+            {
+              event_id: canonicalEventId,
+              source_page_id: null,
+              description: mergedInfo.description,
+              artists: mergedInfo.artists,
+              tags: mergedInfo.tags,
+              images: mergedInfo.images,
+              data: mergedInfo.data
+            },
+            { onConflict: "event_id" }
+          );
+      const infoError = infoWrite.error;
       throwIfError("publishEventInfo", infoError);
       published += 1;
     }

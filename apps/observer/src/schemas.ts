@@ -35,14 +35,30 @@ export const sourceKindSchema = z.enum([
 ]);
 
 export const fetchStrategySchema = z.enum(["browser_markdown", "http_html"]);
+export const sourcePurposeSchema = z.enum([
+  "bootstrap",
+  "profile",
+  "listing",
+  "detail"
+]);
+
+const sourcePollingSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("never_checked") }).strict(),
+  z.object({ kind: z.literal("due") }).strict(),
+  z
+    .object({ kind: z.literal("scheduled"), nextCheckAt: z.string() })
+    .strict()
+]);
 
 export const gallerySourceSchema = z.object({
   id: z.string().uuid(),
   url: z.string().url(),
   normalizedUrl: z.string().url(),
   kind: sourceKindSchema,
+  purpose: sourcePurposeSchema,
   strategy: fetchStrategySchema,
-  enabled: z.boolean()
+  enabled: z.boolean(),
+  polling: sourcePollingSchema
 });
 
 const workflowStateSchema = z.discriminatedUnion("kind", [
@@ -146,6 +162,7 @@ export const observationExtractionSchema = z
           .object({
             url: z.string(),
             kind: sourceKindSchema,
+            purpose: z.enum(["listing", "detail"]),
             confidence: z.number().min(0).max(1)
           })
           .strict()
@@ -195,6 +212,127 @@ export function fromFallbackObservationExtraction(
 
 export type ObservationExtraction = z.infer<typeof observationExtractionSchema>;
 export type ExtractedEvent = z.infer<typeof extractedEventSchema>;
+
+const profileFactSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("unknown") }).strict(),
+  z.object({ kind: z.literal("known"), value: z.string().min(1) }).strict()
+]);
+
+const profileLocationSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("unknown") }).strict(),
+  z.object({ kind: z.literal("area"), area: z.string().min(1) }).strict(),
+  z
+    .object({ kind: z.literal("address"), address: z.string().min(1) })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("address_and_area"),
+      address: z.string().min(1),
+      area: z.string().min(1)
+    })
+    .strict()
+]);
+
+const profileHoursSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("unavailable"),
+      reason: z.string().min(1)
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("weekly"),
+      days: z.array(
+        z
+          .object({
+            weekday: z.number().int().min(0).max(6),
+            ranges: z.array(
+              z
+                .object({
+                  opensAtMinutes: z.number().int().min(0).max(1439),
+                  closesAtMinutes: z.number().int().min(1).max(1440)
+                })
+                .strict()
+            )
+          })
+          .strict()
+      )
+    })
+    .strict()
+]);
+
+export const galleryProfileExtractionSchema = z
+  .object({
+    name: profileFactSchema,
+    about: profileFactSchema,
+    location: profileLocationSchema,
+    tags: z.array(z.string()),
+    hours: profileHoursSchema,
+    evidence: z.array(z.string())
+  })
+  .strict();
+
+/** Flat, fully-required transport for model providers with limited oneOf support. */
+export const fallbackGalleryProfileExtractionSchema = z
+  .object({
+    name: z.string(),
+    about: z.string(),
+    address: z.string(),
+    area: z.string(),
+    tags: z.array(z.string()),
+    hours: z.array(
+      z
+        .object({
+          weekday: z.number().int().min(0).max(6),
+          ranges: z.array(
+            z
+              .object({
+                opensAtMinutes: z.number().int().min(0).max(1439),
+                closesAtMinutes: z.number().int().min(1).max(1440)
+              })
+              .strict()
+          )
+        })
+        .strict()
+    ),
+    evidence: z.array(z.string())
+  })
+  .strict();
+
+export function fromFallbackGalleryProfileExtraction(
+  fallback: z.infer<typeof fallbackGalleryProfileExtractionSchema>
+): GalleryProfileExtraction {
+  const name = fallback.name.trim();
+  const about = fallback.about.trim();
+  const address = fallback.address.trim();
+  const area = fallback.area.trim();
+  return galleryProfileExtractionSchema.parse({
+    name: name ? { kind: "known", value: name } : { kind: "unknown" },
+    about: about ? { kind: "known", value: about } : { kind: "unknown" },
+    location:
+      address && area
+        ? { kind: "address_and_area", address, area }
+        : address
+          ? { kind: "address", address }
+          : area
+            ? { kind: "area", area }
+            : { kind: "unknown" },
+    tags: fallback.tags,
+    hours:
+      fallback.hours.length > 0
+        ? { kind: "weekly", days: fallback.hours }
+        : {
+            kind: "unavailable",
+            reason: "Official weekly hours were not present in this source"
+          },
+    evidence: fallback.evidence
+  });
+}
+
+export type GalleryProfileExtraction = z.infer<
+  typeof galleryProfileExtractionSchema
+>;
 
 const gallerySourceSetSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("homepage"), mainUrl: z.string().url() }).strict(),
@@ -287,6 +425,12 @@ export const observeRequestSchema = z.discriminatedUnion("mode", [
   z
     .object({
       mode: z.literal("unchecked_only"),
+      galleryId: z.string().uuid()
+    })
+    .strict(),
+  z
+    .object({
+      mode: z.literal("profile_refresh"),
       galleryId: z.string().uuid()
     })
     .strict()

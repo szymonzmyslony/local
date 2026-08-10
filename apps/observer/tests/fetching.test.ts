@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { prepareContentForExtraction } from "../src/fetching";
+import {
+  prepareContentForExtraction,
+  selectProfileSourceUrls
+} from "../src/fetching";
 
 describe("source content preparation", () => {
   it("removes inline image payloads without removing article text", () => {
@@ -18,5 +21,26 @@ describe("source content preparation", () => {
       "A useful curatorial description stays visible."
     );
     expect(prepared).toContain("https://gallery.example/work.jpg");
+  });
+});
+
+describe("profile source discovery", () => {
+  it("prioritizes same-origin hours, visit, and contact pages", () => {
+    expect(
+      selectProfileSourceUrls(
+        [
+          "/about",
+          "/events/current",
+          "/contact",
+          "/visit/opening-hours",
+          "https://other.example/opening-hours"
+        ],
+        "https://gallery.example/"
+      )
+    ).toEqual([
+      "https://gallery.example/visit/opening-hours",
+      "https://gallery.example/contact",
+      "https://gallery.example/about"
+    ]);
   });
 });

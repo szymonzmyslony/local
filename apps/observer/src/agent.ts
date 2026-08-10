@@ -3,14 +3,20 @@ import {
   getMarketConfig,
   type MarketCode
 } from "@gallery-agents/shared";
-import { Think, type ThinkScheduledTasks } from "@cloudflare/think";
+import {
+  Think,
+  type ThinkScheduledTasks,
+  type ThinkWallClockSchedule
+} from "@cloudflare/think";
 import { getAgentByName } from "agents";
 import { generateText, Output, tool, type ToolSet } from "ai";
 import { z } from "zod";
 import {
   browserLinks,
+  fetchDiscoveryHtml,
   fetchSource,
-  prepareContentForExtraction
+  prepareContentForExtraction,
+  selectProfileSourceUrls
 } from "./fetching";
 import {
   beginObservationRun,
@@ -19,18 +25,24 @@ import {
   listActiveMarketGalleries,
   loadGalleryBundle,
   observerDatabase,
+  registerMarketGallery,
   persistObservation,
+  persistGalleryProfile,
   recordSnapshot,
   recordSourceFailure,
   stateForGallery,
-  summarizeObservationRun
+  summarizeObservationRun,
+  upsertGallerySource
 } from "./repository";
 import {
   galleryObserverStateSchema,
   fallbackObservationExtractionSchema,
+  fallbackGalleryProfileExtractionSchema,
+  fromFallbackGalleryProfileExtraction,
   fromFallbackObservationExtraction,
   type ConfiguredGalleryObserverState,
   type GalleryObserverState,
+  type GalleryProfileExtraction,
   type GallerySource,
   type ObservationExtraction
 } from "./schemas";
@@ -130,7 +142,9 @@ export class GalleryObserver extends Think<Env, GalleryObserverState> {
     const galleryId = configured.galleryId;
     const market = configured.market;
     const schedule =
-      `every day at ${minuteToWallClock(stableMinute(galleryId))}` as const;
+      `every day at ${minuteToWallClock(stableMinute(galleryId))}` as ThinkWallClockSchedule;
+    const profileSchedule =
+      `every week on monday at ${minuteToWallClock(stableMinute(`${galleryId}:profile`))}` as ThinkWallClockSchedule;
     return {
       observeOfficialSources: {
         schedule,
@@ -140,6 +154,17 @@ export class GalleryObserver extends Think<Env, GalleryObserverState> {
         handler: async ({ idempotencyKey, scheduledFor }) => {
           await this.startObservation(idempotencyKey, scheduledFor, {
             kind: "change_only"
+          });
+        }
+      },
+      refreshOfficialProfile: {
+        schedule: profileSchedule,
+        timezone: market.timezone,
+        retry: { maxAttempts: 3 },
+        metadata: { galleryId, market: market.market },
+        handler: async ({ idempotencyKey, scheduledFor }) => {
+          await this.startObservation(idempotencyKey, scheduledFor, {
+            kind: "profile_refresh"
           });
         }
       }
@@ -177,6 +202,28 @@ export class GalleryObserver extends Think<Env, GalleryObserverState> {
     return this.state;
   }
 
+  async discoverProfileSources(source: GallerySource): Promise<GalleryObserverState> {
+    if (this.state.kind !== "configured") {
+      throw new Error("Gallery observer is not configured");
+    }
+    const urls = selectProfileSourceUrls(
+      await browserLinks(this.env.BROWSER, source.normalizedUrl),
+      source.normalizedUrl
+    );
+    const db = observerDatabase(this.env);
+    for (const url of urls) {
+      await upsertGallerySource(
+        db,
+        this.state.galleryId,
+        url,
+        "about",
+        "profile",
+        1
+      );
+    }
+    return this.refreshGallerySources(this.state.galleryId);
+  }
+
   async startObservation(
     idempotencyKey: string,
     scheduledFor: number,
@@ -184,6 +231,7 @@ export class GalleryObserver extends Think<Env, GalleryObserverState> {
       | { kind: "change_only" }
       | { kind: "force_extract" }
       | { kind: "unchecked_only" }
+      | { kind: "profile_refresh" }
   ) {
     if (this.state.kind !== "configured" || this.state.status !== "active") {
       throw new Error("Gallery observer is not active");
@@ -316,13 +364,39 @@ export class GalleryObserver extends Think<Env, GalleryObserverState> {
     return fromFallbackObservationExtraction(output);
   }
 
+  async extractGalleryProfile(prompt: string): Promise<GalleryProfileExtraction> {
+    const { output } = await generateText({
+      model: this.getModel(),
+      output: Output.object({ schema: fallbackGalleryProfileExtractionSchema }),
+      prompt: [
+        prompt,
+        "Return every field. Use an empty string or empty array only when the official source does not state that fact. Weekday uses 0=Sunday through 6=Saturday; opening ranges are minutes after local midnight."
+      ].join("\n"),
+      abortSignal: AbortSignal.timeout(120_000),
+      maxRetries: 2
+    });
+    return fromFallbackGalleryProfileExtraction(output);
+  }
+
+  async saveGalleryProfile(profile: GalleryProfileExtraction, sourceUrl: string) {
+    if (this.state.kind !== "configured") {
+      throw new Error("Gallery observer is not configured");
+    }
+    return persistGalleryProfile(observerDatabase(this.env), this.env, {
+      galleryId: this.state.galleryId,
+      profile,
+      sourceUrl
+    });
+  }
+
   async commitSnapshot(
-    sourceId: string,
+    source: GallerySource,
     contentHash: string,
     changed: boolean
   ) {
     return commitSourceSnapshot(observerDatabase(this.env), {
-      sourceId,
+      sourceId: source.id,
+      purpose: source.purpose,
       contentHash,
       changed
     });
@@ -395,6 +469,7 @@ export class LondonScout extends Think<Env, MarketScoutState> {
         timezone,
         retry: { maxAttempts: 3 },
         handler: async () => {
+          await this.discoverMarketGalleries();
           await this.reconcileObservers();
         }
       }
@@ -440,4 +515,115 @@ export class LondonScout extends Think<Env, MarketScoutState> {
     });
     return { configured: galleryIds.length };
   }
+
+  async discoverMarketGalleries() {
+    if (this.state.kind !== "active") {
+      throw new Error("Market scout is not active");
+    }
+    if (this.state.market === "waw") {
+      return { kind: "not_configured" as const, registered: 0 };
+    }
+
+    const directoryUrl = "https://londongalleryweekend.art/galleries/";
+    const directoryHtml = await fetchDiscoveryHtml(directoryUrl);
+    const paths = [...directoryHtml.matchAll(/href="((?:\/galleries|\/exhibitors)\/[^"#?]+)"/g)]
+      .map((match) => match[1])
+      .filter((path): path is string => Boolean(path));
+    const uniquePaths = [...new Set(paths)];
+    if (uniquePaths.length === 0) {
+      throw new Error("London gallery directory returned no gallery entries");
+    }
+
+    const weeklyBatchSize = 20;
+    const weekNumber = Math.floor(Date.now() / (7 * 24 * 60 * 60 * 1000));
+    const start = (weekNumber * weeklyBatchSize) % uniquePaths.length;
+    const selected = Array.from(
+      { length: Math.min(weeklyBatchSize, uniquePaths.length) },
+      (_, index) => uniquePaths[(start + index) % uniquePaths.length]
+    ).filter((path): path is string => Boolean(path));
+    const db = observerDatabase(this.env);
+    const registered: string[] = [];
+
+    for (let offset = 0; offset < selected.length; offset += 5) {
+      const batch = selected.slice(offset, offset + 5);
+      const results = await Promise.allSettled(
+        batch.map(async (path) => {
+          const entryUrl = new URL(path, directoryUrl).toString();
+          const html = await fetchDiscoveryHtml(entryUrl);
+          const nameMatch = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html);
+          const websiteMatch =
+            /class="[^"]*exhibitor_website[^"]*"[\s\S]*?<a[^>]+href="([^"]+)"/i.exec(
+              html
+            );
+          const name = nameMatch ? decodeDirectoryText(nameMatch[1]) : "";
+          if (!name || !websiteMatch?.[1]) {
+            throw new Error(`Directory entry lacks name or official site: ${entryUrl}`);
+          }
+          const officialUrl = new URL(decodeDirectoryText(websiteMatch[1]));
+          if (
+            officialUrl.protocol !== "https:" ||
+            officialUrl.hostname === "londongalleryweekend.art"
+          ) {
+            throw new Error(`Directory entry has invalid official site: ${entryUrl}`);
+          }
+          officialUrl.search = "";
+          officialUrl.hash = "";
+          const galleryId = await registerMarketGallery(db, {
+            market: "ldn",
+            name,
+            sources: { kind: "homepage", mainUrl: officialUrl.toString() },
+            location: { kind: "unknown" }
+          });
+          const { error } = await db
+            .from("galleries")
+            .update({
+              source_config: {
+                kind: "directory_discovery",
+                directory: directoryUrl,
+                entry: entryUrl,
+                discoveredAt: new Date().toISOString()
+              }
+            })
+            .eq("id", galleryId);
+          if (error) throw new Error(`[recordDiscovery] ${error.message}`);
+          const observer = await getAgentByName<Env, GalleryObserver>(
+            this.env.GalleryObserver,
+            galleryId
+          );
+          await observer.configureGallery(galleryId);
+          return galleryId;
+        })
+      );
+      for (const result of results) {
+        if (result.status === "fulfilled") registered.push(result.value);
+        else {
+          console.warn(
+            JSON.stringify({
+              event: "gallery_directory_entry_failed",
+              error:
+                result.reason instanceof Error
+                  ? result.reason.message
+                  : String(result.reason)
+            })
+          );
+        }
+      }
+    }
+    return {
+      kind: "directory_batch" as const,
+      directoryEntries: uniquePaths.length,
+      registered: registered.length
+    };
+  }
+}
+
+function decodeDirectoryText(value: string): string {
+  return value
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#(?:39|x27);/gi, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }

@@ -127,7 +127,9 @@ export default {
         const workflowId = await observer.startObservation(
           key,
           Date.now(),
-          body.mode === "force_extract"
+          body.mode === "profile_refresh"
+            ? { kind: "profile_refresh" }
+            : body.mode === "force_extract"
             ? { kind: "force_extract" }
             : body.mode === "unchecked_only"
               ? { kind: "unchecked_only" }

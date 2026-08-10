@@ -23,8 +23,10 @@ export async function evaluateFixture(
       url: fixture.eventsUrl,
       normalizedUrl: fixture.eventsUrl,
       kind: "events",
+      purpose: "listing",
       strategy: technique,
-      enabled: true
+      enabled: true,
+      polling: { kind: "due" }
     });
     const provider = createZineProvider(env.OPENROUTER_API_KEY);
     const { output: fallbackOutput, usage } = await generateText({

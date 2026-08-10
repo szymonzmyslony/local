@@ -182,3 +182,60 @@ export async function browserLinks(
   }
   return (payload.result ?? []).slice(0, 500);
 }
+
+export async function fetchDiscoveryHtml(url: string): Promise<string> {
+  const response = await fetch(url, {
+    redirect: "follow",
+    headers: {
+      accept: "text/html,application/xhtml+xml",
+      "user-agent": "ZineMarketScout/1.0 (+https://zinelocal.com)"
+    },
+    signal: AbortSignal.timeout(30_000)
+  });
+  if (!response.ok) {
+    throw new Error(`Directory fetch failed (${response.status})`);
+  }
+  return readLimited(response, 1_000_000);
+}
+
+export function selectProfileSourceUrls(
+  links: string[],
+  officialUrl: string
+): string[] {
+  const origin = new URL(officialUrl).origin;
+  const scores = new Map<string, number>();
+  for (const value of links) {
+    try {
+      const url = new URL(value, officialUrl);
+      if (url.origin !== origin || url.protocol !== "https:") continue;
+      url.hash = "";
+      const text = `${url.pathname} ${url.search}`.toLowerCase();
+      if (/privacy|terms|press|shop|login|event|exhibition|archive/.test(text)) {
+        continue;
+      }
+      const score = /opening|hours/.test(text)
+        ? 100
+        : /visit|plan-your-visit/.test(text)
+          ? 90
+          : /find-us|location/.test(text)
+            ? 85
+            : /contact/.test(text)
+              ? 75
+              : /about/.test(text)
+                ? 60
+                : 0;
+      if (score === 0) continue;
+      const normalized = url.toString();
+      scores.set(normalized, Math.max(score, scores.get(normalized) ?? 0));
+    } catch {
+      // Navigation link discovery is advisory.
+    }
+  }
+  return [...scores]
+    .sort(
+      ([leftUrl, leftScore], [rightUrl, rightScore]) =>
+        rightScore - leftScore || leftUrl.localeCompare(rightUrl)
+    )
+    .slice(0, 3)
+    .map(([url]) => url);
+}

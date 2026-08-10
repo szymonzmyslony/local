@@ -51,6 +51,30 @@ const commandSchema = z.discriminatedUnion("mode", [
       observerUrl: z.string().url(),
       batchSize: z.number().int().min(1).max(10)
     })
+    .strict(),
+  z
+    .object({
+      mode: z.literal("refresh_profiles"),
+      market: z.enum(["ldn", "waw"]),
+      observerUrl: z.string().url(),
+      batchSize: z.number().int().min(1).max(10)
+    })
+    .strict(),
+  z
+    .object({
+      mode: z.literal("observe_without_listings"),
+      market: z.enum(["ldn", "waw"]),
+      observerUrl: z.string().url(),
+      batchSize: z.number().int().min(1).max(10)
+    })
+    .strict(),
+  z
+    .object({
+      mode: z.literal("refresh_profiles_missing_hours"),
+      market: z.enum(["ldn", "waw"]),
+      observerUrl: z.string().url(),
+      batchSize: z.number().int().min(1).max(10)
+    })
     .strict()
 ]);
 
@@ -155,7 +179,10 @@ async function main() {
     command.mode === "observe_all_active" ||
     command.mode === "observe_selected" ||
     command.mode === "observe_missing_since" ||
-    command.mode === "observe_unchecked_sources"
+    command.mode === "observe_unchecked_sources" ||
+    command.mode === "refresh_profiles" ||
+    command.mode === "observe_without_listings" ||
+    command.mode === "refresh_profiles_missing_hours"
       ? galleryQuery.eq("observation_status", "active")
       : galleryQuery.neq("observation_status", "active");
   if (command.mode === "observe_selected") {
@@ -193,6 +220,41 @@ async function main() {
       galleryIdsWithUncheckedSources.has(gallery.id)
     );
   }
+  if (command.mode === "observe_without_listings") {
+    const { data: sourceRows, error: sourceError } = await db
+      .from("gallery_sources")
+      .select("gallery_id, purpose, galleries!inner(market)")
+      .eq("galleries.market", command.market)
+      .eq("enabled", true);
+    if (sourceError) throw sourceError;
+    const bootstrapGalleryIds = new Set(
+      (sourceRows ?? [])
+        .filter((source) => source.purpose === "bootstrap")
+        .map((source) => source.gallery_id)
+    );
+    const listedGalleryIds = new Set(
+      (sourceRows ?? [])
+        .filter((source) => source.purpose === "listing")
+        .map((source) => source.gallery_id)
+    );
+    galleries = galleries.filter(
+      (gallery) =>
+        bootstrapGalleryIds.has(gallery.id) && !listedGalleryIds.has(gallery.id)
+    );
+  }
+  if (command.mode === "refresh_profiles_missing_hours") {
+    const { data: hoursRows, error: hoursError } = await db
+      .from("gallery_hours")
+      .select("gallery_id, galleries!inner(market)")
+      .eq("galleries.market", command.market);
+    if (hoursError) throw hoursError;
+    const galleryIdsWithHours = new Set(
+      (hoursRows ?? []).map((hours) => hours.gallery_id)
+    );
+    galleries = galleries.filter(
+      (gallery) => !galleryIdsWithHours.has(gallery.id)
+    );
+  }
   console.log(
     JSON.stringify({
       event: "rollout_started",
@@ -206,7 +268,10 @@ async function main() {
       command.mode === "observe_all_active" ||
       command.mode === "observe_selected" ||
       command.mode === "observe_missing_since" ||
-      command.mode === "observe_unchecked_sources"
+      command.mode === "observe_unchecked_sources" ||
+      command.mode === "refresh_profiles" ||
+      command.mode === "observe_without_listings" ||
+      command.mode === "refresh_profiles_missing_hours"
         ? batch
         : await Promise.all(
             batch.map(async (gallery) => {
@@ -232,7 +297,10 @@ async function main() {
           command.mode === "observe_all_active" ||
           command.mode === "observe_selected" ||
           command.mode === "observe_missing_since" ||
-          command.mode === "observe_unchecked_sources"
+          command.mode === "observe_unchecked_sources" ||
+          command.mode === "refresh_profiles" ||
+          command.mode === "observe_without_listings" ||
+          command.mode === "refresh_profiles_missing_hours"
             ? "active_batch_selected"
             : "activation_batch_completed",
         galleries: activated.map((gallery) => gallery.gallery_info.name)
@@ -251,7 +319,10 @@ async function main() {
             "/internal/observe",
             {
               mode:
-                command.mode === "observe_unchecked_sources"
+                command.mode === "refresh_profiles" ||
+                command.mode === "refresh_profiles_missing_hours"
+                  ? "profile_refresh"
+                  : command.mode === "observe_unchecked_sources"
                   ? "unchecked_only"
                   : "force_extract",
               galleryId: gallery.id

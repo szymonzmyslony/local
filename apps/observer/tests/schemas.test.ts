@@ -48,7 +48,12 @@ describe("observation extraction boundary", () => {
         gallery_area: null,
         events: [],
         discovered_sources: [
-          { url: "https://example.com/events", kind: "events", confidence: 2 }
+          {
+            url: "https://example.com/events",
+            kind: "events",
+            purpose: "listing",
+            confidence: 2
+          }
         ],
         notes: []
       })

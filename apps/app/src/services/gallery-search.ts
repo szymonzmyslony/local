@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, MarketConfig } from "@shared";
 import { createEmbedder, toPgVector } from "@shared";
 import type { GalleryDistrict } from "../types/chat-state";
-import { isMarketWideArea, matchesMarketArea } from "./market-area";
+import { marketAreaCandidates } from "./market-area";
 
 export type GalleryVisitTime =
   | { precision: "day"; weekday: number }
@@ -46,7 +46,7 @@ export type GallerySearchResult = {
   google_maps_url: string | null;
 };
 
-type GalleryQueryResult = Database["public"]["Tables"]["galleries"]["Row"] & {
+type GalleryByIdQueryResult = Database["public"]["Tables"]["galleries"]["Row"] & {
   gallery_info: Database["public"]["Tables"]["gallery_info"]["Row"] | null;
 };
 
@@ -65,8 +65,11 @@ export async function searchGalleries(
     criteria && "searchQuery" in criteria ? criteria.searchQuery : undefined;
   const area = criteria && "area" in criteria ? criteria.area : undefined;
   const openAt = criteria && "openAt" in criteria ? criteria.openAt : undefined;
-  const resultLimit = params.mode === "all" ? 100 : 20;
-  const catalogueFetchLimit = 100;
+  const resultLimit = params.mode === "all" ? 1000 : 20;
+  const areas = area ? marketAreaCandidates(area, config.market) : [];
+  const weekday = openAt?.weekday ?? -1;
+  const timeMinutes =
+    openAt?.precision === "exact_time" ? openAt.timeMinutes : -1;
 
   console.log("[gallery-search] Searching with params:", params);
 
@@ -81,17 +84,14 @@ export async function searchGalleries(
 
       console.log("[gallery-search] Calling search_galleries_filtered RPC");
 
-      const { data, error } = await supabase.rpc("search_galleries_for_market", {
+      const { data, error } = await supabase.rpc("search_galleries_for_market_v2", {
         filter_market: config.market,
         query_embedding: embeddingVector,
         match_count: resultLimit,
         match_threshold: 0.3,
-        filter_district: area ?? undefined,
-        filter_weekday: openAt?.weekday ?? undefined,
-            filter_time_minutes:
-              openAt?.precision === "exact_time"
-                ? openAt.timeMinutes
-                : undefined,
+        filter_areas: areas,
+        filter_weekday: weekday,
+        filter_time_minutes: timeMinutes
       });
 
       if (error) {
@@ -130,34 +130,13 @@ export async function searchGalleries(
     // No searchQuery: fall back to basic filtering (district and/or openAt only)
     console.log("[gallery-search] No search query, using basic filter");
 
-    let query = supabase
-      .from("galleries")
-      .select(
-        `
-        id,
-        main_url,
-        normalized_main_url,
-        about_url,
-        events_page,
-        gallery_info!inner (
-          name,
-          about,
-          area,
-          district,
-          address,
-          tags,
-          email,
-          phone,
-          instagram,
-          google_maps_url
-        )
-      `
-      )
-      .limit(catalogueFetchLimit);
-
-    query = query.eq("market", config.market);
-    const isWideArea = area ? isMarketWideArea(area, config.market) : false;
-    const { data, error } = await query;
+    const { data, error } = await supabase.rpc("browse_galleries_for_market", {
+      filter_market: config.market,
+      match_count: resultLimit,
+      filter_areas: areas,
+      filter_weekday: weekday,
+      filter_time_minutes: timeMinutes
+    });
 
     if (error) {
       console.error("[gallery-search] Query error:", error);
@@ -168,75 +147,21 @@ export async function searchGalleries(
       return { data: [], error: null };
     }
 
-    let results: GallerySearchResult[] = (data as GalleryQueryResult[]).map((g) => ({
+    const results: GallerySearchResult[] = data.map((g) => ({
       id: g.id,
-      name: g.gallery_info?.name ?? null,
-      about: g.gallery_info?.about ?? null,
-      district: g.gallery_info?.area ?? g.gallery_info?.district ?? null,
-      address: g.gallery_info?.address ?? null,
-      tags: g.gallery_info?.tags ?? null,
+      name: g.name ?? null,
+      about: g.about ?? null,
+      district: (g.district as GalleryDistrict) ?? null,
+      address: g.address ?? null,
+      tags: g.tags ?? null,
       main_url: g.main_url,
-      about_url: g.about_url,
-      events_page: g.events_page,
-      instagram: g.gallery_info?.instagram ?? null,
-      phone: g.gallery_info?.phone ?? null,
-      email: g.gallery_info?.email ?? null,
-      google_maps_url: g.gallery_info?.google_maps_url ?? null,
+      about_url: g.about_url ?? null,
+      events_page: g.events_page ?? null,
+      instagram: g.instagram ?? null,
+      phone: g.phone ?? null,
+      email: g.email ?? null,
+      google_maps_url: g.google_maps_url ?? null
     }));
-
-    if (area && !isWideArea) {
-      results = results.filter((gallery) =>
-        matchesMarketArea(gallery.district, area, config.market)
-      );
-    }
-
-    // Apply hours filter if specified (only for non-embedding search)
-    if (openAt && results.length > 0) {
-      const galleryIds = results.map((g) => g.id);
-
-      const { data: hoursData, error: hoursError } = await supabase
-        .from("gallery_hours")
-        .select("gallery_id, weekday, open_minutes")
-        .in("gallery_id", galleryIds)
-        .eq("weekday", openAt.weekday);
-
-      if (hoursError) {
-        console.error("[gallery-search] Hours query error:", hoursError);
-        return { data: [], error: new Error(hoursError.message) };
-      }
-
-      if (hoursData && hoursData.length > 0) {
-        // Find galleries open at specified time
-        const openGalleryIds = new Set(
-          hoursData
-            .filter((h) => {
-              const ranges = h.open_minutes as unknown;
-              if (!Array.isArray(ranges)) return false;
-
-              // If timeMinutes not specified, just check if gallery has hours for this weekday
-              if (openAt.precision === "day") {
-                return true;
-              }
-
-              // Check if time falls within any range
-              return ranges.some((range) => {
-                if (!Array.isArray(range) || range.length < 2) return false;
-                const [start, end] = range as [number, number];
-                return openAt.timeMinutes >= start && openAt.timeMinutes <= end;
-              });
-            })
-            .map((h) => h.gallery_id)
-        );
-
-        results = results.filter((g) => openGalleryIds.has(g.id));
-      } else {
-        console.warn(
-          "[gallery-search] Opening-hours coverage is unavailable; returning unfiltered catalogue results"
-        );
-      }
-    }
-
-    results = results.slice(0, resultLimit);
     console.log(`[gallery-search] Found ${results.length} galleries via basic filter`);
     return { data: results, error: null };
   } catch (err) {
@@ -293,7 +218,7 @@ export async function getGalleriesByIds(
       return { data: [], error: null };
     }
 
-    const results: GallerySearchResult[] = (data as GalleryQueryResult[]).map((g) => ({
+    const results: GallerySearchResult[] = (data as GalleryByIdQueryResult[]).map((g) => ({
       id: g.id,
       name: g.gallery_info?.name ?? null,
       about: g.gallery_info?.about ?? null,

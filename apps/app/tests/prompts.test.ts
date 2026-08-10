@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { getZineSystemPrompt } from "../src/prompts";
 import {
   deduplicateEvents,
+  diversifyEvents,
   eventMatchesAttendance,
   eventMatchesTiming,
+  getEventSearchWindow,
   getEventSearchStart
 } from "../src/services/event-search";
 import type { EventSearchResult } from "../src/services/event-search";
@@ -73,6 +75,18 @@ describe("event search cutoff", () => {
     ).toBe(true);
   });
 
+  it("uses London civil-day boundaries across daylight saving time", () => {
+    expect(
+      getEventSearchWindow(
+        { kind: "on_date", date: "2026-08-10" },
+        "Europe/London"
+      )
+    ).toEqual({
+      start: "2026-08-09T23:00:00.000Z",
+      end: "2026-08-10T23:00:00.000Z"
+    });
+  });
+
   it("deduplicates equivalent event rows before rendering", () => {
     const event: EventSearchResult = {
       event_id: "event-1",
@@ -96,6 +110,47 @@ describe("event search cutoff", () => {
 
     const duplicate = { ...event, event_id: "event-2" };
     expect(deduplicateEvents([event, duplicate])).toEqual([event]);
+  });
+
+  it("shows distinct galleries before repeated event sessions", () => {
+    const base: EventSearchResult = {
+      event_id: "event-1",
+      title: "Curator Tour",
+      description: null,
+      start_at: "2026-08-11T12:00:00.000Z",
+      end_at: null,
+      timezone: "Europe/London",
+      status: "scheduled",
+      ticket_url: null,
+      source_url: null,
+      artists: [],
+      tags: [],
+      images: [],
+      gallery_id: "gallery-1",
+      gallery_name: "One",
+      gallery_main_url: "https://one.example",
+      gallery_district: "Bankside",
+      gallery_address: null
+    };
+    const repeated = {
+      ...base,
+      event_id: "event-2",
+      start_at: "2026-08-12T12:00:00.000Z"
+    };
+    const another = {
+      ...base,
+      event_id: "event-3",
+      title: "New Exhibition",
+      gallery_id: "gallery-2",
+      gallery_name: "Two",
+      gallery_main_url: "https://two.example"
+    };
+
+    expect(diversifyEvents([base, repeated, another]).map((event) => event.event_id)).toEqual([
+      "event-1",
+      "event-3",
+      "event-2"
+    ]);
   });
 
   it("keeps online-only events out of in-person area searches", () => {

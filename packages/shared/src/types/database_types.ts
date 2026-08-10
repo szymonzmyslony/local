@@ -427,6 +427,10 @@ export type Database = {
           last_etag: string | null
           last_modified: string | null
           normalized_url: string
+          next_check_at: string
+          poll_interval_hours: number
+          purpose: string
+          unchanged_checks: number
           updated_at: string
           url: string
         }
@@ -444,6 +448,10 @@ export type Database = {
           last_etag?: string | null
           last_modified?: string | null
           normalized_url: string
+          next_check_at?: string
+          poll_interval_hours?: number
+          purpose?: string
+          unchanged_checks?: number
           updated_at?: string
           url: string
         }
@@ -461,6 +469,10 @@ export type Database = {
           last_etag?: string | null
           last_modified?: string | null
           normalized_url?: string
+          next_check_at?: string
+          poll_interval_hours?: number
+          purpose?: string
+          unchanged_checks?: number
           updated_at?: string
           url?: string
         }
@@ -856,6 +868,68 @@ export type Database = {
           title: string
         }[]
       }
+      browse_events_for_market: {
+        Args: {
+          filter_areas: string[]
+          filter_artists: string[]
+          filter_attendance: string
+          filter_market: string
+          filter_window_end: string
+          filter_window_start: string
+          match_count: number
+        }
+        Returns: {
+          artists: string[]
+          description: string
+          end_at: string
+          event_id: string
+          gallery_address: string
+          gallery_district: string
+          gallery_id: string
+          gallery_main_url: string
+          gallery_name: string
+          images: string[]
+          source_url: string
+          start_at: string
+          status: string
+          tags: string[]
+          ticket_url: string
+          timezone: string
+          title: string
+        }[]
+      }
+      search_events_for_market_v2: {
+        Args: {
+          filter_areas: string[]
+          filter_artists: string[]
+          filter_attendance: string
+          filter_market: string
+          filter_window_end: string
+          filter_window_start: string
+          match_count: number
+          match_threshold: number
+          query_embedding: string
+        }
+        Returns: {
+          artists: string[]
+          description: string
+          end_at: string
+          event_id: string
+          gallery_address: string
+          gallery_district: string
+          gallery_id: string
+          gallery_main_url: string
+          gallery_name: string
+          images: string[]
+          source_url: string
+          start_at: string
+          status: string
+          tags: string[]
+          ticket_url: string
+          timezone: string
+          title: string
+        }[]
+      }
       search_galleries_filtered: {
         Args: {
           filter_district?: string
@@ -889,6 +963,56 @@ export type Database = {
           filter_weekday?: number
           match_count?: number
           match_threshold?: number
+          query_embedding: string
+        }
+        Returns: {
+          about: string
+          about_url: string
+          address: string
+          district: string
+          email: string
+          events_page: string
+          google_maps_url: string
+          id: string
+          instagram: string
+          main_url: string
+          name: string
+          phone: string
+          tags: string[]
+        }[]
+      }
+      browse_galleries_for_market: {
+        Args: {
+          filter_areas: string[]
+          filter_market: string
+          filter_time_minutes: number
+          filter_weekday: number
+          match_count: number
+        }
+        Returns: {
+          about: string
+          about_url: string
+          address: string
+          district: string
+          email: string
+          events_page: string
+          google_maps_url: string
+          id: string
+          instagram: string
+          main_url: string
+          name: string
+          phone: string
+          tags: string[]
+        }[]
+      }
+      search_galleries_for_market_v2: {
+        Args: {
+          filter_areas: string[]
+          filter_market: string
+          filter_time_minutes: number
+          filter_weekday: number
+          match_count: number
+          match_threshold: number
           query_embedding: string
         }
         Returns: {

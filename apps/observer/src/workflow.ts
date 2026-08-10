@@ -11,7 +11,8 @@ type ObservationParams = {
   mode:
     | { kind: "change_only" }
     | { kind: "force_extract" }
-    | { kind: "unchecked_only" };
+    | { kind: "unchecked_only" }
+    | { kind: "profile_refresh" };
 };
 
 const SOURCE_PRIORITY: Record<string, number> = {
@@ -59,6 +60,127 @@ export class GalleryObservationWorkflow extends ThinkWorkflow<
       })
     );
 
+    if (event.payload.mode.kind === "profile_refresh") {
+      let profileConfig = config;
+      const discoveryErrors: string[] = [];
+      for (const homeSource of config.sources.filter(
+        (source) => source.enabled && source.kind === "home"
+      )) {
+        try {
+          const refreshed = await step.do(
+            `discover-profile-sources:${homeSource.id}`,
+            {
+              retries: { limit: 2, delay: "5 seconds", backoff: "exponential" },
+              timeout: "1 minute"
+            },
+            async () => this.agent.discoverProfileSources(homeSource)
+          );
+          if (refreshed.kind === "configured") profileConfig = refreshed;
+        } catch (error) {
+          discoveryErrors.push(
+            `${homeSource.normalizedUrl}: profile link discovery failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`.slice(0, 1000)
+          );
+        }
+      }
+      const profileSources = prioritizedSources(
+        profileConfig.sources.filter(
+          (source) =>
+            source.enabled && (source.kind === "home" || source.kind === "about")
+        )
+      );
+      const errors: string[] = [...discoveryErrors];
+      let sourcesChanged = 0;
+      let sourcesSucceeded = 0;
+      for (const source of profileSources) {
+        try {
+          const snapshot = await step.do(
+            `fetch-profile:${source.id}`,
+            {
+              retries: { limit: 3, delay: "10 seconds", backoff: "exponential" },
+              timeout: "2 minutes"
+            },
+            async () => this.agent.fetchAndArchive(runId, source)
+          );
+          const profile = await step.do(
+            `extract-profile:${source.id}`,
+            {
+              retries: { limit: 3, delay: "5 seconds", backoff: "exponential" },
+              timeout: "3 minutes"
+            },
+            async () =>
+              this.agent.extractGalleryProfile(
+                [
+                  `Extract a verified visitor profile for ${config.name} from this official source.`,
+                  `The gallery is in ${config.market.city}; interpret opening hours in ${config.market.timezone}.`,
+                  "Use the venue's concise official description, street address, neighbourhood/area, normal weekly public opening hours, and art/collection/programme tags.",
+                  "Ignore live open/closed status banners; the about field must describe the gallery's mission, collection, or programme.",
+                  "Do not infer an address or hours from navigation, event times, or another venue. Ignore temporary holiday exceptions.",
+                  `Official source URL: ${source.normalizedUrl}`,
+                  "--- SOURCE CONTENT ---",
+                  snapshot.content
+                ].join("\n")
+              )
+          );
+          await step.do(`persist-profile:${source.id}`, async () =>
+            this.agent.saveGalleryProfile(profile, source.normalizedUrl)
+          );
+          await step.do(`commit-profile:${source.id}`, async () =>
+            this.agent.commitSnapshot(
+              source,
+              snapshot.contentHash,
+              snapshot.changed
+            )
+          );
+          if (snapshot.changed) sourcesChanged += 1;
+          sourcesSucceeded += 1;
+        } catch (error) {
+          errors.push(
+            `${source.normalizedUrl}: ${error instanceof Error ? error.message : String(error)}`.slice(
+              0,
+              1000
+            )
+          );
+          try {
+            await step.do(`record-profile-failure:${source.id}`, async () =>
+              this.agent.markSourceFailed(source.id)
+            );
+          } catch {
+            // The original profile error remains the actionable failure.
+          }
+        }
+      }
+      const status =
+        profileSources.length === 0 || sourcesSucceeded === 0
+          ? "failed"
+          : errors.length > 0
+            ? "partial"
+            : "completed";
+      await step.do("complete-profile-run", async () =>
+        this.agent.finishRun(runId, {
+          status,
+          sourcesAttempted: profileSources.length,
+          sourcesChanged,
+          candidatesFound: 0,
+          eventsPublished: 0,
+          error: errors.length ? errors.join("\n").slice(0, 4000) : null
+        })
+      );
+      if (status === "failed") {
+        throw new Error(errors.join("; ") || "No official profile source succeeded");
+      }
+      return {
+        runId,
+        status,
+        sourcesAttempted: profileSources.length,
+        sourcesChanged,
+        candidatesFound: 0,
+        eventsPublished: 0,
+        errors
+      };
+    }
+
     let sourcesAttempted = 0;
     let sourcesSucceeded = 0;
     let sourcesChanged = 0;
@@ -72,7 +194,15 @@ export class GalleryObservationWorkflow extends ThinkWorkflow<
     for (let pass = 1; pass <= 3; pass += 1) {
       const sources = prioritizedSources(
         currentConfig.sources.filter(
-          (entry) => entry.enabled && !attemptedSourceIds.has(entry.id)
+          (entry) =>
+            entry.enabled &&
+            entry.purpose !== "profile" &&
+            !attemptedSourceIds.has(entry.id) &&
+            (event.payload.mode.kind === "force_extract" ||
+              event.payload.mode.kind === "change_only" &&
+                entry.polling.kind !== "scheduled" ||
+              event.payload.mode.kind === "unchecked_only" &&
+                entry.polling.kind === "never_checked")
         )
       );
       if (sources.length === 0) break;
@@ -114,6 +244,7 @@ export class GalleryObservationWorkflow extends ThinkWorkflow<
             "On an individual event page, extract that event and populate its description, artists, images, and canonical event URL.",
             "When the page contains curatorial or event body copy, write a concise factual description of 2-4 sentences; do not return a null description merely because a shorter listing omitted one.",
             "Discover same-origin event listings and current/upcoming event detail pages. Exclude archives, pagination, shop, login, press, and generic category links.",
+            'For every discovered source set purpose to "listing" for a durable events/calendar/feed index, or "detail" for one specific exhibition/event page.',
             "Do not publish navigation labels, archive-only items, shop products, or undated editorial posts as events.",
             "Put a short exact evidence fragment in each event's evidence array.",
             "Use null for dates or URLs that are not explicit and lower confidence accordingly.",
@@ -142,7 +273,7 @@ export class GalleryObservationWorkflow extends ThinkWorkflow<
             `commit-source-snapshot:${pass}:${source.id}`,
             async () =>
               this.agent.commitSnapshot(
-                source.id,
+                source,
                 snapshot.contentHash,
                 snapshot.changed
               )
