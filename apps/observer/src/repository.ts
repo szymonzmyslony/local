@@ -233,6 +233,13 @@ export async function registerMarketGallery(
   ];
   for (const source of candidates) {
     await upsertGallerySource(db, galleryId, source.url, source.kind, 1);
+    const { error: staleSourceError } = await db
+      .from("gallery_sources")
+      .update({ enabled: false, updated_at: now })
+      .eq("gallery_id", galleryId)
+      .eq("kind", source.kind)
+      .neq("normalized_url", source.url);
+    throwIfError("disableReplacedGallerySource", staleSourceError);
   }
 
   return galleryId;
@@ -356,6 +363,7 @@ export async function recordSnapshot(
     byteLength: number;
     httpStatus: number;
     changed: boolean;
+    strategy: GallerySource["strategy"];
     browserMs: number | null;
   }
 ): Promise<void> {
@@ -365,7 +373,7 @@ export async function recordSnapshot(
       run_id: input.runId,
       source_id: input.source.id,
       source_url: input.source.normalizedUrl,
-      strategy: input.source.strategy,
+      strategy: input.strategy,
       r2_key: input.r2Key,
       content_hash: input.contentHash,
       content_type: input.contentType,

@@ -1,5 +1,20 @@
 # Gallery Import Scripts
 
+## rollout-market-observers.ts
+
+Activates every currently inactive catalogue gallery in one market, creates its
+allowlisted homepage source, configures its Durable Object schedule, and—when
+requested—runs the first Browser Rendering + Luna observation in bounded
+batches.
+
+```bash
+bun run scripts/rollout-market-observers.ts \
+  '{"mode":"activate_and_observe","market":"waw","observerUrl":"https://zine-observer.example.workers.dev","batchSize":5}'
+```
+
+The command is a strict discriminated union. Use `activate_only` when schedules
+should be created without immediately starting observations.
+
 ## seed-and-startup-galleries.ts (Recommended - Full Pipeline)
 
 A TypeScript script that runs the complete gallery startup pipeline from start to finish. This is the most comprehensive approach as it:

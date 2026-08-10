@@ -40,6 +40,7 @@ export type FetchedSnapshot = {
   contentHash: string;
   contentType: string;
   httpStatus: number;
+  strategy: GallerySource["strategy"];
   browserMs: number | null;
   byteLength: number;
 };
@@ -71,6 +72,7 @@ async function browserMarkdown(browser: BrowserRun, url: string): Promise<Fetche
     contentHash: await sha256(content),
     contentType: "text/markdown",
     httpStatus: 200,
+    strategy: "browser_markdown",
     browserMs: Number.isFinite(browserMs) && browserMs > 0
       ? Math.round(browserMs)
       : null,
@@ -98,15 +100,34 @@ async function httpHtml(url: string): Promise<FetchedSnapshot> {
     contentHash: await sha256(content),
     contentType,
     httpStatus: response.status,
+    strategy: "http_html",
     browserMs: null,
     byteLength: new TextEncoder().encode(content).byteLength
   };
 }
 
 export async function fetchSource(browser: BrowserRun, source: GallerySource) {
-  return source.strategy === "http_html"
-    ? httpHtml(source.normalizedUrl)
-    : browserMarkdown(browser, source.normalizedUrl);
+  if (source.strategy === "http_html") return httpHtml(source.normalizedUrl);
+  try {
+    return await browserMarkdown(browser, source.normalizedUrl);
+  } catch (browserError) {
+    try {
+      const snapshot = await httpHtml(source.normalizedUrl);
+      console.warn(
+        JSON.stringify({
+          event: "browser_markdown_http_fallback",
+          source: source.normalizedUrl,
+          browserError:
+            browserError instanceof Error ? browserError.message : String(browserError)
+        })
+      );
+      return snapshot;
+    } catch (httpError) {
+      throw new Error(
+        `Browser Rendering failed: ${browserError instanceof Error ? browserError.message : String(browserError)}; HTTP fallback failed: ${httpError instanceof Error ? httpError.message : String(httpError)}`
+      );
+    }
+  }
 }
 
 export async function browserLinks(browser: BrowserRun, url: string): Promise<string[]> {

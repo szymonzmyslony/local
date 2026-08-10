@@ -31,7 +31,13 @@ export function normalizeSourceUrl(input: string): string {
 
   url.hash = "";
   for (const key of [...url.searchParams.keys()]) {
-    if (/^(utm_|fbclid$|gclid$)/i.test(key)) url.searchParams.delete(key);
+    if (
+      /^(utm_|fbclid$|gclid$|dclid$|gbraid$|wbraid$|gad_source$|gad_campaignid$)/i.test(
+        key
+      )
+    ) {
+      url.searchParams.delete(key);
+    }
   }
   // Browser markdown can append an accessibility label to extracted hrefs.
   // It is presentation text, not part of the destination URL.

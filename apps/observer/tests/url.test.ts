@@ -10,7 +10,9 @@ import {
 describe("source URL safety", () => {
   it("normalizes tracking and fragments", () => {
     expect(
-      normalizeSourceUrl("https://example.com/events/?utm_source=x#today")
+      normalizeSourceUrl(
+        "https://example.com/events/?utm_source=x&gad_source=1&gbraid=abc&gclid=xyz#today"
+      )
     ).toBe("https://example.com/events");
   });
 

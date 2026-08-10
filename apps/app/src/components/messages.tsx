@@ -50,11 +50,12 @@ export function Messages({
 
         return (
           <div key={message.id} className="space-y-1.5">
-            {message.parts?.map((part) => {
+            {message.parts?.map((part, partIndex) => {
               if (part.type === "text") {
                 return (
                   <TextMessage
-                    key={`${message.id}-text-${part.text}`}
+                    // biome-ignore lint/suspicious/noArrayIndexKey: AI message part positions are stable while streamed text changes.
+                    key={`${message.id}-text-${partIndex}`}
                     text={part.text}
                     timestamp={timestamp}
                     isUser={isUser}

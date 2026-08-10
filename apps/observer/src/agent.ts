@@ -243,7 +243,7 @@ export class GalleryObserver extends Think<Env, GalleryObserverState> {
         sourceId: source.id,
         sourceUrl: allowedUrl,
         contentHash: snapshot.contentHash,
-        strategy: source.strategy
+        strategy: snapshot.strategy
       }
     });
     await recordSnapshot(db, {
@@ -255,6 +255,7 @@ export class GalleryObserver extends Think<Env, GalleryObserverState> {
       byteLength: snapshot.byteLength,
       httpStatus: snapshot.httpStatus,
       changed,
+      strategy: snapshot.strategy,
       browserMs: snapshot.browserMs
     });
     return { ...snapshot, content: snapshot.content.slice(0, 75_000), changed, r2Key };
