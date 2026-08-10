@@ -17,6 +17,40 @@ const commandSchema = z.discriminatedUnion("mode", [
       observerUrl: z.string().url(),
       batchSize: z.number().int().min(1).max(10)
     })
+    .strict(),
+  z
+    .object({
+      mode: z.literal("observe_all_active"),
+      market: z.enum(["ldn", "waw"]),
+      observerUrl: z.string().url(),
+      batchSize: z.number().int().min(1).max(10)
+    })
+    .strict(),
+  z
+    .object({
+      mode: z.literal("observe_selected"),
+      market: z.enum(["ldn", "waw"]),
+      observerUrl: z.string().url(),
+      batchSize: z.number().int().min(1).max(10),
+      galleryIds: z.array(z.string().uuid()).min(1).max(500)
+    })
+    .strict(),
+  z
+    .object({
+      mode: z.literal("observe_missing_since"),
+      market: z.enum(["ldn", "waw"]),
+      observerUrl: z.string().url(),
+      batchSize: z.number().int().min(1).max(10),
+      startedAfter: z.string().datetime({ offset: true })
+    })
+    .strict(),
+  z
+    .object({
+      mode: z.literal("observe_unchecked_sources"),
+      market: z.enum(["ldn", "waw"]),
+      observerUrl: z.string().url(),
+      batchSize: z.number().int().min(1).max(10)
+    })
     .strict()
 ]);
 
@@ -50,7 +84,12 @@ const observationResponseSchema = z
   .object({ ok: z.literal(true), workflowId: z.string().min(1) })
   .strict();
 
-const terminalStatuses = new Set(["unchanged", "completed", "partial", "failed"]);
+const terminalStatuses = new Set([
+  "unchanged",
+  "completed",
+  "partial",
+  "failed"
+]);
 
 function chunks<T>(values: T[], size: number): T[][] {
   const result: T[][] = [];
@@ -85,7 +124,9 @@ async function authorizedPost(
   });
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(`${path} returned ${response.status}: ${text.slice(0, 500)}`);
+    throw new Error(
+      `${path} returned ${response.status}: ${text.slice(0, 500)}`
+    );
   }
   return JSON.parse(text);
 }
@@ -94,7 +135,7 @@ async function main() {
   const commandText = process.argv[2];
   if (!commandText) {
     throw new Error(
-      'Usage: bun run scripts/rollout-market-observers.ts \'{"mode":"activate_and_observe","market":"waw","observerUrl":"https://zine-observer.example.workers.dev","batchSize":5}\''
+      'Usage: bun run scripts/rollout-market-observers.ts \'{"mode":"observe_all_active","market":"waw","observerUrl":"https://zine-observer.example.workers.dev","batchSize":5}\''
     );
   }
   const command = commandSchema.parse(JSON.parse(commandText));
@@ -104,40 +145,96 @@ async function main() {
     OBSERVER_ADMIN_TOKEN: process.env.OBSERVER_ADMIN_TOKEN
   });
   const db = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
-  const { data, error } = await db
+  let galleryQuery = db
     .from("galleries")
-    .select("id, main_url, observation_status, gallery_info!inner(name, address, area)")
-    .eq("market", command.market)
-    .neq("observation_status", "active")
-    .order("id", { ascending: true });
+    .select(
+      "id, main_url, observation_status, gallery_info!inner(name, address, area)"
+    )
+    .eq("market", command.market);
+  galleryQuery =
+    command.mode === "observe_all_active" ||
+    command.mode === "observe_selected" ||
+    command.mode === "observe_missing_since" ||
+    command.mode === "observe_unchecked_sources"
+      ? galleryQuery.eq("observation_status", "active")
+      : galleryQuery.neq("observation_status", "active");
+  if (command.mode === "observe_selected") {
+    galleryQuery = galleryQuery.in("id", command.galleryIds);
+  }
+  const { data, error } = await galleryQuery.order("id", { ascending: true });
   if (error) throw error;
-  const galleries = z.array(gallerySchema).parse(data ?? []);
+  let galleries = z.array(gallerySchema).parse(data ?? []);
+  if (command.mode === "observe_missing_since") {
+    const { data: observedRuns, error: observedRunError } = await db
+      .from("observation_runs")
+      .select("gallery_id, galleries!inner(market)")
+      .eq("galleries.market", command.market)
+      .gte("started_at", command.startedAfter);
+    if (observedRunError) throw observedRunError;
+    const observedGalleryIds = new Set(
+      (observedRuns ?? []).map((run) => run.gallery_id)
+    );
+    galleries = galleries.filter(
+      (gallery) => !observedGalleryIds.has(gallery.id)
+    );
+  }
+  if (command.mode === "observe_unchecked_sources") {
+    const { data: uncheckedSources, error: uncheckedSourceError } = await db
+      .from("gallery_sources")
+      .select("gallery_id, galleries!inner(market)")
+      .eq("galleries.market", command.market)
+      .eq("enabled", true)
+      .is("last_checked_at", null);
+    if (uncheckedSourceError) throw uncheckedSourceError;
+    const galleryIdsWithUncheckedSources = new Set(
+      (uncheckedSources ?? []).map((source) => source.gallery_id)
+    );
+    galleries = galleries.filter((gallery) =>
+      galleryIdsWithUncheckedSources.has(gallery.id)
+    );
+  }
   console.log(
-    JSON.stringify({ event: "rollout_started", market: command.market, galleries: galleries.length })
+    JSON.stringify({
+      event: "rollout_started",
+      market: command.market,
+      galleries: galleries.length
+    })
   );
 
   for (const batch of chunks(galleries, command.batchSize)) {
-    const activated = await Promise.all(
-      batch.map(async (gallery) => {
-        const result = registrationResponseSchema.parse(
-          await authorizedPost(
-            command.observerUrl,
-            env.OBSERVER_ADMIN_TOKEN,
-            "/internal/galleries",
-            {
-              market: command.market,
-              name: gallery.gallery_info.name,
-              sources: { kind: "homepage", mainUrl: gallery.main_url },
-              location: locationFor(gallery)
-            }
-          )
-        );
-        return { ...gallery, id: result.galleryId };
-      })
-    );
+    const activated =
+      command.mode === "observe_all_active" ||
+      command.mode === "observe_selected" ||
+      command.mode === "observe_missing_since" ||
+      command.mode === "observe_unchecked_sources"
+        ? batch
+        : await Promise.all(
+            batch.map(async (gallery) => {
+              const result = registrationResponseSchema.parse(
+                await authorizedPost(
+                  command.observerUrl,
+                  env.OBSERVER_ADMIN_TOKEN,
+                  "/internal/galleries",
+                  {
+                    market: command.market,
+                    name: gallery.gallery_info.name,
+                    sources: { kind: "homepage", mainUrl: gallery.main_url },
+                    location: locationFor(gallery)
+                  }
+                )
+              );
+              return { ...gallery, id: result.galleryId };
+            })
+          );
     console.log(
       JSON.stringify({
-        event: "activation_batch_completed",
+        event:
+          command.mode === "observe_all_active" ||
+          command.mode === "observe_selected" ||
+          command.mode === "observe_missing_since" ||
+          command.mode === "observe_unchecked_sources"
+            ? "active_batch_selected"
+            : "activation_batch_completed",
         galleries: activated.map((gallery) => gallery.gallery_info.name)
       })
     );
@@ -152,12 +249,18 @@ async function main() {
             command.observerUrl,
             env.OBSERVER_ADMIN_TOKEN,
             "/internal/observe",
-            { mode: "force_extract", galleryId: gallery.id }
+            {
+              mode:
+                command.mode === "observe_unchecked_sources"
+                  ? "unchecked_only"
+                  : "force_extract",
+              galleryId: gallery.id
+            }
           )
         );
       })
     );
-    const deadline = Date.now() + 15 * 60 * 1000;
+    const deadline = Date.now() + 60 * 60 * 1000;
     let finalRuns: Array<{
       gallery_id: string;
       status: string;
@@ -181,7 +284,8 @@ async function main() {
       if (runError) throw runError;
       const latestByGallery = new Map<string, (typeof finalRuns)[number]>();
       for (const row of runRows ?? []) {
-        if (!latestByGallery.has(row.gallery_id)) latestByGallery.set(row.gallery_id, row);
+        if (!latestByGallery.has(row.gallery_id))
+          latestByGallery.set(row.gallery_id, row);
       }
       finalRuns = [...latestByGallery.values()];
       if (
@@ -195,15 +299,24 @@ async function main() {
       console.log(
         JSON.stringify({
           event: "observation_batch_waiting",
-          completed: finalRuns.filter((run) => terminalStatuses.has(run.status)).length,
+          completed: finalRuns.filter((run) => terminalStatuses.has(run.status))
+            .length,
           total: activated.length
         })
       );
       await Bun.sleep(10_000);
     }
-    if (finalRuns.length !== activated.length) {
+    const unfinished = activated.filter((gallery) => {
+      const run = finalRuns.find(
+        (candidate) => candidate.gallery_id === gallery.id
+      );
+      return !run || !terminalStatuses.has(run.status);
+    });
+    if (unfinished.length > 0) {
       throw new Error(
-        `Observation batch timed out: ${finalRuns.length}/${activated.length} runs were created`
+        `Observation batch timed out before terminal state: ${unfinished
+          .map((gallery) => gallery.gallery_info.name)
+          .join(", ")}`
       );
     }
     console.log(
@@ -221,7 +334,11 @@ async function main() {
   }
 
   console.log(
-    JSON.stringify({ event: "rollout_completed", market: command.market, galleries: galleries.length })
+    JSON.stringify({
+      event: "rollout_completed",
+      market: command.market,
+      galleries: galleries.length
+    })
   );
 }
 

@@ -107,7 +107,13 @@ const extractedEventSchema = z
     description: z.string().nullable(),
     start_at: z.string().nullable(),
     end_at: z.string().nullable(),
-    status: z.enum(["scheduled", "cancelled", "postponed", "rescheduled", "unknown"]),
+    status: z.enum([
+      "scheduled",
+      "cancelled",
+      "postponed",
+      "rescheduled",
+      "unknown"
+    ]),
     venue: eventVenueSchema,
     ticket_url: z.string().nullable(),
     event_url: z.string().nullable(),
@@ -134,15 +140,17 @@ export const observationExtractionSchema = z
     gallery_name: z.string().nullable(),
     gallery_area: z.string().nullable(),
     events: z.array(extractedEventSchema),
-    discovered_sources: z.array(
-      z
-        .object({
-          url: z.string(),
-          kind: sourceKindSchema,
-          confidence: z.number().min(0).max(1)
-        })
-        .strict()
-    ),
+    discovered_sources: z
+      .array(
+        z
+          .object({
+            url: z.string(),
+            kind: sourceKindSchema,
+            confidence: z.number().min(0).max(1)
+          })
+          .strict()
+      )
+      .max(40),
     notes: z.array(z.string())
   })
   .strict();
@@ -163,17 +171,22 @@ export function fromFallbackObservationExtraction(
           venue_scope === "market_or_gallery"
             ? {
                 kind: "market_or_gallery" as const,
-                evidence: venue_evidence || venue_detail || "Official gallery context"
+                evidence:
+                  venue_evidence || venue_detail || "Official gallery context"
               }
             : venue_scope === "outside_market"
               ? {
                   kind: "outside_market" as const,
                   venue: venue_detail || "Outside selected market",
-                  evidence: venue_evidence || "Official source identifies another venue"
+                  evidence:
+                    venue_evidence || "Official source identifies another venue"
                 }
               : {
                   kind: "unknown" as const,
-                  reason: venue_evidence || venue_detail || "Venue could not be verified"
+                  reason:
+                    venue_evidence ||
+                    venue_detail ||
+                    "Venue could not be verified"
                 }
       })
     )
@@ -268,6 +281,12 @@ export const observeRequestSchema = z.discriminatedUnion("mode", [
   z
     .object({
       mode: z.literal("force_extract"),
+      galleryId: z.string().uuid()
+    })
+    .strict(),
+  z
+    .object({
+      mode: z.literal("unchecked_only"),
       galleryId: z.string().uuid()
     })
     .strict()

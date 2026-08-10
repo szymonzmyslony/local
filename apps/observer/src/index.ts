@@ -68,9 +68,9 @@ export default {
       return Response.json({
         ok: Boolean(
           env.OPENROUTER_API_KEY &&
-            env.SUPABASE_URL &&
-            env.SUPABASE_SERVICE_ROLE_KEY &&
-            env.OBSERVER_ADMIN_TOKEN
+          env.SUPABASE_URL &&
+          env.SUPABASE_SERVICE_ROLE_KEY &&
+          env.OBSERVER_ADMIN_TOKEN
         ),
         service: "zine-observer",
         markets: ["ldn", "waw"],
@@ -80,7 +80,10 @@ export default {
     }
 
     if (url.pathname.startsWith("/internal/") && !isAuthorized(request, env)) {
-      return Response.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+      return Response.json(
+        { ok: false, error: "Unauthorized" },
+        { status: 401 }
+      );
     }
 
     try {
@@ -98,7 +101,10 @@ export default {
 
       if (request.method === "POST" && url.pathname === "/internal/galleries") {
         const body = registerGallerySchema.parse(await request.json());
-        const galleryId = await registerMarketGallery(observerDatabase(env), body);
+        const galleryId = await registerMarketGallery(
+          observerDatabase(env),
+          body
+        );
         const observer = await getAgentByName<Env, GalleryObserver>(
           env.GalleryObserver,
           galleryId
@@ -114,15 +120,18 @@ export default {
           body.galleryId
         );
         await observer.configureGallery(body.galleryId);
-        const key = body.mode === "force_extract"
-          ? `manual:${body.galleryId}:${crypto.randomUUID()}`
-          : `manual:${body.galleryId}:${new Date().toISOString().slice(0, 10)}`;
+        const key =
+          body.mode === "change_only"
+            ? `manual:${body.galleryId}:${new Date().toISOString().slice(0, 10)}`
+            : `manual:${body.galleryId}:${crypto.randomUUID()}`;
         const workflowId = await observer.startObservation(
           key,
           Date.now(),
           body.mode === "force_extract"
             ? { kind: "force_extract" }
-            : { kind: "change_only" }
+            : body.mode === "unchecked_only"
+              ? { kind: "unchecked_only" }
+              : { kind: "change_only" }
         );
         return Response.json({ ok: true, workflowId });
       }
@@ -143,7 +152,9 @@ export default {
             ? body.fixtureIds
             : marketFixtures.slice(0, 3).map((fixture) => fixture.id)
         );
-        const fixtures = marketFixtures.filter((fixture) => ids.has(fixture.id));
+        const fixtures = marketFixtures.filter((fixture) =>
+          ids.has(fixture.id)
+        );
         const techniques =
           body.mode === "selected"
             ? body.techniques
@@ -157,7 +168,10 @@ export default {
         return Response.json({ ok: true, results });
       }
 
-      if (request.method === "POST" && url.pathname === "/internal/diagnostics") {
+      if (
+        request.method === "POST" &&
+        url.pathname === "/internal/diagnostics"
+      ) {
         const dbStarted = Date.now();
         const { error } = await observerDatabase(env)
           .from("galleries")

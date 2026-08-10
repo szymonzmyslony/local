@@ -2,27 +2,53 @@ import { ThinkWorkflow } from "@cloudflare/think/workflows";
 import type { ThinkWorkflowStep } from "@cloudflare/think/workflows";
 import type { AgentWorkflowEvent } from "agents/workflows";
 import type { GalleryObserver } from "./agent";
-import {
-  observationExtractionSchema,
-  type ObservationExtraction
-} from "./schemas";
+import type { ObservationExtraction } from "./schemas";
 
 type ObservationParams = {
   galleryId: string;
   idempotencyKey: string;
   scheduledFor: number;
-  mode: { kind: "change_only" } | { kind: "force_extract" };
+  mode:
+    | { kind: "change_only" }
+    | { kind: "force_extract" }
+    | { kind: "unchecked_only" };
 };
+
+const SOURCE_PRIORITY: Record<string, number> = {
+  events: 0,
+  calendar: 1,
+  feed: 2,
+  other: 3,
+  home: 4,
+  about: 5
+};
+
+function prioritizedSources<T extends { kind: string; normalizedUrl: string }>(
+  sources: T[]
+): T[] {
+  return [...sources].sort(
+    (left, right) =>
+      (SOURCE_PRIORITY[left.kind] ?? 99) -
+        (SOURCE_PRIORITY[right.kind] ?? 99) ||
+      left.normalizedUrl.localeCompare(right.normalizedUrl)
+  );
+}
 
 export class GalleryObservationWorkflow extends ThinkWorkflow<
   GalleryObserver,
   ObservationParams
 > {
-  async run(event: AgentWorkflowEvent<ObservationParams>, step: ThinkWorkflowStep) {
+  async run(
+    event: AgentWorkflowEvent<ObservationParams>,
+    step: ThinkWorkflowStep
+  ) {
     const config = await step.do("load-observer-configuration", async () =>
       this.agent.getConfiguration()
     );
-    if (config.kind !== "configured" || config.galleryId !== event.payload.galleryId) {
+    if (
+      config.kind !== "configured" ||
+      config.galleryId !== event.payload.galleryId
+    ) {
       throw new Error("Observer configuration does not match workflow payload");
     }
 
@@ -34,30 +60,60 @@ export class GalleryObservationWorkflow extends ThinkWorkflow<
     );
 
     let sourcesAttempted = 0;
+    let sourcesSucceeded = 0;
     let sourcesChanged = 0;
     let candidatesFound = 0;
     let eventsPublished = 0;
     const errors: string[] = [];
 
-    for (const source of config.sources.filter((entry) => entry.enabled)) {
-      sourcesAttempted += 1;
-      try {
-        const snapshot = await step.do(`fetch-and-archive:${source.id}`, {
-          retries: { limit: 3, delay: "10 seconds", backoff: "exponential" },
-          timeout: "2 minutes"
-        }, async () => this.agent.fetchAndArchive(runId, source));
+    const attemptedSourceIds = new Set<string>();
+    let currentConfig = config;
 
-        if (!snapshot.changed && event.payload.mode.kind === "change_only") continue;
-        sourcesChanged += 1;
-        const extractionPrompt = [
-            `Observe the official source for ${config.name}.`,
+    for (let pass = 1; pass <= 3; pass += 1) {
+      const sources = prioritizedSources(
+        currentConfig.sources.filter(
+          (entry) => entry.enabled && !attemptedSourceIds.has(entry.id)
+        )
+      );
+      if (sources.length === 0) break;
+
+      for (const source of sources) {
+        attemptedSourceIds.add(source.id);
+        sourcesAttempted += 1;
+        try {
+          const snapshot = await step.do(
+            `fetch-and-archive:${pass}:${source.id}`,
+            {
+              retries: {
+                limit: 3,
+                delay: "10 seconds",
+                backoff: "exponential"
+              },
+              timeout: "2 minutes"
+            },
+            async () => this.agent.fetchAndArchive(runId, source)
+          );
+
+          if (
+            !snapshot.changed &&
+            event.payload.mode.kind !== "force_extract"
+          ) {
+            sourcesSucceeded += 1;
+            continue;
+          }
+          sourcesChanged += 1;
+          const extractionPrompt = [
+            `Observe the official source for ${currentConfig.name}.`,
             `Observation time: ${new Date(event.payload.scheduledFor).toISOString()}.`,
             "Extract every current or upcoming exhibition and public event explicitly supported by the source.",
-            `For all ${config.market.city}-local times, return ISO 8601 with the correct ${config.market.timezone} offset.`,
-            `${config.market.language} source material is valid evidence; preserve official artist, exhibition, and venue names.`,
-            `Publish only events physically taking place at this gallery or elsewhere in ${config.market.city}.`,
+            `For all ${currentConfig.market.city}-local times, return ISO 8601 with the correct ${currentConfig.market.timezone} offset.`,
+            `${currentConfig.market.language} source material is valid evidence; preserve official artist, exhibition, and venue names.`,
+            `Publish only events physically taking place at this gallery or elsewhere in ${currentConfig.market.city}.`,
             `Set venue.kind to "outside_market" for touring/off-site events in another city or country and "unknown" when the venue cannot be verified.`,
             `Every event must contain exactly one venue variant: {"kind":"market_or_gallery","evidence":"..."}, {"kind":"outside_market","venue":"...","evidence":"..."}, or {"kind":"unknown","reason":"..."}.`,
+            "On an individual event page, extract that event and populate its description, artists, images, and canonical event URL.",
+            "When the page contains curatorial or event body copy, write a concise factual description of 2-4 sentences; do not return a null description merely because a shorter listing omitted one.",
+            "Discover same-origin event listings and current/upcoming event detail pages. Exclude archives, pagination, shop, login, press, and generic category links.",
             "Do not publish navigation labels, archive-only items, shop products, or undated editorial posts as events.",
             "Put a short exact evidence fragment in each event's evidence array.",
             "Use null for dates or URLs that are not explicit and lower confidence accordingly.",
@@ -66,66 +122,88 @@ export class GalleryObservationWorkflow extends ThinkWorkflow<
             "--- SOURCE CONTENT ---",
             snapshot.content
           ].join("\n");
-        let extraction: ObservationExtraction;
-        try {
-          extraction = await step.prompt(`extract-events:${source.id}`, {
-            key: snapshot.contentHash,
-            timeout: "10 minutes",
-            output: observationExtractionSchema,
-            prompt: extractionPrompt
-          });
-        } catch (firstError) {
+          const extraction: ObservationExtraction = await step.do(
+            `extract-events:${pass}:${source.id}`,
+            {
+              retries: {
+                limit: 3,
+                delay: "5 seconds",
+                backoff: "exponential"
+              },
+              timeout: "3 minutes"
+            },
+            async () => this.agent.extractStructuredSnapshot(extractionPrompt)
+          );
+          const saved = await step.do(
+            `persist-extraction:${pass}:${source.id}`,
+            async () => this.agent.saveExtraction(runId, source, extraction)
+          );
+          await step.do(
+            `commit-source-snapshot:${pass}:${source.id}`,
+            async () =>
+              this.agent.commitSnapshot(
+                source.id,
+                snapshot.contentHash,
+                snapshot.changed
+              )
+          );
+          candidatesFound += saved.candidates;
+          eventsPublished += saved.published;
+          sourcesSucceeded += 1;
+        } catch (error) {
+          const message =
+            `${source.normalizedUrl}: ${error instanceof Error ? error.message : String(error)}`.slice(
+              0,
+              1000
+            );
+          errors.push(message);
           try {
-            extraction = await step.prompt(`extract-events-retry:${source.id}`, {
-              key: snapshot.contentHash,
-              timeout: "10 minutes",
-              output: observationExtractionSchema,
-              prompt: [
-                extractionPrompt,
-                "The first structured extraction failed validation. Return the exact required object and venue variants."
-              ].join("\n")
-            });
-            console.warn(
-              JSON.stringify({
-                event: "structured_extraction_retry_recovered",
-                source: source.normalizedUrl,
-                firstError:
-                  firstError instanceof Error ? firstError.message : String(firstError)
-              })
+            await step.do(
+              `record-source-failure:${pass}:${source.id}`,
+              {
+                retries: { limit: 1, delay: "5 seconds" },
+                timeout: "30 seconds"
+              },
+              async () => this.agent.markSourceFailed(source.id)
             );
-          } catch (retryError) {
-            extraction = await step.do(
-              `extract-events-sdk-fallback:${source.id}`,
-              { retries: { limit: 2, delay: "5 seconds", backoff: "exponential" } },
-              async () => this.agent.extractStructuredSnapshot(extractionPrompt)
-            );
-            console.warn(
-              JSON.stringify({
-                event: "structured_extraction_sdk_fallback_recovered",
-                source: source.normalizedUrl,
-                firstError:
-                  firstError instanceof Error ? firstError.message : String(firstError),
-                retryError:
-                  retryError instanceof Error ? retryError.message : String(retryError)
-              })
+          } catch (failureRecordError) {
+            errors.push(
+              `${source.normalizedUrl}: could not record source failure: ${failureRecordError instanceof Error ? failureRecordError.message : String(failureRecordError)}`.slice(
+                0,
+                1000
+              )
             );
           }
         }
-        const saved = await step.do(`persist-extraction:${source.id}`, async () =>
-          this.agent.saveExtraction(runId, source, extraction)
+      }
+
+      if (pass === 3) break;
+      try {
+        const refreshed = await step.do(
+          `refresh-observer-configuration:${pass}`,
+          {
+            retries: {
+              limit: 2,
+              delay: "5 seconds",
+              backoff: "exponential"
+            },
+            timeout: "1 minute"
+          },
+          async () => this.agent.refreshGallerySources(config.galleryId)
         );
-        await step.do(`commit-source-snapshot:${source.id}`, async () =>
-          this.agent.commitSnapshot(source.id, snapshot.contentHash, snapshot.changed)
-        );
-        candidatesFound += saved.candidates;
-        eventsPublished += saved.published;
+        if (refreshed.kind !== "configured") {
+          throw new Error(
+            "Observer became unconfigured during source discovery"
+          );
+        }
+        currentConfig = refreshed;
       } catch (error) {
         errors.push(
-          `${source.normalizedUrl}: ${error instanceof Error ? error.message : String(error)}`.slice(
-            0,
-            1000
-          )
+          `Could not refresh discovered sources after pass ${pass}: ${
+            error instanceof Error ? error.message : String(error)
+          }`.slice(0, 1000)
         );
+        break;
       }
     }
 
@@ -137,7 +215,7 @@ export class GalleryObservationWorkflow extends ThinkWorkflow<
     eventsPublished = authoritativeCounts.published;
 
     const status =
-      errors.length === sourcesAttempted && sourcesAttempted > 0
+      sourcesAttempted > 0 && sourcesSucceeded === 0
         ? "failed"
         : errors.length > 0
           ? "partial"

@@ -51,7 +51,8 @@ describe("human-readable tool activity", () => {
         subject: { kind: "semantic", searchQuery: "experimental sculpture" },
         location: { kind: "area", area: "East London" },
         timing: { kind: "on_date", date: "2026-08-15" },
-        attendance: { kind: "in_person" }
+        attendance: { kind: "in_person" },
+        results: { kind: "limited", count: 6 }
       },
       { found: 6 }
     );
@@ -61,7 +62,8 @@ describe("human-readable tool activity", () => {
       "Experimental Sculpture",
       "East London",
       "2026-08-15",
-      "In person"
+      "In person",
+      "6 results"
     ]);
   });
 
@@ -73,7 +75,8 @@ describe("human-readable tool activity", () => {
         subject: { kind: "any" },
         location: { kind: "anywhere_in_market" },
         timing: { kind: "current_and_upcoming" },
-        attendance: { kind: "in_person" }
+        attendance: { kind: "in_person" },
+        results: { kind: "standard" }
       },
       { found: 3, city: "Warsaw" },
       getMarketConfig("waw")

@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { Loader2, ChevronDown, ChevronRight, CheckCircle2, XCircle } from "lucide-react";
+import {
+  Loader2,
+  ChevronDown,
+  ChevronRight,
+  CheckCircle2,
+  XCircle
+} from "lucide-react";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
 import { getMarketConfig, type MarketConfig } from "@shared";
 
@@ -51,7 +57,10 @@ function formatVisitTime(value: unknown): string | null {
   return `${day} · ${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
-function resultCount(output: unknown, key: "found" | "items" | "events"): number | null {
+function resultCount(
+  output: unknown,
+  key: "found" | "items" | "events"
+): number | null {
   const record = asRecord(output);
   if (key === "found" && typeof record.found === "number") return record.found;
   const value = record[key];
@@ -123,6 +132,7 @@ export function getToolPresentation(
     const location = asRecord(input.location);
     const timing = asRecord(input.timing);
     const attendance = asRecord(input.attendance);
+    const results = asRecord(input.results);
     const timingLabel =
       timing.kind === "on_date" && typeof timing.date === "string"
         ? timing.date
@@ -139,15 +149,17 @@ export function getToolPresentation(
         : null,
       Array.isArray(subject.artists) && subject.artists.length > 0
         ? subject.artists.join(", ")
-        : null
-      ,
+        : null,
       typeof location.area === "string" ? titleCase(location.area) : city,
       timingLabel,
       attendance.kind === "in_person"
         ? "In person"
         : attendance.kind === "online"
           ? "Online"
-          : "Any format"
+          : "Any format",
+      results.kind === "limited" && typeof results.count === "number"
+        ? `${results.count} result${results.count === 1 ? "" : "s"}`
+        : null
     ].filter((detail): detail is string => Boolean(detail));
     const count = resultCount(outputValue, "found");
     return {
@@ -245,7 +257,11 @@ export function ToolCallDisplay({
             {isExpanded && (
               <div className="mt-2 rounded-lg border border-[#0140B6]/20 bg-white px-2 py-1.5">
                 <pre className="whitespace-pre-wrap break-words text-[10px] text-[#0140B6]/75">
-                  {JSON.stringify(part.input as Record<string, unknown>, null, 2)}
+                  {JSON.stringify(
+                    part.input as Record<string, unknown>,
+                    null,
+                    2
+                  )}
                 </pre>
               </div>
             )}

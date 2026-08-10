@@ -3,14 +3,15 @@ import {
   getMarketConfig,
   type MarketCode
 } from "@gallery-agents/shared";
-import {
-  Think,
-  type ThinkScheduledTasks
-} from "@cloudflare/think";
+import { Think, type ThinkScheduledTasks } from "@cloudflare/think";
 import { getAgentByName } from "agents";
 import { generateText, Output, tool, type ToolSet } from "ai";
 import { z } from "zod";
-import { browserLinks, fetchSource } from "./fetching";
+import {
+  browserLinks,
+  fetchSource,
+  prepareContentForExtraction
+} from "./fetching";
 import {
   beginObservationRun,
   commitSourceSnapshot,
@@ -20,6 +21,7 @@ import {
   observerDatabase,
   persistObservation,
   recordSnapshot,
+  recordSourceFailure,
   stateForGallery,
   summarizeObservationRun
 } from "./repository";
@@ -47,7 +49,9 @@ function configuredObserverState(
   state: unknown
 ): ConfiguredGalleryObserverState | null {
   const parsed = galleryObserverStateSchema.safeParse(state);
-  return parsed.success && parsed.data.kind === "configured" ? parsed.data : null;
+  return parsed.success && parsed.data.kind === "configured"
+    ? parsed.data
+    : null;
 }
 
 export class GalleryObserver extends Think<Env, GalleryObserverState> {
@@ -88,12 +92,14 @@ export class GalleryObserver extends Think<Env, GalleryObserverState> {
     const allowed = configured.sources.map((source) => source.normalizedUrl);
     return {
       read_official_source: tool({
-        description: "Render and read one allowlisted official gallery URL as Markdown.",
+        description:
+          "Render and read one allowlisted official gallery URL as Markdown.",
         inputSchema: z.object({ url: z.string().url() }),
         execute: async ({ url }) => {
           const normalized = assertAllowedSourceUrl(url, allowed);
           const source = configured.sources.find(
-            (entry) => new URL(entry.normalizedUrl).origin === new URL(normalized).origin
+            (entry) =>
+              new URL(entry.normalizedUrl).origin === new URL(normalized).origin
           );
           if (!source) throw new Error("No matching source configuration");
           const snapshot = await fetchSource(this.env.BROWSER, {
@@ -123,7 +129,8 @@ export class GalleryObserver extends Think<Env, GalleryObserverState> {
     }
     const galleryId = configured.galleryId;
     const market = configured.market;
-    const schedule = `every day at ${minuteToWallClock(stableMinute(galleryId))}` as const;
+    const schedule =
+      `every day at ${minuteToWallClock(stableMinute(galleryId))}` as const;
     return {
       observeOfficialSources: {
         schedule,
@@ -131,30 +138,38 @@ export class GalleryObserver extends Think<Env, GalleryObserverState> {
         retry: { maxAttempts: 3 },
         metadata: { galleryId, market: market.market },
         handler: async ({ idempotencyKey, scheduledFor }) => {
-          await this.startObservation(
-            idempotencyKey,
-            scheduledFor,
-            { kind: "change_only" }
-          );
+          await this.startObservation(idempotencyKey, scheduledFor, {
+            kind: "change_only"
+          });
         }
       }
     };
   }
 
   async configureGallery(galleryId: string): Promise<GalleryObserverState> {
+    const next = await this.refreshGallerySources(galleryId);
+    await this.internal_reconcileScheduledTasks();
+    return next;
+  }
+
+  async refreshGallerySources(
+    galleryId: string
+  ): Promise<GalleryObserverState> {
     const next = galleryObserverStateSchema.parse(
       await stateForGallery(observerDatabase(this.env), galleryId)
     );
-    if (next.kind !== "configured") throw new Error("Gallery configuration is incomplete");
+    if (next.kind !== "configured")
+      throw new Error("Gallery configuration is incomplete");
     const previous = configuredObserverState(this.state);
     this.setState({
       ...next,
       workflow:
         previous?.galleryId === galleryId ? previous.workflow : next.workflow,
       observation:
-        previous?.galleryId === galleryId ? previous.observation : next.observation
+        previous?.galleryId === galleryId
+          ? previous.observation
+          : next.observation
     });
-    await this.internal_reconcileScheduledTasks();
     return this.state;
   }
 
@@ -165,7 +180,10 @@ export class GalleryObserver extends Think<Env, GalleryObserverState> {
   async startObservation(
     idempotencyKey: string,
     scheduledFor: number,
-    mode: { kind: "change_only" } | { kind: "force_extract" }
+    mode:
+      | { kind: "change_only" }
+      | { kind: "force_extract" }
+      | { kind: "unchecked_only" }
   ) {
     if (this.state.kind !== "configured" || this.state.status !== "active") {
       throw new Error("Gallery observer is not active");
@@ -258,7 +276,12 @@ export class GalleryObserver extends Think<Env, GalleryObserverState> {
       strategy: snapshot.strategy,
       browserMs: snapshot.browserMs
     });
-    return { ...snapshot, content: snapshot.content.slice(0, 75_000), changed, r2Key };
+    return {
+      ...snapshot,
+      content: prepareContentForExtraction(snapshot.content),
+      changed,
+      r2Key
+    };
   }
 
   async saveExtraction(
@@ -277,7 +300,9 @@ export class GalleryObserver extends Think<Env, GalleryObserverState> {
     });
   }
 
-  async extractStructuredSnapshot(prompt: string): Promise<ObservationExtraction> {
+  async extractStructuredSnapshot(
+    prompt: string
+  ): Promise<ObservationExtraction> {
     const { output } = await generateText({
       model: this.getModel(),
       output: Output.object({ schema: fallbackObservationExtractionSchema }),
@@ -285,6 +310,7 @@ export class GalleryObserver extends Think<Env, GalleryObserverState> {
         prompt,
         "SDK fallback transport: replace each event's venue object with required flat fields venue_scope, venue_detail, and venue_evidence. Use empty strings only when detail is inapplicable."
       ].join("\n"),
+      abortSignal: AbortSignal.timeout(120_000),
       maxRetries: 2
     });
     return fromFallbackObservationExtraction(output);
@@ -300,6 +326,10 @@ export class GalleryObserver extends Think<Env, GalleryObserverState> {
       contentHash,
       changed
     });
+  }
+
+  async markSourceFailed(sourceId: string) {
+    return recordSourceFailure(observerDatabase(this.env), { sourceId });
   }
 
   async summarizeRun(runId: string) {
@@ -326,8 +356,7 @@ type MarketScoutState =
       kind: "active";
       market: MarketCode;
       reconciliation:
-        | { kind: "never" }
-        | { kind: "reconciled"; reconciledAt: string };
+        { kind: "never" } | { kind: "reconciled"; reconciledAt: string };
     };
 
 /**

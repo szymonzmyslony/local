@@ -26,6 +26,7 @@ describe("Zine channel prompts", () => {
     expect(prompt).toContain("Channel: Web");
     expect(prompt).toContain("visual cards automatically");
     expect(prompt).toContain("Never invent or infer an address");
+    expect(prompt).toContain('results { kind: "limited", count: N }');
   });
 
   it("builds Warsaw guidance from the closed market configuration", () => {
@@ -114,7 +115,11 @@ describe("event search cutoff", () => {
 describe("market routing", () => {
   it("keeps London as the default and gives Warsaw an isolated path", () => {
     expect(
-      resolveMarket({ hostname: "chat.zinelocal.com", pathname: "/", search: "" })
+      resolveMarket({
+        hostname: "chat.zinelocal.com",
+        pathname: "/",
+        search: ""
+      })
     ).toBe("ldn");
     expect(
       resolveMarket({

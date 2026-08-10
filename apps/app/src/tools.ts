@@ -143,9 +143,7 @@ const eventLocationSchema = z.discriminatedUnion("kind", [
     .strict()
 ]);
 
-const isoDateSchema = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
+const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
 
 const eventTimingSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("current_and_upcoming") }).strict(),
@@ -165,31 +163,45 @@ const eventAttendanceSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("any") }).strict()
 ]);
 
+const eventResultSetSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("standard") }).strict(),
+  z
+    .object({
+      kind: z.literal("limited"),
+      count: z.number().int().min(1).max(20)
+    })
+    .strict()
+]);
+
 const eventSearchInputSchema = z
   .object({
     mode: z.literal("discover"),
     subject: eventSubjectSchema,
     location: eventLocationSchema,
     timing: eventTimingSchema,
-    attendance: eventAttendanceSchema
+    attendance: eventAttendanceSchema,
+    results: eventResultSetSchema
   })
   .strict();
 
-function normalizeGalleryEvent(event: {
-  event_id: string;
-  title: string;
-  description: string;
-  start_at: string;
-  end_at: string;
-  timezone: string | null;
-  status: string;
-  ticket_url: string;
-  source_url: string | null;
-  artists: string[];
-  tags: string[];
-  images: string[];
-  gallery: unknown;
-}, fallbackTimezone: string): EventCardData {
+function normalizeGalleryEvent(
+  event: {
+    event_id: string;
+    title: string;
+    description: string;
+    start_at: string;
+    end_at: string;
+    timezone: string | null;
+    status: string;
+    ticket_url: string;
+    source_url: string | null;
+    artists: string[];
+    tags: string[];
+    images: string[];
+    gallery: unknown;
+  },
+  fallbackTimezone: string
+): EventCardData {
   const gallery =
     event.gallery && typeof event.gallery === "object"
       ? (event.gallery as Record<string, unknown>)
@@ -284,11 +296,14 @@ export function createZineTools(env: Env, config: MarketConfig) {
 
       const supabase = getPublicClient(env);
 
-      const { data, error } = await supabase.rpc("get_gallery_events_for_market", {
-        gallery_uuid: galleryId,
-        event_limit: limit,
-        filter_market: config.market
-      });
+      const { data, error } = await supabase.rpc(
+        "get_gallery_events_for_market",
+        {
+          gallery_uuid: galleryId,
+          event_limit: limit,
+          filter_market: config.market
+        }
+      );
 
       if (error) {
         return `Error fetching events: ${error.message}`;
@@ -296,9 +311,7 @@ export function createZineTools(env: Env, config: MarketConfig) {
 
       const cutoff = Date.now();
       const upcomingEvents = (data ?? [])
-        .filter(
-          (event) => Date.parse(event.end_at ?? event.start_at) >= cutoff
-        )
+        .filter((event) => Date.parse(event.end_at ?? event.start_at) >= cutoff)
         .map((event) => normalizeGalleryEvent(event, config.timezone));
 
       return {
@@ -323,11 +336,13 @@ export function createZineTools(env: Env, config: MarketConfig) {
 
     Events are automatically filtered to only show events from the current time onward.
 
-    Always provide four explicit discriminated dimensions:
+    Always provide five explicit discriminated dimensions:
     subject (any, semantic, artists, semantic_and_artists), location
     (anywhere_in_market or area), and timing (current_and_upcoming, on_date,
-    or date_range), and attendance (in_person, online, or any). Use in_person
-    for a place-based visit unless the user explicitly asks for online events.
+    or date_range), attendance (in_person, online, or any), and results
+    (standard or limited). Use results limited with the exact requested count;
+    otherwise use standard. Use in_person for a place-based visit unless the
+    user explicitly asks for online events.
 
     After receiving results, analyze and present relevant events to the user.
   `,

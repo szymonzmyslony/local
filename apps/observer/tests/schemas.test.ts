@@ -111,7 +111,9 @@ describe("observation extraction boundary", () => {
       notes: []
     });
 
-    expect(fromFallbackObservationExtraction(fallback).events[0]?.venue).toEqual({
+    expect(
+      fromFallbackObservationExtraction(fallback).events[0]?.venue
+    ).toEqual({
       kind: "outside_market",
       venue: "PLATO, Ostrava",
       evidence: "Presented in Ostrava"
@@ -171,6 +173,12 @@ describe("multi-market agent boundaries", () => {
         galleryId: "8dc9aeeb-cf7a-4636-9ca6-3ea21a8ba77d"
       }).mode
     ).toBe("force_extract");
+    expect(
+      observeRequestSchema.parse({
+        mode: "unchecked_only",
+        galleryId: "8dc9aeeb-cf7a-4636-9ca6-3ea21a8ba77d"
+      }).mode
+    ).toBe("unchecked_only");
     expect(() =>
       observeRequestSchema.parse({
         galleryId: "8dc9aeeb-cf7a-4636-9ca6-3ea21a8ba77d",

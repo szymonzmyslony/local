@@ -6,6 +6,7 @@ import {
   isMarketCode,
   type MarketCode,
   type Database,
+  type Json,
   toPgVector
 } from "@gallery-agents/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -55,9 +56,12 @@ export type SourceRecord = {
   fetch_strategy: GallerySource["strategy"];
   enabled: boolean;
   last_content_hash: string | null;
+  consecutive_failures: number;
 };
 
-export function observerDatabase(env: Pick<Env, "SUPABASE_URL" | "SUPABASE_SERVICE_ROLE_KEY">) {
+export function observerDatabase(
+  env: Pick<Env, "SUPABASE_URL" | "SUPABASE_SERVICE_ROLE_KEY">
+) {
   return getServiceClient(env);
 }
 
@@ -85,7 +89,7 @@ export async function loadGalleryBundle(
   const { data: sources, error: sourceError } = await db
     .from("gallery_sources")
     .select(
-      "id, gallery_id, url, normalized_url, kind, fetch_strategy, enabled, last_content_hash"
+      "id, gallery_id, url, normalized_url, kind, fetch_strategy, enabled, last_content_hash, consecutive_failures"
     )
     .eq("gallery_id", galleryId)
     .eq("enabled", true)
@@ -173,7 +177,9 @@ export async function registerMarketGallery(
       .limit(2);
     throwIfError("findGalleryByName", nameError);
     if ((nameMatches ?? []).length > 1) {
-      throw new Error(`Gallery name is ambiguous in ${config.city}: ${input.name}`);
+      throw new Error(
+        `Gallery name is ambiguous in ${config.city}: ${input.name}`
+      );
     }
     galleryId = nameMatches?.[0]?.gallery_id ?? null;
   }
@@ -214,7 +220,8 @@ export async function registerMarketGallery(
     gallery_id: galleryId,
     name: input.name,
     updated_at: now,
-    ...(input.location.kind === "known" || input.location.kind === "address_only"
+    ...(input.location.kind === "known" ||
+    input.location.kind === "address_only"
       ? { address: input.location.address }
       : {}),
     ...(input.location.kind === "known" || input.location.kind === "area_only"
@@ -344,9 +351,7 @@ export async function summarizeObservationRun(
     candidates: rows.length,
     published: new Set(
       rows
-        .filter(
-          (row) => row.decision === "published" && row.canonical_event_id
-        )
+        .filter((row) => row.decision === "published" && row.canonical_event_id)
         .map((row) => row.canonical_event_id)
     ).size
   };
@@ -398,6 +403,29 @@ export async function recordSnapshot(
   throwIfError("updateGallerySourceSnapshot", sourceError);
 }
 
+export async function recordSourceFailure(
+  db: DatabaseClient,
+  input: { sourceId: string }
+): Promise<void> {
+  const { data: source, error: sourceReadError } = await db
+    .from("gallery_sources")
+    .select("consecutive_failures")
+    .eq("id", input.sourceId)
+    .single();
+  throwIfError("readGallerySourceFailureCount", sourceReadError);
+
+  const now = new Date().toISOString();
+  const { error: sourceUpdateError } = await db
+    .from("gallery_sources")
+    .update({
+      last_checked_at: now,
+      consecutive_failures: (source?.consecutive_failures ?? 0) + 1,
+      updated_at: now
+    })
+    .eq("id", input.sourceId);
+  throwIfError("recordGallerySourceFailure", sourceUpdateError);
+}
+
 export async function commitSourceSnapshot(
   db: DatabaseClient,
   input: { sourceId: string; contentHash: string; changed: boolean }
@@ -424,20 +452,118 @@ function cleanUrl(input: string | null): string | null {
   }
 }
 
+type ExistingEventInfo = Pick<
+  Database["public"]["Tables"]["event_info"]["Row"],
+  "description" | "artists" | "tags" | "images" | "data"
+>;
+
+type IncomingEventInfo = {
+  description: string | null;
+  artists: string[];
+  tags: string[];
+  images: string[];
+  evidence: string[];
+  source: string;
+};
+
+type MergedEventInfo = {
+  description: string | null;
+  artists: string[];
+  tags: string[];
+  images: string[];
+  data: Json;
+};
+
+function uniqueNonEmpty(values: string[]): string[] {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const value of values) {
+    const clean = value.trim();
+    const key = clean.toLocaleLowerCase();
+    if (!clean || seen.has(key)) continue;
+    seen.add(key);
+    merged.push(clean);
+  }
+  return merged;
+}
+
+function dataStringArray(data: Json, key: string): string[] {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return [];
+  const value = data[key];
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
+}
+
+function dataString(data: Json, key: string): string | null {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const value = data[key];
+  return typeof value === "string" ? value : null;
+}
+
+export function mergeObservedEventInfo(
+  existing: ExistingEventInfo | null,
+  incoming: IncomingEventInfo
+): MergedEventInfo {
+  const existingDescription = existing?.description?.trim() || null;
+  const incomingDescription = incoming.description?.trim() || null;
+  const description =
+    incomingDescription &&
+    (!existingDescription ||
+      incomingDescription.length > existingDescription.length)
+      ? incomingDescription
+      : existingDescription;
+  const previousEvidence = existing
+    ? dataStringArray(existing.data, "evidence")
+    : [];
+  const previousSources = existing
+    ? [
+        ...dataStringArray(existing.data, "sources"),
+        ...(dataString(existing.data, "source")
+          ? [dataString(existing.data, "source") as string]
+          : [])
+      ]
+    : [];
+  const sources = uniqueNonEmpty([...previousSources, incoming.source]);
+
+  return {
+    description,
+    artists: uniqueNonEmpty([
+      ...(existing?.artists ?? []),
+      ...incoming.artists
+    ]),
+    tags: uniqueNonEmpty([...(existing?.tags ?? []), ...incoming.tags]),
+    images: uniqueNonEmpty([...(existing?.images ?? []), ...incoming.images]),
+    data: {
+      evidence: uniqueNonEmpty([...previousEvidence, ...incoming.evidence]),
+      source: incoming.source,
+      sources
+    }
+  };
+}
+
 function evaluateCandidate(event: ExtractedEvent, now: Date) {
   const reasons: string[] = [];
   const start = event.start_at ? new Date(event.start_at) : null;
   const end = event.end_at ? new Date(event.end_at) : null;
-  if (!start || Number.isNaN(start.valueOf())) reasons.push("missing_or_invalid_start_at");
+  if (!start || Number.isNaN(start.valueOf()))
+    reasons.push("missing_or_invalid_start_at");
   if (end && Number.isNaN(end.valueOf())) reasons.push("invalid_end_at");
   if (start && end && end < start) reasons.push("end_before_start");
-  if (end && end < new Date(now.valueOf() - 24 * 60 * 60 * 1000)) reasons.push("event_ended");
-  if (!end && start && start < new Date(now.valueOf() - 30 * 24 * 60 * 60 * 1000)) {
+  if (end && end < new Date(now.valueOf() - 24 * 60 * 60 * 1000))
+    reasons.push("event_ended");
+  if (
+    !end &&
+    start &&
+    start < new Date(now.valueOf() - 30 * 24 * 60 * 60 * 1000)
+  ) {
     reasons.push("stale_start_without_end");
   }
-  if (event.confidence < 0.82) reasons.push("confidence_below_publish_threshold");
+  if (event.confidence < 0.82)
+    reasons.push("confidence_below_publish_threshold");
   if (event.evidence.length === 0) reasons.push("missing_evidence");
-  if (event.venue.kind === "outside_market") reasons.push("venue_outside_market");
+  if (event.venue.kind === "outside_market")
+    reasons.push("venue_outside_market");
   if (event.venue.kind === "unknown") reasons.push("venue_unverified");
   return reasons;
 }
@@ -460,7 +586,11 @@ export async function persistObservation(
   for (const discovered of input.extraction.discovered_sources) {
     try {
       const currentOrigin = new URL(input.source.normalizedUrl).origin;
-      if (new URL(discovered.url, input.source.normalizedUrl).origin !== currentOrigin) continue;
+      if (
+        new URL(discovered.url, input.source.normalizedUrl).origin !==
+        currentOrigin
+      )
+        continue;
       await upsertGallerySource(
         db,
         galleryId,
@@ -506,35 +636,53 @@ export async function persistObservation(
       const matchToleranceMs = eventMatchToleranceMs(observedIdentity);
       const { data: nearbyEvents, error: nearbyError } = await db
         .from("events")
-        .select("id, title, start_at")
+        .select(
+          "id, title, start_at, end_at, ticket_url, source_url, confidence, status"
+        )
         .eq("gallery_id", galleryId)
-        .gte("start_at", new Date(startAt.valueOf() - matchToleranceMs).toISOString())
-        .lte("start_at", new Date(startAt.valueOf() + matchToleranceMs).toISOString())
+        .gte(
+          "start_at",
+          new Date(startAt.valueOf() - matchToleranceMs).toISOString()
+        )
+        .lte(
+          "start_at",
+          new Date(startAt.valueOf() + matchToleranceMs).toISOString()
+        )
         .limit(50);
       throwIfError("findCanonicalEvent", nearbyError);
-      const existingEvent = nearbyEvents?.find(
-        (candidate) =>
-          isSameCanonicalEvent({
-            existing: {
-              title: candidate.title,
-              startAt: new Date(candidate.start_at)
-            },
-            observed: observedIdentity,
-            locale: input.state.market.locale,
-            timezone: input.state.market.timezone
-          })
+      const existingEvent = nearbyEvents?.find((candidate) =>
+        isSameCanonicalEvent({
+          existing: {
+            title: candidate.title,
+            startAt: new Date(candidate.start_at)
+          },
+          observed: observedIdentity,
+          locale: input.state.market.locale,
+          timezone: input.state.market.timezone
+        })
       );
+      const observedEndAt = event.end_at
+        ? new Date(event.end_at).toISOString()
+        : null;
+      const observedTicketUrl = cleanUrl(event.ticket_url);
+      const observedEventUrl = cleanUrl(event.event_url);
       const canonicalValues = {
         gallery_id: galleryId,
         page_id: null,
         title: event.title.trim(),
         start_at: startAt.toISOString(),
-        end_at: event.end_at ? new Date(event.end_at).toISOString() : null,
+        end_at: observedEndAt ?? existingEvent?.end_at ?? null,
         timezone: input.state.market.timezone,
-        status: event.status,
-        ticket_url: cleanUrl(event.ticket_url),
-        source_url: cleanUrl(event.event_url) ?? input.source.normalizedUrl,
-        confidence: event.confidence,
+        status:
+          event.status === "unknown"
+            ? (existingEvent?.status ?? event.status)
+            : event.status,
+        ticket_url: observedTicketUrl ?? existingEvent?.ticket_url ?? null,
+        source_url:
+          observedEventUrl ??
+          existingEvent?.source_url ??
+          input.source.normalizedUrl,
+        confidence: Math.max(event.confidence, existingEvent?.confidence ?? 0),
         published: true,
         updated_at: now.toISOString()
       };
@@ -547,7 +695,8 @@ export async function persistObservation(
           .select("id")
           .single();
         throwIfError("updateCanonicalEvent", eventError);
-        if (!canonical) throw new Error("Canonical event update returned no row");
+        if (!canonical)
+          throw new Error("Canonical event update returned no row");
         canonicalEventId = canonical.id;
       } else {
         const { data: canonical, error: eventError } = await db
@@ -559,24 +708,44 @@ export async function persistObservation(
           .select("id")
           .single();
         throwIfError("publishEvent", eventError);
-        if (!canonical) throw new Error("Canonical event upsert returned no row");
+        if (!canonical)
+          throw new Error("Canonical event upsert returned no row");
         canonicalEventId = canonical.id;
       }
 
-      const embeddingText = [event.title, event.description, ...event.artists, ...event.tags]
+      const { data: existingInfo, error: existingInfoError } = await db
+        .from("event_info")
+        .select("description, artists, tags, images, data")
+        .eq("event_id", canonicalEventId)
+        .maybeSingle();
+      throwIfError("loadExistingEventInfo", existingInfoError);
+      const mergedInfo = mergeObservedEventInfo(existingInfo, {
+        description: event.description,
+        artists: event.artists,
+        tags: event.tags,
+        images: event.images
+          .map(cleanUrl)
+          .filter((image): image is string => image !== null),
+        evidence: event.evidence,
+        source: input.source.normalizedUrl
+      });
+      const embeddingText = [
+        event.title,
+        mergedInfo.description,
+        ...mergedInfo.artists,
+        ...mergedInfo.tags
+      ]
         .filter(Boolean)
         .join("\n")
         .slice(0, 12_000);
       const vector = embeddingText ? await embed(embeddingText) : [];
       const { error: infoError } = await db.rpc("upsert_observed_event_info", {
         p_event_id: canonicalEventId,
-        p_description: event.description,
-        p_artists: event.artists,
-        p_tags: event.tags,
-        p_images: event.images
-          .map(cleanUrl)
-          .filter((image): image is string => image !== null),
-        p_data: { evidence: event.evidence, source: input.source.normalizedUrl },
+        p_description: mergedInfo.description,
+        p_artists: mergedInfo.artists,
+        p_tags: mergedInfo.tags,
+        p_images: mergedInfo.images,
+        p_data: mergedInfo.data,
         p_embedding: toPgVector(vector),
         p_embedding_model: AI_CONFIG.EMBEDDING_MODEL,
         p_embedding_created_at: now.toISOString()
@@ -605,7 +774,10 @@ export async function persistObservation(
 
   const { error: galleryError } = await db
     .from("galleries")
-    .update({ last_observed_at: now.toISOString(), updated_at: now.toISOString() })
+    .update({
+      last_observed_at: now.toISOString(),
+      updated_at: now.toISOString()
+    })
     .eq("id", galleryId);
   throwIfError("markGalleryObserved", galleryError);
 

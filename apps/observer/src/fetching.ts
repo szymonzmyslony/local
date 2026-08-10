@@ -4,7 +4,20 @@ import { sha256 } from "./url";
 const MAX_RESPONSE_BYTES = 2_000_000;
 const MAX_EXTRACTION_CHARS = 90_000;
 
-async function readLimited(response: Response, maxBytes = MAX_RESPONSE_BYTES): Promise<string> {
+export function prepareContentForExtraction(content: string): string {
+  return content
+    .replace(
+      /data:image\/[a-z0-9.+-]+(?:;charset=[^;,\s)]+)?;base64,[a-z0-9+/=]+/gi,
+      "[inline image omitted]"
+    )
+    .slice(0, MAX_EXTRACTION_CHARS)
+    .trim();
+}
+
+async function readLimited(
+  response: Response,
+  maxBytes = MAX_RESPONSE_BYTES
+): Promise<string> {
   if (!response.body) return "";
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -45,7 +58,10 @@ export type FetchedSnapshot = {
   byteLength: number;
 };
 
-async function browserMarkdown(browser: BrowserRun, url: string): Promise<FetchedSnapshot> {
+async function browserMarkdown(
+  browser: BrowserRun,
+  url: string
+): Promise<FetchedSnapshot> {
   const response = await browser.quickAction("markdown", {
     url,
     gotoOptions: { waitUntil: "networkidle2", timeout: 45_000 },
@@ -62,8 +78,12 @@ async function browserMarkdown(browser: BrowserRun, url: string): Promise<Fetche
     throw new Error(`Browser Run returned non-JSON (${response.status})`);
   }
   if (!response.ok || !payload.success || typeof payload.result !== "string") {
-    const detail = payload.errors?.map((entry) => entry.message).join("; ") || response.statusText;
-    throw new Error(`Browser Run markdown failed (${response.status}): ${detail}`);
+    const detail =
+      payload.errors?.map((entry) => entry.message).join("; ") ||
+      response.statusText;
+    throw new Error(
+      `Browser Run markdown failed (${response.status}): ${detail}`
+    );
   }
   const content = payload.result.slice(0, MAX_EXTRACTION_CHARS);
   const browserMs = Number(response.headers.get("x-browser-ms-used"));
@@ -73,9 +93,10 @@ async function browserMarkdown(browser: BrowserRun, url: string): Promise<Fetche
     contentType: "text/markdown",
     httpStatus: 200,
     strategy: "browser_markdown",
-    browserMs: Number.isFinite(browserMs) && browserMs > 0
-      ? Math.round(browserMs)
-      : null,
+    browserMs:
+      Number.isFinite(browserMs) && browserMs > 0
+        ? Math.round(browserMs)
+        : null,
     byteLength: new TextEncoder().encode(content).byteLength
   };
 }
@@ -90,7 +111,8 @@ async function httpHtml(url: string): Promise<FetchedSnapshot> {
     signal: AbortSignal.timeout(30_000)
   });
   if (!response.ok) throw new Error(`HTTP fetch failed (${response.status})`);
-  const contentType = response.headers.get("content-type")?.split(";")[0] ?? "text/plain";
+  const contentType =
+    response.headers.get("content-type")?.split(";")[0] ?? "text/plain";
   if (!/^(text\/|application\/xhtml\+xml)/.test(contentType)) {
     throw new Error(`Unsupported source content type: ${contentType}`);
   }
@@ -118,7 +140,9 @@ export async function fetchSource(browser: BrowserRun, source: GallerySource) {
           event: "browser_markdown_http_fallback",
           source: source.normalizedUrl,
           browserError:
-            browserError instanceof Error ? browserError.message : String(browserError)
+            browserError instanceof Error
+              ? browserError.message
+              : String(browserError)
         })
       );
       return snapshot;
@@ -130,7 +154,10 @@ export async function fetchSource(browser: BrowserRun, source: GallerySource) {
   }
 }
 
-export async function browserLinks(browser: BrowserRun, url: string): Promise<string[]> {
+export async function browserLinks(
+  browser: BrowserRun,
+  url: string
+): Promise<string[]> {
   const response = await browser.quickAction("links", {
     url,
     visibleLinksOnly: false,
@@ -148,7 +175,10 @@ export async function browserLinks(browser: BrowserRun, url: string): Promise<st
     errors?: Array<{ message: string }>;
   };
   if (!response.ok || !payload.success) {
-    throw new Error(payload.errors?.map((entry) => entry.message).join("; ") || "link fetch failed");
+    throw new Error(
+      payload.errors?.map((entry) => entry.message).join("; ") ||
+        "link fetch failed"
+    );
   }
   return (payload.result ?? []).slice(0, 500);
 }

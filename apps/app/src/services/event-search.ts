@@ -15,8 +15,7 @@ export type EventSubject =
     };
 
 export type EventLocation =
-  | { kind: "anywhere_in_market" }
-  | { kind: "area"; area: string };
+  { kind: "anywhere_in_market" } | { kind: "area"; area: string };
 
 export type EventTiming =
   | { kind: "current_and_upcoming" }
@@ -24,9 +23,10 @@ export type EventTiming =
   | { kind: "date_range"; from: string; to: string };
 
 export type EventAttendance =
-  | { kind: "in_person" }
-  | { kind: "online" }
-  | { kind: "any" };
+  { kind: "in_person" } | { kind: "online" } | { kind: "any" };
+
+export type EventResultSet =
+  { kind: "standard" } | { kind: "limited"; count: number };
 
 /** Every discovery dimension is an explicit discriminated union. */
 export type EventSearchParams = {
@@ -35,6 +35,7 @@ export type EventSearchParams = {
   location: EventLocation;
   timing: EventTiming;
   attendance: EventAttendance;
+  results: EventResultSet;
 };
 
 /** Return the current instant in the format expected by Supabase/Postgres. */
@@ -67,9 +68,12 @@ export type EventSearchResult = {
 
 type EventQueryResult = Database["public"]["Tables"]["events"]["Row"] & {
   event_info: Database["public"]["Tables"]["event_info"]["Row"] | null;
-  galleries: (Database["public"]["Tables"]["galleries"]["Row"] & {
-    gallery_info: Database["public"]["Tables"]["gallery_info"]["Row"] | null;
-  }) | null;
+  galleries:
+    | (Database["public"]["Tables"]["galleries"]["Row"] & {
+        gallery_info:
+          Database["public"]["Tables"]["gallery_info"]["Row"] | null;
+      })
+    | null;
 };
 
 function toMarketDate(value: string, timezone: string): string {
@@ -123,7 +127,11 @@ function filterEvents(
   return events.filter((event) => {
     const locationMatches =
       params.location.kind === "anywhere_in_market" ||
-      matchesMarketArea(event.gallery_district, params.location.area, config.market);
+      matchesMarketArea(
+        event.gallery_district,
+        params.location.area,
+        config.market
+      );
     return (
       locationMatches &&
       eventMatchesTiming(event, params.timing, now, config.timezone) &&
@@ -132,7 +140,9 @@ function filterEvents(
   });
 }
 
-export function deduplicateEvents(events: EventSearchResult[]): EventSearchResult[] {
+export function deduplicateEvents(
+  events: EventSearchResult[]
+): EventSearchResult[] {
   const seen = new Set<string>();
   return events.filter((event) => {
     const key = [
@@ -159,7 +169,7 @@ export async function searchEvents(
   const searchQuery =
     "searchQuery" in subject ? subject.searchQuery : undefined;
   const artists = "artists" in subject ? subject.artists : undefined;
-  const limit = 20;
+  const limit = params.results.kind === "limited" ? params.results.count : 20;
   const searchStart = getEventSearchStart();
 
   console.log("[event-search] Searching with params:", params);
@@ -168,7 +178,10 @@ export async function searchEvents(
   try {
     // If searchQuery provided, use embedding-based semantic search
     if (searchQuery?.trim()) {
-      console.log("[event-search] Generating embedding for query:", searchQuery);
+      console.log(
+        "[event-search] Generating embedding for query:",
+        searchQuery
+      );
 
       const embedder = createEmbedder(openRouterApiKey);
       const embedding = await embedder(searchQuery.trim());
@@ -185,7 +198,7 @@ export async function searchEvents(
           params.timing.kind === "current_and_upcoming"
             ? searchStart
             : `${params.timing.kind === "on_date" ? params.timing.date : params.timing.from}T00:00:00Z`,
-        filter_artists: artists ?? undefined,
+        filter_artists: artists ?? undefined
       });
 
       if (error) {
@@ -199,7 +212,10 @@ export async function searchEvents(
 
       const eventIds = (data ?? []).map((event) => event.event_id);
       const { data: sourceRows } = eventIds.length
-        ? await supabase.from("events").select("id, source_url").in("id", eventIds)
+        ? await supabase
+            .from("events")
+            .select("id, source_url")
+            .in("id", eventIds)
         : { data: [] };
       const sourceUrls = new Map(
         (sourceRows ?? []).map((event) => [event.id, event.source_url])
@@ -223,19 +239,25 @@ export async function searchEvents(
         gallery_name: e.gallery_name ?? null,
         gallery_main_url: e.gallery_main_url,
         gallery_district: e.gallery_district ?? null,
-        gallery_address: e.gallery_address ?? null,
+        gallery_address: e.gallery_address ?? null
       }));
 
-      const filteredResults = deduplicateEvents(filterEvents(results, params, config)).slice(
-        0,
-        limit
+      const filteredResults = deduplicateEvents(
+        filterEvents(results, params, config)
+      ).slice(0, limit);
+      console.log(
+        `[event-search] Found ${filteredResults.length} events via embedding search`
       );
-      console.log(`[event-search] Found ${filteredResults.length} events via embedding search`);
       return { data: filteredResults, error: null };
     }
 
     // No searchQuery: fall back to basic filtering (date and/or artists only)
     console.log("[event-search] No search query, using basic filter");
+
+    const windowStart =
+      params.timing.kind === "current_and_upcoming"
+        ? searchStart
+        : `${params.timing.kind === "on_date" ? params.timing.date : params.timing.from}T00:00:00Z`;
 
     let query = supabase
       .from("events")
@@ -271,7 +293,10 @@ export async function searchEvents(
       .order("start_at", { ascending: true })
       .limit(100)
       .eq("galleries.market", config.market)
-      .eq("published", true);
+      .eq("published", true)
+      .or(
+        `end_at.gte.${windowStart},and(end_at.is.null,start_at.gte.${windowStart})`
+      );
 
     if (artists && artists.length > 0) {
       query = query.overlaps("event_info.artists", artists);
@@ -289,7 +314,9 @@ export async function searchEvents(
     }
 
     // Map to EventSearchResult format
-    const results: EventSearchResult[] = (data as unknown as EventQueryResult[]).map((e) => ({
+    const results: EventSearchResult[] = (
+      data as unknown as EventQueryResult[]
+    ).map((e) => ({
       event_id: e.id,
       title: e.title,
       description: e.event_info?.description ?? null,
@@ -306,15 +333,18 @@ export async function searchEvents(
       gallery_name: e.galleries?.gallery_info?.name ?? null,
       gallery_main_url: e.galleries?.main_url ?? "",
       gallery_district:
-        e.galleries?.gallery_info?.area ?? e.galleries?.gallery_info?.district ?? null,
-      gallery_address: e.galleries?.gallery_info?.address ?? null,
+        e.galleries?.gallery_info?.area ??
+        e.galleries?.gallery_info?.district ??
+        null,
+      gallery_address: e.galleries?.gallery_info?.address ?? null
     }));
 
-    const filteredResults = deduplicateEvents(filterEvents(results, params, config)).slice(
-      0,
-      limit
+    const filteredResults = deduplicateEvents(
+      filterEvents(results, params, config)
+    ).slice(0, limit);
+    console.log(
+      `[event-search] Found ${filteredResults.length} events via basic filter`
     );
-    console.log(`[event-search] Found ${filteredResults.length} events via basic filter`);
     return { data: filteredResults, error: null };
   } catch (err) {
     console.error("[event-search] Unexpected error:", err);
