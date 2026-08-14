@@ -3,6 +3,10 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@shared/ui";
+import {
+  eventOccurrences,
+  primaryEventOccurrence
+} from "../services/event-series";
 import type { SavedEventCard } from "../types/chat-state";
 
 interface EventDetailPopoverProps {
@@ -41,7 +45,12 @@ function formatDateRange(
 }
 
 export function EventDetailPopover({ event, children }: EventDetailPopoverProps) {
-  const primaryLink = event.ticket_url ?? event.source_url ?? event.gallery.main_url;
+  const occurrences = eventOccurrences(event);
+  const primaryOccurrence = primaryEventOccurrence(event);
+  const primaryLink =
+    primaryOccurrence.ticket_url ??
+    primaryOccurrence.source_url ??
+    event.gallery.main_url;
 
   return (
     <Popover>
@@ -65,8 +74,32 @@ export function EventDetailPopover({ event, children }: EventDetailPopoverProps)
               <span className="font-semibold text-[#0140B6]">
                 When:
               </span>{" "}
-              {formatDateRange(event.start_at, event.end_at, event.timezone)}
+              {formatDateRange(
+                primaryOccurrence.start_at,
+                primaryOccurrence.end_at,
+                event.timezone
+              )}
             </p>
+            {occurrences.length > 1 ? (
+              <div>
+                <span className="font-semibold text-[#0140B6]">
+                  Other dates:
+                </span>{" "}
+                {occurrences
+                  .slice(1, 8)
+                  .map((occurrence) =>
+                    formatDateRange(
+                      occurrence.start_at,
+                      occurrence.end_at,
+                      event.timezone
+                    )
+                  )
+                  .join(" · ")}
+                {occurrences.length > 8
+                  ? ` · ${occurrences.length - 8} more`
+                  : ""}
+              </div>
+            ) : null}
             {event.gallery.name && (
               <p>
                 <span className="font-semibold text-[#0140B6]">

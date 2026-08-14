@@ -1,9 +1,13 @@
-import { tool, type ToolSet } from "ai";
-import { z } from "zod";
 import { getPublicClient, type MarketConfig } from "@shared";
-import { searchGalleries } from "./services/gallery-search";
+import { type ToolSet, tool } from "ai";
+import { z } from "zod";
 import { searchEvents } from "./services/event-search";
-import type { EventCardData } from "./types/chat-state";
+import {
+  DEFAULT_VISIBLE_EVENT_SERIES,
+  type EventSeriesInput,
+  groupEventSeries
+} from "./services/event-series";
+import { searchGalleries } from "./services/gallery-search";
 
 export const ZINE_TOOL_NAMES = [
   "retrieve_galleries",
@@ -190,7 +194,7 @@ function normalizeGalleryEvent(
     title: string;
     description: string;
     start_at: string;
-    end_at: string;
+    end_at: string | null;
     timezone: string | null;
     status: string;
     ticket_url: string;
@@ -201,7 +205,7 @@ function normalizeGalleryEvent(
     gallery: unknown;
   },
   fallbackTimezone: string
-): EventCardData {
+): EventSeriesInput {
   const gallery =
     event.gallery && typeof event.gallery === "object"
       ? (event.gallery as Record<string, unknown>)
@@ -310,9 +314,10 @@ export function createZineTools(env: Env, config: MarketConfig) {
       }
 
       const cutoff = Date.now();
-      const upcomingEvents = (data ?? [])
+      const upcomingOccurrences = (data ?? [])
         .filter((event) => Date.parse(event.end_at ?? event.start_at) >= cutoff)
         .map((event) => normalizeGalleryEvent(event, config.timezone));
+      const upcomingEvents = groupEventSeries(upcomingOccurrences);
 
       return {
         type: "event-results" as const,
@@ -320,6 +325,14 @@ export function createZineTools(env: Env, config: MarketConfig) {
         market: config.market,
         city: config.city,
         galleryId,
+        display:
+          params.mode === "limited"
+            ? ({ kind: "complete" } as const)
+            : ({
+                kind: "progressive",
+                initialCount: DEFAULT_VISIBLE_EVENT_SERIES
+              } as const),
+        occurrencesFound: upcomingOccurrences.length,
         events: upcomingEvents
       };
     }
@@ -344,7 +357,9 @@ export function createZineTools(env: Env, config: MarketConfig) {
     otherwise use standard. Use in_person for a place-based visit unless the
     user explicitly asks for online events.
 
-    After receiving results, analyze and present relevant events to the user.
+    Repeated sessions are grouped into one event with multiple dates. After
+    receiving results, provide at most two short orientation sentences; the
+    cards already contain the canonical titles, dates, venues, and links.
   `,
     inputSchema: eventSearchInputSchema,
     execute: async (params) => {
@@ -362,33 +377,44 @@ export function createZineTools(env: Env, config: MarketConfig) {
         return `Database error: ${error.message}`;
       }
 
+      const occurrences: EventSeriesInput[] = data.map((e) => ({
+        event_id: e.event_id,
+        title: e.title,
+        description: e.description,
+        start_at: e.start_at,
+        end_at: e.end_at,
+        timezone: e.timezone ?? config.timezone,
+        status: e.status,
+        ticket_url: e.ticket_url,
+        source_url: e.source_url,
+        artists: e.artists,
+        tags: e.tags,
+        images: e.images,
+        gallery: {
+          id: e.gallery_id,
+          name: e.gallery_name,
+          main_url: e.gallery_main_url,
+          area: e.gallery_district,
+          address: e.gallery_address
+        }
+      }));
+      const events = groupEventSeries(occurrences);
+
       return {
         type: "event-results" as const,
         source: "search" as const,
         market: config.market,
         city: config.city,
-        found: data.length,
-        events: data.map((e) => ({
-          event_id: e.event_id,
-          title: e.title,
-          description: e.description,
-          start_at: e.start_at,
-          end_at: e.end_at,
-          timezone: e.timezone ?? config.timezone,
-          status: e.status,
-          ticket_url: e.ticket_url,
-          source_url: e.source_url,
-          artists: e.artists,
-          tags: e.tags,
-          images: e.images,
-          gallery: {
-            id: e.gallery_id,
-            name: e.gallery_name,
-            main_url: e.gallery_main_url,
-            area: e.gallery_district,
-            address: e.gallery_address
-          }
-        }))
+        found: events.length,
+        occurrencesFound: occurrences.length,
+        display:
+          params.results.kind === "limited"
+            ? ({ kind: "complete" } as const)
+            : ({
+                kind: "progressive",
+                initialCount: DEFAULT_VISIBLE_EVENT_SERIES
+              } as const),
+        events
       };
     }
   });

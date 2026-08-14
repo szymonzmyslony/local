@@ -1,10 +1,10 @@
-import { useMemo } from "react";
-import { isToolUIPart, type ChatStatus, type UIMessage } from "ai";
-import { TextMessage } from "./messages/text-message";
-import { ToolMessage } from "./messages/tool-message";
-import { ThinkingMessage } from "./messages/thinking-message";
-import type { SavedEventCard } from "../types/chat-state";
 import type { MarketConfig } from "@shared";
+import { type ChatStatus, isToolUIPart, type UIMessage } from "ai";
+import { useMemo } from "react";
+import type { SavedEventCard } from "../types/chat-state";
+import { TextMessage } from "./messages/text-message";
+import { ThinkingMessage } from "./messages/thinking-message";
+import { ToolMessage } from "./messages/tool-message";
 
 type MessageMeta = { createdAt: string; internal?: boolean };
 
@@ -20,6 +20,39 @@ function formatTimestamp(value: string | Date | undefined): string {
   const date =
     value instanceof Date ? value : value ? new Date(value) : new Date();
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+export function hasRenderedEventCards(message: UIMessage<MessageMeta>): boolean {
+  return Boolean(
+    message.parts?.some((part) => {
+      if (!isToolUIPart(part) || part.state !== "output-available") return false;
+      const output = part.output;
+      return Boolean(
+        output &&
+          typeof output === "object" &&
+          "type" in output &&
+          output.type === "event-results" &&
+          "events" in output &&
+          Array.isArray(output.events) &&
+          output.events.length > 0
+      );
+    })
+  );
+}
+
+export function shouldHideRepeatedAssistantText(
+  messages: UIMessage<MessageMeta>[],
+  index: number
+): boolean {
+  const message = messages[index];
+  if (!message || message.role === "user") return false;
+  if (hasRenderedEventCards(message)) return true;
+  const previous = messages[index - 1];
+  return Boolean(
+    previous &&
+      previous.role === "assistant" &&
+      hasRenderedEventCards(previous)
+  );
 }
 
 export function Messages({
@@ -44,6 +77,10 @@ export function Messages({
     <div className="space-y-3">
       {visibleMessages.map((message, index) => {
         const isUser = message.role === "user";
+        const hideRepeatedAssistantText = shouldHideRepeatedAssistantText(
+          visibleMessages,
+          index
+        );
         const timestamp = formatTimestamp(message.metadata?.createdAt);
         const isLastMessage = index === visibleMessages.length - 1;
         const isMessageLoading = isLastMessage && isLoading && message.role === "assistant";
@@ -52,6 +89,7 @@ export function Messages({
           <div key={message.id} className="space-y-1.5">
             {message.parts?.map((part, partIndex) => {
               if (part.type === "text") {
+                if (hideRepeatedAssistantText) return null;
                 return (
                   <TextMessage
                     // biome-ignore lint/suspicious/noArrayIndexKey: AI message part positions are stable while streamed text changes.

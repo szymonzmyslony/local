@@ -1,16 +1,16 @@
+import { getMarketConfig } from "@shared";
 import { describe, expect, it } from "vitest";
+import { resolveMarket } from "../src/market";
 import { getZineSystemPrompt } from "../src/prompts";
+import type { EventSearchResult } from "../src/services/event-search";
 import {
   deduplicateEvents,
   diversifyEvents,
   eventMatchesAttendance,
   eventMatchesTiming,
-  getEventSearchWindow,
-  getEventSearchStart
+  getEventSearchStart,
+  getEventSearchWindow
 } from "../src/services/event-search";
-import type { EventSearchResult } from "../src/services/event-search";
-import { getMarketConfig } from "@shared";
-import { resolveMarket } from "../src/market";
 import { matchesMarketArea } from "../src/services/market-area";
 
 describe("Zine channel prompts", () => {
@@ -29,6 +29,8 @@ describe("Zine channel prompts", () => {
     expect(prompt).toContain("visual cards automatically");
     expect(prompt).toContain("Never invent or infer an address");
     expect(prompt).toContain('results { kind: "limited", count: N }');
+    expect(prompt).toContain("at most two short sentences");
+    expect(prompt).toContain("multiple dates");
   });
 
   it("builds Warsaw guidance from the closed market configuration", () => {

@@ -11,7 +11,7 @@ import { resolveMarket } from "./market";
 type MessageMeta = { createdAt: string; internal?: boolean };
 
 const DEBUG_MODE_KEY = "zine-debug-mode";
-const WEB_AGENT_ID_KEY = "zine-web-agent-id-v4";
+const WEB_AGENT_ID_KEY = "zine-web-agent-id-v5";
 
 export function getOrCreateWebAgentId(market: MarketCode): string {
   const storageKey = `${WEB_AGENT_ID_KEY}-${market}`;

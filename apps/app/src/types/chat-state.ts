@@ -28,16 +28,25 @@ export interface UserRequirements {
   event: EventRequirements;
 }
 
+export type EventOccurrence = {
+  event_id: string;
+  start_at: string;
+  end_at: string | null;
+  ticket_url: string | null;
+  source_url: string | null;
+};
+
+export type EventSchedule =
+  | { kind: "single"; occurrence: EventOccurrence }
+  | { kind: "multiple"; occurrences: EventOccurrence[] };
+
 export type EventCardData = {
   event_id: string;
   title: string;
   description: string | null;
-  start_at: string;
-  end_at: string | null;
   timezone: string;
   status: string;
-  ticket_url: string | null;
-  source_url: string | null;
+  schedule: EventSchedule;
   artists: string[];
   tags: string[];
   images: string[];

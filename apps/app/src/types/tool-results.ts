@@ -1,3 +1,4 @@
+import type { EventResultDisplay } from "../services/event-series";
 import type { GallerySearchResult } from "../services/gallery-search";
 import type { EventCardData } from "./chat-state";
 
@@ -17,11 +18,13 @@ export type EventToolResult =
       type: "event-results";
       source: "gallery";
       galleryId: string;
+      display: EventResultDisplay;
       events: EventCardData[];
     }
   | {
       type: "event-results";
       source: "search";
+      display: EventResultDisplay;
       events: EventCardData[];
     };
 
