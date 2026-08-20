@@ -3,6 +3,7 @@ import type { ThinkWorkflowStep } from "@cloudflare/think/workflows";
 import type { AgentWorkflowEvent } from "agents/workflows";
 import type { GalleryObserver } from "./agent";
 import type { ObservationExtraction } from "./schemas";
+import { commitUnchangedSnapshotIfNeeded } from "./snapshot-lifecycle";
 
 type ObservationParams = {
   galleryId: string;
@@ -225,8 +226,20 @@ export class GalleryObservationWorkflow extends ThinkWorkflow<
           );
 
           if (
-            !snapshot.changed &&
-            event.payload.mode.kind !== "force_extract"
+            await commitUnchangedSnapshotIfNeeded(
+              event.payload.mode.kind,
+              snapshot.changed,
+              async () =>
+                step.do(
+                  `commit-unchanged-snapshot:${pass}:${source.id}`,
+                  async () =>
+                    this.agent.commitSnapshot(
+                      source,
+                      snapshot.contentHash,
+                      snapshot.changed
+                    )
+                )
+            )
           ) {
             sourcesSucceeded += 1;
             continue;
