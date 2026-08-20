@@ -19,6 +19,14 @@ import {
   selectProfileSourceUrls
 } from "./fetching";
 import {
+  directoryConfigForMarket,
+  listDirectoryEntryUrls,
+  officialSiteHost,
+  parseDirectoryEntry,
+  selectDirectoryEntryBatch,
+  type DirectoryDiscoveryMode
+} from "./market-directory";
+import {
   beginObservationRun,
   commitSourceSnapshot,
   completeObservationRun,
@@ -40,6 +48,7 @@ import {
   fallbackGalleryProfileExtractionSchema,
   fromFallbackGalleryProfileExtraction,
   fromFallbackObservationExtraction,
+  registerGallerySchema,
   type ConfiguredGalleryObserverState,
   type GalleryObserverState,
   type GalleryProfileExtraction,
@@ -516,71 +525,127 @@ export class LondonScout extends Think<Env, MarketScoutState> {
     return { configured: galleryIds.length };
   }
 
-  async discoverMarketGalleries() {
+  async discoverMarketGalleries(
+    mode: DirectoryDiscoveryMode = "weekly_batch"
+  ) {
     if (this.state.kind !== "active") {
       throw new Error("Market scout is not active");
     }
-    if (this.state.market === "waw") {
-      return { kind: "not_configured" as const, registered: 0 };
-    }
-
-    const directoryUrl = "https://londongalleryweekend.art/galleries/";
+    const market = this.state.market;
+    const directory = directoryConfigForMarket(market);
+    const directoryUrl = directory.url;
     const directoryHtml = await fetchDiscoveryHtml(directoryUrl);
-    const paths = [...directoryHtml.matchAll(/href="((?:\/galleries|\/exhibitors)\/[^"#?]+)"/g)]
-      .map((match) => match[1])
-      .filter((path): path is string => Boolean(path));
-    const uniquePaths = [...new Set(paths)];
-    if (uniquePaths.length === 0) {
-      throw new Error("London gallery directory returned no gallery entries");
+    const entryUrls = listDirectoryEntryUrls(market, directoryHtml);
+    if (entryUrls.length === 0) {
+      throw new Error(
+        `${getMarketConfig(market).city} gallery directory returned no gallery entries`
+      );
     }
-
-    const weeklyBatchSize = 20;
-    const weekNumber = Math.floor(Date.now() / (7 * 24 * 60 * 60 * 1000));
-    const start = (weekNumber * weeklyBatchSize) % uniquePaths.length;
-    const selected = Array.from(
-      { length: Math.min(weeklyBatchSize, uniquePaths.length) },
-      (_, index) => uniquePaths[(start + index) % uniquePaths.length]
-    ).filter((path): path is string => Boolean(path));
+    const selected = selectDirectoryEntryBatch(entryUrls, mode);
     const db = observerDatabase(this.env);
-    const registered: string[] = [];
+    const { data: knownRows, error: knownError } = await db
+      .from("galleries")
+      .select("id, normalized_main_url")
+      .eq("market", market)
+      .limit(1_000);
+    if (knownError) {
+      throw new Error(`[listKnownMarketGalleries] ${knownError.message}`);
+    }
+    const knownGalleries = [...(knownRows ?? [])];
+    const knownIds = new Set(knownGalleries.map((gallery) => gallery.id));
+    let registered = 0;
+    let matchedExisting = 0;
+    let skipped = 0;
+    let failed = 0;
+    let observationsStarted = 0;
 
     for (let offset = 0; offset < selected.length; offset += 5) {
       const batch = selected.slice(offset, offset + 5);
       const results = await Promise.allSettled(
-        batch.map(async (path) => {
-          const entryUrl = new URL(path, directoryUrl).toString();
+        batch.map(async (entryUrl) => {
           const html = await fetchDiscoveryHtml(entryUrl);
-          const nameMatch = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html);
-          const websiteMatch =
-            /class="[^"]*exhibitor_website[^"]*"[\s\S]*?<a[^>]+href="([^"]+)"/i.exec(
-              html
+          return parseDirectoryEntry(market, html, entryUrl);
+        })
+      );
+      for (let index = 0; index < results.length; index += 1) {
+        const result = results[index];
+        const entryUrl = batch[index];
+        if (!result || result.status === "rejected") {
+          failed += 1;
+          console.warn(
+            JSON.stringify({
+              event: "gallery_directory_entry_failed",
+              market,
+              entryUrl,
+              error:
+                result?.status === "rejected"
+                  ? result.reason instanceof Error
+                    ? result.reason.message
+                    : String(result.reason)
+                  : "Directory result was missing"
+            })
+          );
+          continue;
+        }
+        if (result.value.kind === "skipped") {
+          skipped += 1;
+          console.log(
+            JSON.stringify({
+              event: "gallery_directory_entry_skipped",
+              market,
+              entryUrl,
+              reason: result.value.reason
+            })
+          );
+          continue;
+        }
+
+        try {
+          const candidate = result.value.candidate;
+          const officialHost = officialSiteHost(candidate.officialUrl);
+          const hostMatches = knownGalleries.filter(
+            (gallery) =>
+              officialSiteHost(gallery.normalized_main_url) === officialHost
+          );
+          if (hostMatches.length > 1) {
+            throw new Error(
+              `Official site matches multiple ${getMarketConfig(market).city} galleries: ${officialHost}`
             );
-          const name = nameMatch ? decodeDirectoryText(nameMatch[1]) : "";
-          if (!name || !websiteMatch?.[1]) {
-            throw new Error(`Directory entry lacks name or official site: ${entryUrl}`);
           }
-          const officialUrl = new URL(decodeDirectoryText(websiteMatch[1]));
+          let galleryId = hostMatches[0]?.id;
+          if (!galleryId) {
+            galleryId = await registerMarketGallery(
+              db,
+              registerGallerySchema.parse({
+                market,
+                name: candidate.name,
+                sources: {
+                  kind: "homepage",
+                  mainUrl: candidate.officialUrl
+                },
+                location: candidate.location
+              })
+            );
+          }
+          const created = !knownIds.has(galleryId);
+          knownIds.add(galleryId);
           if (
-            officialUrl.protocol !== "https:" ||
-            officialUrl.hostname === "londongalleryweekend.art"
+            !knownGalleries.some((gallery) => gallery.id === galleryId)
           ) {
-            throw new Error(`Directory entry has invalid official site: ${entryUrl}`);
+            knownGalleries.push({
+              id: galleryId,
+              normalized_main_url: candidate.officialUrl
+            });
           }
-          officialUrl.search = "";
-          officialUrl.hash = "";
-          const galleryId = await registerMarketGallery(db, {
-            market: "ldn",
-            name,
-            sources: { kind: "homepage", mainUrl: officialUrl.toString() },
-            location: { kind: "unknown" }
-          });
           const { error } = await db
             .from("galleries")
             .update({
               source_config: {
                 kind: "directory_discovery",
+                market,
                 directory: directoryUrl,
-                entry: entryUrl,
+                entry: candidate.entryUrl,
+                officialSite: candidate.officialUrl,
                 discoveredAt: new Date().toISOString()
               }
             })
@@ -591,19 +656,26 @@ export class LondonScout extends Think<Env, MarketScoutState> {
             galleryId
           );
           await observer.configureGallery(galleryId);
-          return galleryId;
-        })
-      );
-      for (const result of results) {
-        if (result.status === "fulfilled") registered.push(result.value);
-        else {
+          if (created) {
+            registered += 1;
+            await observer.startObservation(
+              `directory:${market}:${galleryId}:${new Date().toISOString().slice(0, 10)}`,
+              Date.now(),
+              { kind: "unchecked_only" }
+            );
+            observationsStarted += 1;
+          } else {
+            matchedExisting += 1;
+          }
+        } catch (error) {
+          failed += 1;
           console.warn(
             JSON.stringify({
               event: "gallery_directory_entry_failed",
+              market,
+              entryUrl,
               error:
-                result.reason instanceof Error
-                  ? result.reason.message
-                  : String(result.reason)
+                error instanceof Error ? error.message : String(error)
             })
           );
         }
@@ -611,19 +683,16 @@ export class LondonScout extends Think<Env, MarketScoutState> {
     }
     return {
       kind: "directory_batch" as const,
-      directoryEntries: uniquePaths.length,
-      registered: registered.length
+      market,
+      mode,
+      directory: directoryUrl,
+      directoryEntries: entryUrls.length,
+      selectedEntries: selected.length,
+      registered,
+      matchedExisting,
+      skipped,
+      failed,
+      observationsStarted
     };
   }
-}
-
-function decodeDirectoryText(value: string): string {
-  return value
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#(?:39|x27);/gi, "'")
-    .replace(/&nbsp;/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 }

@@ -392,6 +392,21 @@ export const bootstrapRequestSchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("all_markets") }).strict()
 ]);
 
+export const directoryDiscoveryRequestSchema = z.discriminatedUnion("mode", [
+  z
+    .object({
+      mode: z.literal("weekly_batch"),
+      market: marketCodeSchema
+    })
+    .strict(),
+  z
+    .object({
+      mode: z.literal("full"),
+      market: marketCodeSchema
+    })
+    .strict()
+]);
+
 export const evaluationRequestSchema = z.discriminatedUnion("mode", [
   z
     .object({

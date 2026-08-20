@@ -40,8 +40,8 @@ Storage responsibilities:
 
 ## Observer lifecycle
 
-1. A market-scoped scout reconciles active galleries daily at 01:15 in that market's timezone and performs a weekly coverage reconciliation on Monday at 01:45. The deployed Durable Object class retains the legacy name `LondonScout`, but its named instances are `ldn` and `waw` and its state is a closed market union.
-2. Every gallery maps to one named `GalleryObserver` Durable Object. Its deterministic schedule is distributed between 02:00 and 05:59 in `Europe/London` or `Europe/Warsaw` to avoid a thundering herd.
+1. A market-scoped scout reconciles active galleries daily at 01:15 in that market's timezone and performs a weekly directory/coverage reconciliation on Monday at 01:45. London Gallery Weekend and Warsaw Gallery Weekend are discovery directories; directory pages may identify candidates, but only dedicated official HTTPS gallery sites become observation sources. Instagram-only and out-of-market entries are skipped and logged. The deployed Durable Object class retains the legacy name `LondonScout`, but its named instances are `ldn` and `waw` and its state is a closed market union.
+2. Every gallery maps to one named `GalleryObserver` Durable Object. Its deterministic schedule is distributed between 02:00 and 05:59 in `Europe/London` or `Europe/Warsaw` to avoid a thundering herd. Sources whose `next_check_at` falls within the next hour are treated as due so a fixed daily alarm cannot repeatedly miss a source by a few completion-time minutes.
 3. A scheduled invocation starts `GalleryObservationWorkflow` with the Think idempotency key. The database also makes `observation_runs.idempotency_key` unique.
 4. Each allowlisted official source is fetched with its configured strategy. Browser Run is the default; raw HTTP is available for sources proven to be complete without rendering.
 5. The bounded response is hashed and archived to R2. An unchanged hash skips model extraction.
@@ -134,6 +134,7 @@ Protected observer routes require `Authorization: Bearer $OBSERVER_ADMIN_TOKEN`:
 
 - `POST /internal/bootstrap` — `{ "mode": "market", "market": "waw" }` or `{ "mode": "all_markets" }`; idempotently activates fixtures without duplicating legacy galleries
 - `POST /internal/galleries` — register/configure one gallery using explicit `market`, `sources.kind`, and `location.kind` variants
+- `POST /internal/discover` — `{ "mode": "weekly_batch", "market": "waw" }` or `{ "mode": "full", "market": "waw" }`; runs the trusted market directory adapter, deduplicates by official hostname, registers safe candidates, and immediately starts first observations for newly created galleries
 - `POST /internal/observe` — `{ "mode": "change_only", "galleryId": "..." }` or `{ "mode": "force_extract", "galleryId": "..." }`
 - `GET /internal/runs` — recent run ledger
 - `POST /internal/evaluate` — `{ "mode": "default", "market": "waw" }` or an explicit selected-fixtures/techniques variant

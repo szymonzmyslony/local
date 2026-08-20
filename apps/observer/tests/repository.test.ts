@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { mergeObservedEventInfo } from "../src/repository";
+import { isSourceDue, mergeObservedEventInfo } from "../src/repository";
+
+describe("source polling windows", () => {
+  it("treats sources due within an hour as ready for a fixed daily alarm", () => {
+    const now = Date.parse("2026-08-20T04:00:00Z");
+    expect(isSourceDue("2026-08-20T04:45:00Z", now)).toBe(true);
+    expect(isSourceDue("2026-08-20T05:01:00Z", now)).toBe(false);
+    expect(isSourceDue("not-a-date", now)).toBe(false);
+  });
+});
 
 describe("observed event information merge", () => {
   it("does not let a thin listing erase a richer event page", () => {

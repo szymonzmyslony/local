@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  directoryDiscoveryRequestSchema,
   galleryObserverStateSchema,
   fallbackObservationExtractionSchema,
   fromFallbackObservationExtraction,
@@ -189,6 +190,18 @@ describe("multi-market agent boundaries", () => {
         galleryId: "8dc9aeeb-cf7a-4636-9ca6-3ea21a8ba77d",
         force: true
       })
+    ).toThrow();
+  });
+
+  it("requires an explicit bounded directory discovery mode", () => {
+    expect(
+      directoryDiscoveryRequestSchema.parse({
+        mode: "full",
+        market: "waw"
+      })
+    ).toEqual({ mode: "full", market: "waw" });
+    expect(() =>
+      directoryDiscoveryRequestSchema.parse({ market: "waw" })
     ).toThrow();
   });
 });

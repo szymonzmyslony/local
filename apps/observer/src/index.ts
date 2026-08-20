@@ -12,6 +12,7 @@ import {
 } from "./repository";
 import {
   bootstrapRequestSchema,
+  directoryDiscoveryRequestSchema,
   evaluationRequestSchema,
   observeRequestSchema,
   registerGallerySchema
@@ -27,11 +28,26 @@ function jsonError(error: unknown, status = 500) {
   return Response.json({ ok: false, error: message }, { status });
 }
 
-function isAuthorized(request: Request, env: Env) {
-  const header = request.headers.get("authorization");
-  return Boolean(
-    env.OBSERVER_ADMIN_TOKEN && header === `Bearer ${env.OBSERVER_ADMIN_TOKEN}`
-  );
+async function isAuthorized(request: Request, env: Env) {
+  if (!env.OBSERVER_ADMIN_TOKEN) return false;
+  const encoder = new TextEncoder();
+  const [provided, expected] = await Promise.all([
+    crypto.subtle.digest(
+      "SHA-256",
+      encoder.encode(request.headers.get("authorization") ?? "")
+    ),
+    crypto.subtle.digest(
+      "SHA-256",
+      encoder.encode(`Bearer ${env.OBSERVER_ADMIN_TOKEN}`)
+    )
+  ]);
+  const providedBytes = new Uint8Array(provided);
+  const expectedBytes = new Uint8Array(expected);
+  let difference = 0;
+  for (let index = 0; index < providedBytes.length; index += 1) {
+    difference |= providedBytes[index] ^ expectedBytes[index];
+  }
+  return difference === 0;
 }
 
 function fixturesForMarket(market: MarketCode) {
@@ -79,7 +95,10 @@ export default {
       });
     }
 
-    if (url.pathname.startsWith("/internal/") && !isAuthorized(request, env)) {
+    if (
+      url.pathname.startsWith("/internal/") &&
+      !(await isAuthorized(request, env))
+    ) {
       return Response.json(
         { ok: false, error: "Unauthorized" },
         { status: 401 }
@@ -111,6 +130,20 @@ export default {
         );
         await observer.configureGallery(galleryId);
         return Response.json({ ok: true, galleryId });
+      }
+
+      if (request.method === "POST" && url.pathname === "/internal/discover") {
+        const body = directoryDiscoveryRequestSchema.parse(
+          await request.json()
+        );
+        const scout = await getAgentByName<Env, LondonScout>(
+          env.LondonScout,
+          body.market
+        );
+        await scout.activateScout(body.market);
+        const discovery = await scout.discoverMarketGalleries(body.mode);
+        const reconciliation = await scout.reconcileObservers();
+        return Response.json({ ok: true, discovery, reconciliation });
       }
 
       if (request.method === "POST" && url.pathname === "/internal/observe") {

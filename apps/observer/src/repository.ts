@@ -29,6 +29,8 @@ import { normalizeSourceUrl, sha256 } from "./url";
 
 type DatabaseClient = SupabaseClient<Database>;
 
+const SOURCE_DUE_EARLY_TOLERANCE_MS = 60 * 60 * 1000;
+
 export type GalleryRecord = {
   id: string;
   main_url: string;
@@ -122,6 +124,14 @@ export async function listActiveMarketGalleries(
   return (data ?? []).map((row: { id: string }) => row.id);
 }
 
+export function isSourceDue(nextCheckAt: string, now = Date.now()): boolean {
+  const nextCheck = Date.parse(nextCheckAt);
+  return (
+    Number.isFinite(nextCheck) &&
+    nextCheck <= now + SOURCE_DUE_EARLY_TOLERANCE_MS
+  );
+}
+
 export async function stateForGallery(
   db: DatabaseClient,
   galleryId: string
@@ -144,7 +154,7 @@ export async function stateForGallery(
       enabled: source.enabled,
       polling: !source.last_checked_at
         ? { kind: "never_checked" }
-        : Date.parse(source.next_check_at) <= Date.now()
+        : isSourceDue(source.next_check_at)
           ? { kind: "due" }
           : { kind: "scheduled", nextCheckAt: source.next_check_at }
     })),

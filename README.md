@@ -72,6 +72,13 @@ bun run lint
 
 The observer test sets are defined in `apps/observer/src/london-fixtures.ts` and `apps/observer/src/warsaw-fixtures.ts`. The protected `/internal/evaluate` endpoint compares `browser_markdown` and `http_html` with the same Luna extraction schema and writes results to `extraction_evaluations`.
 
+Market scouts reconcile active observers daily and scan their configured gallery
+directories weekly. The Warsaw adapter reads Warsaw Gallery Weekend venue pages,
+deduplicates candidates by official hostname, and registers only venues with a
+Warsaw address and a dedicated official HTTPS site. Run a bounded initial pass
+through the protected observer endpoint with
+`POST /internal/discover` and `{ "mode": "full", "market": "waw" }`.
+
 ## Deployment
 
 Production endpoints:
