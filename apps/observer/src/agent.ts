@@ -4,6 +4,7 @@ import {
   type ThinkWallClockSchedule
 } from "@cloudflare/think";
 import {
+  createZineFallbackLanguageModel,
   createZineLanguageModel,
   getMarketConfig,
   type MarketCode
@@ -396,30 +397,74 @@ export class GalleryObserver extends Think<Env, GalleryObserverState> {
   async extractStructuredSnapshot(
     prompt: string
   ): Promise<ObservationExtraction> {
-    const { output } = await generateText({
-      model: this.getModel(),
-      output: Output.object({ schema: fallbackObservationExtractionSchema }),
-      prompt: [
-        prompt,
-        "SDK fallback transport: replace each event's venue object with required flat fields venue_scope, venue_detail, and venue_evidence. Use empty strings only when detail is inapplicable."
-      ].join("\n"),
-      abortSignal: AbortSignal.timeout(120_000),
-      maxRetries: 2
-    });
+    const extractionPrompt = [
+      prompt,
+      "SDK fallback transport: replace each event's venue object with required flat fields venue_scope, venue_detail, and venue_evidence. Use empty strings only when detail is inapplicable."
+    ].join("\n");
+    let output: z.infer<typeof fallbackObservationExtractionSchema>;
+    try {
+      ({ output } = await generateText({
+        model: this.getModel(),
+        output: Output.object({ schema: fallbackObservationExtractionSchema }),
+        prompt: extractionPrompt,
+        abortSignal: AbortSignal.timeout(60_000),
+        maxRetries: 0
+      }));
+    } catch (primaryError) {
+      console.warn(
+        JSON.stringify({
+          event: "observer_model_fallback",
+          operation: "event_extraction",
+          primaryError:
+            primaryError instanceof Error
+              ? primaryError.message.slice(0, 500)
+              : String(primaryError).slice(0, 500)
+        })
+      );
+      ({ output } = await generateText({
+        model: createZineFallbackLanguageModel(this.env.OPENROUTER_API_KEY),
+        output: Output.object({ schema: fallbackObservationExtractionSchema }),
+        prompt: extractionPrompt,
+        abortSignal: AbortSignal.timeout(90_000),
+        maxRetries: 1
+      }));
+    }
     return fromFallbackObservationExtraction(output);
   }
 
   async extractGalleryProfile(prompt: string): Promise<GalleryProfileExtraction> {
-    const { output } = await generateText({
-      model: this.getModel(),
-      output: Output.object({ schema: fallbackGalleryProfileExtractionSchema }),
-      prompt: [
-        prompt,
-        "Return every field. Use an empty string or empty array only when the official source does not state that fact. Weekday uses 0=Sunday through 6=Saturday; opening ranges are minutes after local midnight."
-      ].join("\n"),
-      abortSignal: AbortSignal.timeout(120_000),
-      maxRetries: 2
-    });
+    const extractionPrompt = [
+      prompt,
+      "Return every field. Use an empty string or empty array only when the official source does not state that fact. Weekday uses 0=Sunday through 6=Saturday; opening ranges are minutes after local midnight."
+    ].join("\n");
+    let output: z.infer<typeof fallbackGalleryProfileExtractionSchema>;
+    try {
+      ({ output } = await generateText({
+        model: this.getModel(),
+        output: Output.object({ schema: fallbackGalleryProfileExtractionSchema }),
+        prompt: extractionPrompt,
+        abortSignal: AbortSignal.timeout(60_000),
+        maxRetries: 0
+      }));
+    } catch (primaryError) {
+      console.warn(
+        JSON.stringify({
+          event: "observer_model_fallback",
+          operation: "profile_extraction",
+          primaryError:
+            primaryError instanceof Error
+              ? primaryError.message.slice(0, 500)
+              : String(primaryError).slice(0, 500)
+        })
+      );
+      ({ output } = await generateText({
+        model: createZineFallbackLanguageModel(this.env.OPENROUTER_API_KEY),
+        output: Output.object({ schema: fallbackGalleryProfileExtractionSchema }),
+        prompt: extractionPrompt,
+        abortSignal: AbortSignal.timeout(90_000),
+        maxRetries: 1
+      }));
+    }
     return fromFallbackGalleryProfileExtraction(output);
   }
 

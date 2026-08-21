@@ -32,3 +32,9 @@ export function createZineLanguageModelFromProvider(
 export function createZineLanguageModel(apiKey: string): LanguageModel {
   return createZineLanguageModelFromProvider(createZineProvider(apiKey));
 }
+
+export function createZineFallbackLanguageModel(apiKey: string): LanguageModel {
+  return createZineProvider(apiKey)(AI_CONFIG.CHAT_FALLBACK_MODELS[0], {
+    plugins: [{ id: "response-healing" }]
+  });
+}

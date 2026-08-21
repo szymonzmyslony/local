@@ -1,6 +1,7 @@
 import {
   AI_CONFIG,
   createBatchEmbedder,
+  createZineFallbackLanguageModel,
   createZineLanguageModel
 } from "@gallery-agents/shared";
 import { describe, expect, it } from "vitest";
@@ -29,5 +30,14 @@ describe("OpenRouter model routing", () => {
       [],
       []
     ]);
+  });
+
+  it("creates a direct Luna model for client-side timeout fallback", () => {
+    const fallback = createZineFallbackLanguageModel(
+      "test-api-key"
+    ) as unknown as { modelId: string; settings: { models?: string[] } };
+
+    expect(fallback.modelId).toBe("openai/gpt-5.6-luna");
+    expect(fallback.settings.models).toBeUndefined();
   });
 });
