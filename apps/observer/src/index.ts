@@ -90,7 +90,8 @@ export default {
         ),
         service: "zine-observer",
         markets: ["ldn", "waw"],
-        model: "openai/gpt-5.6-luna",
+        model: AI_CONFIG.CHAT_MODEL,
+        fallbackModels: AI_CONFIG.CHAT_FALLBACK_MODELS,
         architecture: "agent-per-gallery"
       });
     }

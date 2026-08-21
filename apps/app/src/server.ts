@@ -6,6 +6,7 @@ import {
   type ThinkMessengers
 } from "@cloudflare/think/messengers";
 import {
+  AI_CONFIG,
   createZineLanguageModel,
   getMarketConfig,
   marketFromAgentName
@@ -151,7 +152,8 @@ export default {
     if (url.pathname === "/health") {
       return Response.json({
         ok: Boolean(env.OPENROUTER_API_KEY && env.SUPABASE_URL && env.SUPABASE_ANON_KEY),
-        model: "openai/gpt-5.6-luna",
+        model: AI_CONFIG.CHAT_MODEL,
+        fallbackModels: AI_CONFIG.CHAT_FALLBACK_MODELS,
         whatsappConfigured: Boolean(
           env.WHATSAPP_ACCESS_TOKEN &&
             env.WHATSAPP_APP_SECRET &&
