@@ -218,8 +218,13 @@ export default {
         const { text } = await generateText({
           model: createZineLanguageModel(env.OPENROUTER_API_KEY),
           prompt: "Reply with exactly: zine-ok",
-          maxOutputTokens: 16,
-          maxRetries: 0
+          maxOutputTokens: 32,
+          maxRetries: 0,
+          providerOptions: {
+            openrouter: {
+              reasoning: { effort: "minimal", exclude: true }
+            }
+          }
         });
         return Response.json({
           ok: text.trim().toLowerCase().includes("zine-ok"),
