@@ -29,6 +29,7 @@ import type {
 } from "./schemas";
 import {
   classifyEventSourceUrl,
+  resolveObservedSourcePurpose,
   SOURCE_ADMISSION_LIMITS
 } from "./source-policy";
 import {
@@ -632,16 +633,7 @@ async function classifyObservedSource(
   source: GallerySource,
   extraction: ObservationExtraction
 ): Promise<void> {
-  const purpose: GallerySource["purpose"] =
-    source.kind === "home"
-      ? "bootstrap"
-      : source.kind === "about"
-      ? "profile"
-      : extraction.page_kind === "event"
-        ? "detail"
-        : extraction.page_kind === "events" || extraction.page_kind === "calendar"
-          ? "listing"
-          : source.purpose;
+  const purpose = resolveObservedSourcePurpose(source, extraction.page_kind);
   if (purpose === source.purpose) return;
   const { error } = await db
     .from("gallery_sources")

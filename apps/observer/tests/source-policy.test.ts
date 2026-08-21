@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyEventSourceUrl,
+  resolveObservedSourcePurpose,
   selectEventSourceUrls
 } from "../src/source-policy";
 
@@ -62,6 +63,30 @@ describe("event source admission", () => {
       purpose: "detail",
       score: 85
     });
+  });
+
+  it("does not let model page labels override deterministic URL policy", () => {
+    expect(
+      resolveObservedSourcePurpose(
+        {
+          kind: "other",
+          purpose: "detail",
+          normalizedUrl:
+            "https://www.mnw.art.pl/wydarzenia/kalendarz-wydarzen/9303,wydarzenie.html"
+        },
+        "calendar"
+      )
+    ).toBe("detail");
+    expect(
+      resolveObservedSourcePurpose(
+        {
+          kind: "events",
+          purpose: "listing",
+          normalizedUrl: "https://www.mnw.art.pl/wystawy"
+        },
+        "event"
+      )
+    ).toBe("listing");
   });
 
   it("hard-caps deterministic navigation discovery", () => {

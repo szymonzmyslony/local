@@ -76,6 +76,25 @@ export function classifyEventSourceUrl(
   return null;
 }
 
+export function resolveObservedSourcePurpose(
+  source: Pick<GallerySource, "kind" | "normalizedUrl" | "purpose">,
+  pageKind: "event" | "events" | "calendar" | "other"
+): GallerySource["purpose"] {
+  if (source.kind === "home") return "bootstrap";
+  if (source.kind === "about") return "profile";
+  const deterministic = classifyEventSourceUrl(
+    source.normalizedUrl,
+    source.normalizedUrl,
+    source.purpose === "listing" || source.purpose === "detail"
+      ? { kind: source.kind, purpose: source.purpose }
+      : undefined
+  );
+  if (deterministic) return deterministic.purpose;
+  if (pageKind === "event") return "detail";
+  if (pageKind === "events" || pageKind === "calendar") return "listing";
+  return source.purpose;
+}
+
 /** Deterministic, one-page discovery from a gallery's own navigation links. */
 export function selectEventSourceUrls(
   links: string[],
