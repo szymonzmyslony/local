@@ -203,7 +203,7 @@ for (const gallery of galleries ?? []) {
       minuteOfDay,
       weekday
     });
-    if (source.next_check_at === nextCheckAt) continue;
+    if (Date.parse(source.next_check_at) === Date.parse(nextCheckAt)) continue;
     schedulesReanchored += 1;
     if (command.mode === "apply") {
       const { error } = await db

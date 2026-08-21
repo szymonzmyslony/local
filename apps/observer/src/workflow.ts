@@ -141,8 +141,14 @@ export class GalleryObservationWorkflow extends ThinkWorkflow<
                 ].join("\n")
               )
           );
-          await step.do(`persist-profile:${source.id}`, async () =>
-            this.agent.saveGalleryProfile(profile, source.normalizedUrl)
+          await step.do(
+            `persist-profile:${source.id}`,
+            {
+              retries: { limit: 2, delay: "5 seconds", backoff: "exponential" },
+              timeout: "3 minutes"
+            },
+            async () =>
+              this.agent.saveGalleryProfile(profile, source.normalizedUrl)
           );
           await step.do(`commit-profile:${source.id}`, async () =>
             this.agent.commitSnapshot(
@@ -331,6 +337,10 @@ export class GalleryObservationWorkflow extends ThinkWorkflow<
           );
           const saved = await step.do(
             `persist-extraction:${pass}:${source.id}`,
+            {
+              retries: { limit: 2, delay: "5 seconds", backoff: "exponential" },
+              timeout: "3 minutes"
+            },
             async () => this.agent.saveExtraction(runId, source, extraction)
           );
           await step.do(

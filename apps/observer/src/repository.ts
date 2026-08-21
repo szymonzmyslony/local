@@ -38,6 +38,7 @@ import {
 } from "./url";
 
 type DatabaseClient = SupabaseClient<Database>;
+const STALE_OBSERVATION_RUN_MS = 6 * 60 * 60 * 1_000;
 
 const SOURCE_DUE_EARLY_TOLERANCE_MS = 60 * 60 * 1000;
 
@@ -140,6 +141,10 @@ export function isSourceDue(nextCheckAt: string, now = Date.now()): boolean {
     Number.isFinite(nextCheck) &&
     nextCheck <= now + SOURCE_DUE_EARLY_TOLERANCE_MS
   );
+}
+
+export function staleObservationRunBefore(now = Date.now()): string {
+  return new Date(now - STALE_OBSERVATION_RUN_MS).toISOString();
 }
 
 export async function stateForGallery(
@@ -378,6 +383,20 @@ export async function beginObservationRun(
     workflowId?: string;
   }
 ): Promise<string> {
+  const startedAt = new Date();
+  const { error: staleRunError } = await db
+    .from("observation_runs")
+    .update({
+      status: "failed",
+      completed_at: startedAt.toISOString(),
+      error: "Automatically closed after exceeding the six-hour run limit"
+    })
+    .eq("gallery_id", input.galleryId)
+    .eq("status", "running")
+    .neq("idempotency_key", input.idempotencyKey)
+    .lt("started_at", staleObservationRunBefore(startedAt.valueOf()));
+  throwIfError("closeStaleObservationRuns", staleRunError);
+
   const row = {
     gallery_id: input.galleryId,
     idempotency_key: input.idempotencyKey,
@@ -965,33 +984,43 @@ export async function persistObservation(
           }
         : { kind: "point", title: event.title, startAt };
       const matchToleranceMs = eventMatchToleranceMs(observedIdentity);
-      const { data: nearbyEvents, error: nearbyError } = await db
+      const eventIdentityColumns =
+        "id, title, start_at, end_at, ticket_url, source_url, confidence, status";
+      const { data: exactEvent, error: exactError } = await db
         .from("events")
-        .select(
-          "id, title, start_at, end_at, ticket_url, source_url, confidence, status"
-        )
+        .select(eventIdentityColumns)
         .eq("gallery_id", galleryId)
-        .gte(
-          "start_at",
-          new Date(startAt.valueOf() - matchToleranceMs).toISOString()
-        )
-        .lte(
-          "start_at",
-          new Date(startAt.valueOf() + matchToleranceMs).toISOString()
-        )
-        .limit(50);
-      throwIfError("findCanonicalEvent", nearbyError);
-      const existingEvent = nearbyEvents?.find((candidate) =>
-        isSameCanonicalEvent({
-          existing: {
-            title: candidate.title,
-            startAt: new Date(candidate.start_at)
-          },
-          observed: observedIdentity,
-          locale: input.state.market.locale,
-          timezone: input.state.market.timezone
-        })
-      );
+        .eq("source_fingerprint", canonicalFingerprint)
+        .maybeSingle();
+      throwIfError("findExactCanonicalEvent", exactError);
+      let existingEvent = exactEvent;
+      if (!existingEvent) {
+        const { data: nearbyEvents, error: nearbyError } = await db
+          .from("events")
+          .select(eventIdentityColumns)
+          .eq("gallery_id", galleryId)
+          .gte(
+            "start_at",
+            new Date(startAt.valueOf() - matchToleranceMs).toISOString()
+          )
+          .lte(
+            "start_at",
+            new Date(startAt.valueOf() + matchToleranceMs).toISOString()
+          )
+          .limit(50);
+        throwIfError("findNearbyCanonicalEvent", nearbyError);
+        existingEvent = nearbyEvents?.find((candidate) =>
+          isSameCanonicalEvent({
+            existing: {
+              title: candidate.title,
+              startAt: new Date(candidate.start_at)
+            },
+            observed: observedIdentity,
+            locale: input.state.market.locale,
+            timezone: input.state.market.timezone
+          })
+        ) ?? null;
+      }
       const observedEndAt = event.end_at
         ? new Date(event.end_at).toISOString()
         : null;

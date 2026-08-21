@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   classifySourceFailure,
   isSourceDue,
-  mergeObservedEventInfo
+  mergeObservedEventInfo,
+  staleObservationRunBefore
 } from "../src/repository";
 
 describe("source polling windows", () => {
@@ -11,6 +12,12 @@ describe("source polling windows", () => {
     expect(isSourceDue("2026-08-20T04:45:00Z", now)).toBe(true);
     expect(isSourceDue("2026-08-20T05:01:00Z", now)).toBe(false);
     expect(isSourceDue("not-a-date", now)).toBe(false);
+  });
+
+  it("only closes runs after the conservative six-hour limit", () => {
+    expect(staleObservationRunBefore(Date.parse("2026-08-21T18:00:00Z"))).toBe(
+      "2026-08-21T12:00:00.000Z"
+    );
   });
 });
 

@@ -16,6 +16,7 @@ export function createEmbedder(apiKey: string): Embedder {
       model,
       value: trimmed,
       maxRetries: AI_CONFIG.MAX_RETRIES,
+      abortSignal: AbortSignal.timeout(AI_CONFIG.EMBEDDING_TIMEOUT_MS)
     });
 
     return embedding;
