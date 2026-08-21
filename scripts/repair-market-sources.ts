@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import {
   classifyEventSourceUrl,
+  isRejectedEventSourceUrl,
   SOURCE_ADMISSION_LIMITS
 } from "../apps/observer/src/source-policy";
 import {
@@ -40,6 +41,7 @@ if (galleryError) throw galleryError;
 
 let disabledAliases = 0;
 let disabledEphemeral = 0;
+let disabledRejected = 0;
 let disabledOverBudget = 0;
 let canonicalized = 0;
 let reclassified = 0;
@@ -140,6 +142,17 @@ for (const gallery of galleries ?? []) {
       }
       continue;
     }
+    if (isRejectedEventSourceUrl(source.normalized_url)) {
+      disabledRejected += 1;
+      if (command.mode === "apply") {
+        const { error } = await db
+          .from("gallery_sources")
+          .update({ enabled: false, updated_at: new Date().toISOString() })
+          .eq("id", source.id);
+        if (error) throw error;
+      }
+      continue;
+    }
     if (classified && (source.kind !== classified.kind || source.purpose !== classified.purpose)) {
       reclassified += 1;
       if (command.mode === "apply") {
@@ -227,6 +240,7 @@ console.log(
     mode: command.mode,
     disabledAliases,
     disabledEphemeral,
+    disabledRejected,
     disabledOverBudget,
     canonicalized,
     reclassified,

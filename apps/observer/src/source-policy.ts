@@ -7,6 +7,8 @@ const LISTING_TAIL =
   /\/(?:events?|exhibitions?|shows?|what-?s-on|programme|program|calendar|agenda|wydarzenia|wystawy|kalendarium|aktualn(?:e|osci)|obecne|planowane)(?:\.html?)?$/i;
 const REJECTED_PATH =
   /(?:^|\/)(?:archive|archiwum|archiwalne|past|previous|press|news|blog|shop|privacy|terms|login|search|tag|category)(?:\/|$)/i;
+const EVENT_TAXONOMY_PATH =
+  /\/(?:tag|category)\/(?:events?|exhibitions?|shows?|wydarzenia|wystawy)(?:\/|$)/i;
 const PAGINATION = /(?:\/page\/\d+\/?$|[?&](?:page|paged|offset)=\d+)/i;
 const MNW_EPHEMERAL_CALENDAR =
   /\/wydarzenia\/kalendarz-wydarzen\/(?:\d{2}-\d{2}-\d{4},dzien|\d{2}-\d{4},miesiac)\.html$/i;
@@ -31,6 +33,21 @@ function isSameOfficialOrigin(url: string, officialUrl: string): boolean {
   return new URL(url).origin === new URL(officialUrl).origin;
 }
 
+export function isRejectedEventSourceUrl(value: string): boolean {
+  try {
+    const parsed = new URL(normalizeSourceUrl(value));
+    const pathAndSearch = `${parsed.pathname}${parsed.search}`;
+    return (
+      REJECTED_PATH.test(parsed.pathname) &&
+        !EVENT_TAXONOMY_PATH.test(parsed.pathname) ||
+      PAGINATION.test(pathAndSearch) ||
+      MNW_EPHEMERAL_CALENDAR.test(parsed.pathname)
+    );
+  } catch {
+    return true;
+  }
+}
+
 export function classifyEventSourceUrl(
   value: string,
   officialUrl: string,
@@ -44,12 +61,7 @@ export function classifyEventSourceUrl(
   }
   if (!isSameOfficialOrigin(url, officialUrl)) return null;
   const parsed = new URL(url);
-  const pathAndSearch = `${parsed.pathname}${parsed.search}`;
-  if (
-    REJECTED_PATH.test(parsed.pathname) ||
-    PAGINATION.test(pathAndSearch) ||
-    MNW_EPHEMERAL_CALENDAR.test(parsed.pathname)
-  ) {
+  if (isRejectedEventSourceUrl(url)) {
     return null;
   }
 

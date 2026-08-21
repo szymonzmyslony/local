@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyEventSourceUrl,
+  isRejectedEventSourceUrl,
   resolveObservedSourcePurpose,
   selectEventSourceUrls
 } from "../src/source-policy";
@@ -49,6 +50,17 @@ describe("event source admission", () => {
         purpose: "detail"
       })
     ).toBeNull();
+    expect(
+      isRejectedEventSourceUrl(
+        "https://starakfoundation.org/pl/spectraedu/news/wakacje_otulone_tkanina"
+      )
+    ).toBe(true);
+    expect(
+      classifyEventSourceUrl(
+        "https://gallery.example/category/exhibitions",
+        "https://gallery.example/"
+      )
+    ).toMatchObject({ purpose: "listing" });
   });
 
   it("canonicalizes and classifies MNW event detail aliases", () => {
