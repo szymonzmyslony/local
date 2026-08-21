@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  browserLinks,
+  extractHtmlLinks,
   fetchSource,
   prepareContentForExtraction,
   selectProfileSourceUrls
@@ -67,5 +69,36 @@ describe("profile source discovery", () => {
       "https://gallery.example/contact",
       "https://gallery.example/about"
     ]);
+  });
+});
+
+describe("navigation link discovery", () => {
+  it("extracts bounded, same-origin links from raw HTML", () => {
+    expect(
+      extractHtmlLinks(
+        '<a href="/events?a=1&amp;b=2">Events</a><a href=https://other.example/x>Other</a><a href="/events?a=1&amp;b=2#now">Duplicate</a>',
+        "https://gallery.example/"
+      )
+    ).toEqual(["https://gallery.example/events?a=1&b=2"]);
+  });
+
+  it("falls back to HTTP when the browser navigation context is destroyed", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response('<a href="/exhibitions/current">Current</a>', {
+        headers: { "content-type": "text/html" }
+      });
+    const browser = {
+      quickAction: async () => {
+        throw new Error("The execution context was destroyed");
+      }
+    } as unknown as BrowserRun;
+    try {
+      await expect(
+        browserLinks(browser, "https://gallery.example/")
+      ).resolves.toEqual(["https://gallery.example/exhibitions/current"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

@@ -170,29 +170,108 @@ export async function browserLinks(
   browser: BrowserRun,
   url: string
 ): Promise<string[]> {
-  const response = await browser.quickAction("links", {
-    url,
-    visibleLinksOnly: false,
-    excludeExternalLinks: true,
-    gotoOptions: { waitUntil: "domcontentloaded", timeout: 30_000 },
-    actionTimeout: 45_000,
-    bestAttempt: true,
-    cacheTTL: 300,
-    rejectResourceTypes: ["image", "media", "font", "websocket"]
-  });
-  const body = await readLimited(response);
-  const payload = JSON.parse(body) as {
-    success: boolean;
-    result?: string[];
-    errors?: Array<{ message: string }>;
-  };
-  if (!response.ok || !payload.success) {
-    throw new Error(
-      payload.errors?.map((entry) => entry.message).join("; ") ||
-        "link fetch failed"
-    );
+  try {
+    const response = await browser.quickAction("links", {
+      url,
+      visibleLinksOnly: false,
+      excludeExternalLinks: true,
+      gotoOptions: { waitUntil: "domcontentloaded", timeout: 30_000 },
+      actionTimeout: 45_000,
+      bestAttempt: true,
+      cacheTTL: 300,
+      rejectResourceTypes: ["image", "media", "font", "websocket"]
+    });
+    const body = await readLimited(response);
+    const payload = JSON.parse(body) as {
+      success: boolean;
+      result?: string[];
+      errors?: Array<{ message: string }>;
+    };
+    if (!response.ok || !payload.success) {
+      throw new Error(
+        payload.errors?.map((entry) => entry.message).join("; ") ||
+          "link fetch failed"
+      );
+    }
+    return (payload.result ?? []).slice(0, 500);
+  } catch (browserError) {
+    try {
+      const response = await fetch(url, {
+        redirect: "follow",
+        headers: {
+          accept: "text/html,application/xhtml+xml",
+          "user-agent": "ZineObserver/1.0 (+https://zinelocal.com)"
+        },
+        signal: AbortSignal.timeout(30_000)
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP link fetch failed (${response.status})`);
+      }
+      const html = await readLimited(response, 1_000_000, true);
+      const links = extractHtmlLinks(html, response.url || url);
+      console.warn(
+        JSON.stringify({
+          event: "browser_links_http_fallback",
+          source: url,
+          browserError:
+            browserError instanceof Error
+              ? browserError.message
+              : String(browserError),
+          links: links.length
+        })
+      );
+      return links;
+    } catch (httpError) {
+      throw new Error(
+        `Browser link discovery failed: ${browserError instanceof Error ? browserError.message : String(browserError)}; HTTP fallback failed: ${httpError instanceof Error ? httpError.message : String(httpError)}`
+      );
+    }
   }
-  return (payload.result ?? []).slice(0, 500);
+}
+
+function decodeHtmlAttribute(value: string): string {
+  return value.replace(
+    /&(?:#(\d+)|#x([\da-f]+)|amp|quot|apos|lt|gt);/gi,
+    (entity, decimal: string | undefined, hexadecimal: string | undefined) => {
+      if (decimal) return String.fromCodePoint(Number.parseInt(decimal, 10));
+      if (hexadecimal)
+        return String.fromCodePoint(Number.parseInt(hexadecimal, 16));
+      const named: Record<string, string> = {
+        "&amp;": "&",
+        "&quot;": '"',
+        "&apos;": "'",
+        "&lt;": "<",
+        "&gt;": ">"
+      };
+      return named[entity.toLowerCase()] ?? entity;
+    }
+  );
+}
+
+export function extractHtmlLinks(html: string, baseUrl: string): string[] {
+  const base = new URL(baseUrl);
+  const links = new Set<string>();
+  const pattern =
+    /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi;
+  for (const match of html.matchAll(pattern)) {
+    const href = decodeHtmlAttribute(match[1] ?? match[2] ?? match[3] ?? "");
+    if (!href || href.startsWith("#")) continue;
+    try {
+      const resolved = new URL(href, base);
+      if (
+        resolved.origin !== base.origin ||
+        !["http:", "https:"].includes(resolved.protocol)
+      ) {
+        continue;
+      }
+      resolved.hash = "";
+      links.add(resolved.toString());
+      if (links.size >= 500) break;
+    } catch {
+      // Malformed navigation entries are advisory and can be skipped.
+    }
+  }
+  return [...links];
 }
 
 export async function fetchDiscoveryHtml(url: string): Promise<string> {
