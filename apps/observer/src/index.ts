@@ -1,5 +1,5 @@
-import { createZineLanguageModel } from "@gallery-agents/shared";
 import type { MarketCode } from "@gallery-agents/shared";
+import { AI_CONFIG, createZineLanguageModel } from "@gallery-agents/shared";
 import { getAgentByName, routeAgentRequest } from "agents";
 import { generateText } from "ai";
 import { GalleryObserver, LondonScout } from "./agent";
@@ -17,10 +17,10 @@ import {
   observeRequestSchema,
   registerGallerySchema
 } from "./schemas";
-import { GalleryObservationWorkflow } from "./workflow";
 import { WARSAW_EVAL_FIXTURES } from "./warsaw-fixtures";
+import { GalleryObservationWorkflow } from "./workflow";
 
-export { GalleryObserver, GalleryObservationWorkflow, LondonScout };
+export { GalleryObservationWorkflow, GalleryObserver, LondonScout };
 
 function jsonError(error: unknown, status = 500) {
   const message = error instanceof Error ? error.message : String(error);
@@ -224,9 +224,13 @@ export default {
           ok: text.trim().toLowerCase().includes("zine-ok"),
           checks: {
             supabase: { ok: true, durationMs: modelStarted - dbStarted },
-            openrouterLuna: {
+            openrouterChat: {
               ok: text.trim().toLowerCase().includes("zine-ok"),
-              durationMs: Date.now() - modelStarted
+              durationMs: Date.now() - modelStarted,
+              modelPriority: [
+                AI_CONFIG.CHAT_MODEL,
+                ...AI_CONFIG.CHAT_FALLBACK_MODELS
+              ]
             },
             r2: { configured: Boolean(env.SNAPSHOTS) },
             browserRun: { configured: Boolean(env.BROWSER) }

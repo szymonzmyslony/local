@@ -1,15 +1,15 @@
 import { createWhatsAppAdapter } from "@chat-adapter/whatsapp";
-import { Think, type StepContext, type TurnConfig } from "@cloudflare/think";
-import {
-  createZineLanguageModel,
-  getMarketConfig,
-  marketFromAgentName
-} from "@shared";
+import { type StepContext, Think, type TurnConfig } from "@cloudflare/think";
 import {
   chatSdkMessenger,
   ThinkMessengerStateAgent,
   type ThinkMessengers
 } from "@cloudflare/think/messengers";
+import {
+  createZineLanguageModel,
+  getMarketConfig,
+  marketFromAgentName
+} from "@shared";
 import { getAgentByName, routeAgentRequest } from "agents";
 import { getZineSystemPrompt } from "./prompts";
 import { createZineTools, ZINE_TOOL_NAMES } from "./tools";
@@ -82,7 +82,7 @@ export class Zine extends Think<Env, ZineChatState> {
       sendReasoning: false,
       providerOptions: {
         openrouter: {
-          reasoning: { effort: "none", exclude: true }
+          reasoning: { effort: "minimal", exclude: true }
         }
       }
     };

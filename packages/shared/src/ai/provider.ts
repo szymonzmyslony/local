@@ -5,8 +5,7 @@ import {
 import type { LanguageModel } from "ai";
 import { AI_CONFIG } from "../config/ai";
 
-export type ZineModelProvider = Pick<OpenRouterProvider, "textEmbeddingModel"> &
-  ((modelId: string) => ReturnType<OpenRouterProvider>);
+export type ZineModelProvider = OpenRouterProvider;
 
 export function createZineProvider(apiKey: string): OpenRouterProvider {
   if (!apiKey.trim()) {
@@ -21,6 +20,15 @@ export function createZineProvider(apiKey: string): OpenRouterProvider {
   });
 }
 
+export function createZineLanguageModelFromProvider(
+  provider: ZineModelProvider
+): LanguageModel {
+  return provider(AI_CONFIG.CHAT_MODEL, {
+    models: [AI_CONFIG.CHAT_MODEL, ...AI_CONFIG.CHAT_FALLBACK_MODELS],
+    plugins: [{ id: "response-healing" }]
+  });
+}
+
 export function createZineLanguageModel(apiKey: string): LanguageModel {
-  return createZineProvider(apiKey)(AI_CONFIG.CHAT_MODEL);
+  return createZineLanguageModelFromProvider(createZineProvider(apiKey));
 }

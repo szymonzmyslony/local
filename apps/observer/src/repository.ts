@@ -1,5 +1,6 @@
 import {
   AI_CONFIG,
+  createBatchEmbedder,
   createEmbedder,
   type Database,
   getMarketConfig,
@@ -918,7 +919,8 @@ export async function persistObservation(
 ): Promise<{ candidates: number; published: number }> {
   const galleryId = input.state.galleryId;
   const now = new Date();
-  const embed = createEmbedder(env.OPENROUTER_API_KEY);
+  const batchEmbed = createBatchEmbedder(env.OPENROUTER_API_KEY);
+  const pendingEmbeddings = new Map<string, string>();
   let published = 0;
 
   await classifyObservedSource(db, input.source, input.extraction);
@@ -1106,32 +1108,29 @@ export async function persistObservation(
         JSON.stringify(existingInfo.artists) !==
           JSON.stringify(mergedInfo.artists) ||
         JSON.stringify(existingInfo.tags) !== JSON.stringify(mergedInfo.tags);
-      const infoWrite = semanticEventChanged
-        ? await db.rpc("upsert_observed_event_info", {
-            p_event_id: canonicalEventId,
-            p_description: mergedInfo.description,
-            p_artists: mergedInfo.artists,
-            p_tags: mergedInfo.tags,
-            p_images: mergedInfo.images,
-            p_data: mergedInfo.data,
-            p_embedding: toPgVector(await embed(embeddingText)),
-            p_embedding_model: AI_CONFIG.EMBEDDING_MODEL,
-            p_embedding_created_at: now.toISOString()
-          })
-        : await db.from("event_info").upsert(
-            {
-              event_id: canonicalEventId,
-              source_page_id: null,
-              description: mergedInfo.description,
-              artists: mergedInfo.artists,
-              tags: mergedInfo.tags,
-              images: mergedInfo.images,
-              data: mergedInfo.data
-            },
-            { onConflict: "event_id" }
-          );
-      const infoError = infoWrite.error;
+      const { error: infoError } = await db.from("event_info").upsert(
+        {
+          event_id: canonicalEventId,
+          source_page_id: null,
+          description: mergedInfo.description,
+          artists: mergedInfo.artists,
+          tags: mergedInfo.tags,
+          images: mergedInfo.images,
+          data: mergedInfo.data,
+          ...(semanticEventChanged
+            ? {
+                embedding: null,
+                embedding_model: null,
+                embedding_created_at: null
+              }
+            : {})
+        },
+        { onConflict: "event_id" }
+      );
       throwIfError("publishEventInfo", infoError);
+      if (semanticEventChanged) {
+        pendingEmbeddings.set(canonicalEventId, embeddingText);
+      }
       published += 1;
     }
 
@@ -1151,6 +1150,31 @@ export async function persistObservation(
       { onConflict: "run_id,source_fingerprint" }
     );
     throwIfError("persistEventCandidate", candidateError);
+  }
+
+  const embeddingEntries = [...pendingEmbeddings.entries()];
+  for (let index = 0; index < embeddingEntries.length; index += 32) {
+    const batch = embeddingEntries.slice(index, index + 32);
+    const vectors = await batchEmbed(batch.map(([, text]) => text));
+    if (vectors.length !== batch.length) {
+      throw new Error("Embedding batch returned an unexpected vector count");
+    }
+    for (const [position, [eventId]] of batch.entries()) {
+      const vector = vectors[position];
+      if (!vector || vector.length === 0) {
+        throw new Error(`Embedding batch returned an empty vector for ${eventId}`);
+      }
+      const { error: embeddingError } = await db.rpc(
+        "set_event_info_embedding",
+        {
+          p_event_id: eventId,
+          p_embedding: toPgVector(vector),
+          p_embedding_model: AI_CONFIG.EMBEDDING_MODEL,
+          p_embedding_created_at: now.toISOString()
+        }
+      );
+      throwIfError("embedEventInfo", embeddingError);
+    }
   }
 
   const { error: galleryError } = await db

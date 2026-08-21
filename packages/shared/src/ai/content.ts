@@ -1,16 +1,18 @@
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { AI_CONFIG } from "../config/ai";
-import type { ZineModelProvider } from "./provider";
 import {
-    galleryExtractionSchema,
     eventExtractionSchema,
-    openingHoursExtractionSchema,
     type GalleryExtraction,
-    type PageExtraction,
-    type OpeningHoursExtraction
+    galleryExtractionSchema,
+    type OpeningHoursExtraction,
+    openingHoursExtractionSchema,
+    type PageExtraction
 } from "../schema";
 import { Constants } from "../types/database_types";
+import {
+  createZineLanguageModelFromProvider,
+  type ZineModelProvider
+} from "./provider";
 
 const MAX_MD_LENGTH = 50_000;
 
@@ -20,7 +22,7 @@ const pageKindSchema = z.object({
 
 export async function classifyPageKindFromMarkdown(provider: ZineModelProvider, md: string, url: string): Promise<z.infer<typeof pageKindSchema>["kind"]> {
     const { output } = await generateText({
-        model: provider(AI_CONFIG.CHAT_MODEL),
+        model: createZineLanguageModelFromProvider(provider),
         output: Output.object({ schema: pageKindSchema }),
         prompt: [
             "Classify the Markdown content below into one of the following page kinds:",
@@ -58,7 +60,7 @@ export async function extractGalleryInfoFromMarkdown(provider: ZineModelProvider
         promptParts.push("", `URL: ${url}`, "---", md.slice(0, MAX_MD_LENGTH));
 
         const { output } = await generateText({
-            model: provider(AI_CONFIG.CHAT_MODEL),
+            model: createZineLanguageModelFromProvider(provider),
             output: Output.object({ schema: galleryExtractionSchema }),
             prompt: promptParts.join("\n")
         });
@@ -77,7 +79,7 @@ export async function extractGalleryInfoFromMarkdown(provider: ZineModelProvider
 export async function extractPageContentFromMarkdown(provider: ZineModelProvider, md: string, url: string): Promise<PageExtraction> {
     try {
         const { output } = await generateText({
-            model: provider(AI_CONFIG.CHAT_MODEL),
+            model: createZineLanguageModelFromProvider(provider),
             output: Output.object({ schema: eventExtractionSchema }),
             prompt: [
                 "You are given Markdown content for a page that describes a *single* event.",
@@ -104,7 +106,7 @@ export async function extractPageContentFromMarkdown(provider: ZineModelProvider
 export async function extractOpeningHoursFromText(provider: ZineModelProvider, hoursText: string): Promise<OpeningHoursExtraction> {
     try {
         const { output } = await generateText({
-            model: provider(AI_CONFIG.CHAT_MODEL),
+            model: createZineLanguageModelFromProvider(provider),
             output: Output.object({ schema: openingHoursExtractionSchema }),
             prompt: [
                 "You are given text describing gallery or museum opening hours in English or Polish.",

@@ -1,5 +1,6 @@
 export const AI_CONFIG = {
-  CHAT_MODEL: "openai/gpt-5.6-luna",
+  CHAT_MODEL: "stealth/ox-alpha",
+  CHAT_FALLBACK_MODELS: ["openai/gpt-5.6-luna"],
   EMBEDDING_MODEL: "openai/text-embedding-3-small",
   EMBEDDING_DIMENSIONS: 1536,
   EMBEDDING_TIMEOUT_MS: 60_000,

@@ -1,15 +1,16 @@
 import {
   AI_CONFIG,
+  createZineLanguageModelFromProvider,
   createZineProvider
 } from "@gallery-agents/shared";
 import { generateText, Output } from "ai";
 import { fetchSource } from "./fetching";
+import type { MarketFixture } from "./london-fixtures";
 import { observerDatabase } from "./repository";
 import {
   fallbackObservationExtractionSchema,
   fromFallbackObservationExtraction
 } from "./schemas";
-import type { MarketFixture } from "./london-fixtures";
 
 export async function evaluateFixture(
   env: Env,
@@ -30,7 +31,7 @@ export async function evaluateFixture(
     });
     const provider = createZineProvider(env.OPENROUTER_API_KEY);
     const { output: fallbackOutput, usage } = await generateText({
-      model: provider(AI_CONFIG.CHAT_MODEL),
+      model: createZineLanguageModelFromProvider(provider),
       output: Output.object({ schema: fallbackObservationExtractionSchema }),
       maxRetries: 1,
       prompt: [
