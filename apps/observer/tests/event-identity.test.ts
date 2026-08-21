@@ -1,9 +1,32 @@
 import { describe, expect, it } from "vitest";
-import { isSameCanonicalEvent } from "../src/event-identity";
+import {
+  canonicalEventFingerprint,
+  isSameCanonicalEvent
+} from "../src/event-identity";
 
 const market = { locale: "pl-PL", timezone: "Europe/Warsaw" } as const;
 
 describe("event identity", () => {
+  it("uses the UTC instant rather than the model's datetime spelling", async () => {
+    const input = {
+      galleryId: "83ed22d0-9aac-44a9-b77d-7cea699d98c5",
+      title: "  WYSTAWA: Test! ",
+      locale: "pl-PL"
+    };
+    expect(
+      await canonicalEventFingerprint({
+        ...input,
+        startAt: "2026-08-21T18:00:00+02:00"
+      })
+    ).toBe(
+      await canonicalEventFingerprint({
+        ...input,
+        title: "wystawa test",
+        startAt: "2026-08-21T16:00:00.000Z"
+      })
+    );
+  });
+
   it("merges the same exhibition when two sources disagree by one day", () => {
     expect(
       isSameCanonicalEvent({

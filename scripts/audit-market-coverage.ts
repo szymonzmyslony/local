@@ -17,9 +17,21 @@ const db = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false }
 });
 
+async function paginate<T>(
+  load: (from: number, to: number) => Promise<{ data: T[]; error: unknown }>
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += 1_000) {
+    const result = await load(from, from + 999);
+    if (result.error) throw result.error;
+    rows.push(...result.data);
+    if (result.data.length < 1_000) return rows;
+  }
+}
+
 for (const market of ["ldn", "waw"] as const) {
   const now = new Date().toISOString();
-  const [galleryResult, eventResult, sourceResult, runResult] =
+  const [galleryResult, events, sources, runs] =
     await Promise.all([
       db
         .from("galleries")
@@ -27,41 +39,49 @@ for (const market of ["ldn", "waw"] as const) {
           "id, observation_status, gallery_info(name, address, area), gallery_hours(id)"
         )
         .eq("market", market),
-      db
-        .from("events")
-        .select(
-          "id, gallery_id, source_url, event_info(description), galleries!inner(market)"
-        )
-        .eq("published", true)
-        .eq("galleries.market", market)
-        .or(`end_at.gte.${now},and(end_at.is.null,start_at.gte.${now})`)
-        .limit(1000),
-      db
-        .from("gallery_sources")
-        .select(
-          "id, enabled, last_checked_at, consecutive_failures, galleries!inner(market)"
-        )
-        .eq("galleries.market", market)
-        .eq("enabled", true)
-        .limit(1000),
-      db
-        .from("observation_runs")
-        .select(
-          "gallery_id, status, started_at, error, galleries!inner(market)"
-        )
-        .eq("galleries.market", market)
-        .order("started_at", { ascending: false })
-        .limit(1000)
+      paginate(async (from, to) => {
+        const { data, error } = await db
+          .from("events")
+          .select(
+            "id, gallery_id, source_url, event_info(description), galleries!inner(market)"
+          )
+          .eq("published", true)
+          .eq("galleries.market", market)
+          .or(`end_at.gte.${now},and(end_at.is.null,start_at.gte.${now})`)
+          .order("id", { ascending: true })
+          .range(from, to);
+        return { data: data ?? [], error };
+      }),
+      paginate(async (from, to) => {
+        const { data, error } = await db
+          .from("gallery_sources")
+          .select(
+            "id, enabled, last_checked_at, consecutive_failures, galleries!inner(market)"
+          )
+          .eq("galleries.market", market)
+          .eq("enabled", true)
+          .order("id", { ascending: true })
+          .range(from, to);
+        return { data: data ?? [], error };
+      }),
+      paginate(async (from, to) => {
+        const { data, error } = await db
+          .from("observation_runs")
+          .select(
+            "id, gallery_id, status, started_at, error, galleries!inner(market)"
+          )
+          .eq("galleries.market", market)
+          .neq("model", "maintenance:event-identity-repair")
+          .order("started_at", { ascending: false })
+          .order("id", { ascending: true })
+          .range(from, to);
+        return { data: data ?? [], error };
+      })
     ]);
 
-  for (const result of [galleryResult, eventResult, sourceResult, runResult]) {
-    if (result.error) throw result.error;
-  }
+  if (galleryResult.error) throw galleryResult.error;
 
   const galleries = galleryResult.data ?? [];
-  const events = eventResult.data ?? [];
-  const sources = sourceResult.data ?? [];
-  const runs = runResult.data ?? [];
   const activeGalleries = galleries.filter(
     (gallery) => gallery.observation_status === "active"
   );

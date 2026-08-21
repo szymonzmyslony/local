@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { isSourceDue, mergeObservedEventInfo } from "../src/repository";
+import {
+  classifySourceFailure,
+  isSourceDue,
+  mergeObservedEventInfo
+} from "../src/repository";
 
 describe("source polling windows", () => {
   it("treats sources due within an hour as ready for a fixed daily alarm", () => {
@@ -7,6 +11,16 @@ describe("source polling windows", () => {
     expect(isSourceDue("2026-08-20T04:45:00Z", now)).toBe(true);
     expect(isSourceDue("2026-08-20T05:01:00Z", now)).toBe(false);
     expect(isSourceDue("not-a-date", now)).toBe(false);
+  });
+});
+
+describe("source failure classification", () => {
+  it("distinguishes terminal size failures from timeouts and HTTP errors", () => {
+    expect(classifySourceFailure("Source response exceeded 2000000 bytes")).toBe(
+      "size_limit"
+    );
+    expect(classifySourceFailure("The operation timed out")).toBe("timeout");
+    expect(classifySourceFailure("HTTP fetch failed (503)")).toBe("http");
   });
 });
 

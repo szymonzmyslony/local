@@ -1,3 +1,5 @@
+import { sha256 } from "./url";
+
 export type ObservedEventIdentity =
   | { kind: "point"; title: string; startAt: Date }
   | { kind: "range"; title: string; startAt: Date; endAt: Date };
@@ -13,7 +15,27 @@ export function normalizeEventTitle(title: string, locale: string): string {
     .trim()
     .replace(/[\p{P}\p{S}]+/gu, " ")
     .replace(/\s+/g, " ")
+    .trim()
     .toLocaleLowerCase(locale);
+}
+
+export async function canonicalEventFingerprint(input: {
+  galleryId: string;
+  title: string;
+  startAt: string;
+  locale: string;
+}): Promise<string> {
+  const instant = new Date(input.startAt);
+  if (Number.isNaN(instant.valueOf())) {
+    throw new Error(`Invalid canonical event start: ${input.startAt}`);
+  }
+  return sha256(
+    [
+      input.galleryId,
+      normalizeEventTitle(input.title, input.locale),
+      instant.toISOString()
+    ].join("|")
+  );
 }
 
 export function eventMatchToleranceMs(observed: ObservedEventIdentity): number {

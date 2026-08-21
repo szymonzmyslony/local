@@ -41,6 +41,15 @@ export const sourcePurposeSchema = z.enum([
   "listing",
   "detail"
 ]);
+export const sourceFailureKindSchema = z.enum([
+  "size_limit",
+  "timeout",
+  "http",
+  "browser",
+  "parse",
+  "network",
+  "unknown"
+]);
 
 const sourcePollingSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("never_checked") }).strict(),
@@ -58,7 +67,9 @@ export const gallerySourceSchema = z.object({
   purpose: sourcePurposeSchema,
   strategy: fetchStrategySchema,
   enabled: z.boolean(),
-  polling: sourcePollingSchema
+  polling: sourcePollingSchema,
+  failureKind: sourceFailureKindSchema.nullable().optional(),
+  quarantinedUntil: z.string().nullable().optional()
 });
 
 const workflowStateSchema = z.discriminatedUnion("kind", [

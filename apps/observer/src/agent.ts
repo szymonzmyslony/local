@@ -1,15 +1,15 @@
 import {
-  createZineLanguageModel,
-  getMarketConfig,
-  type MarketCode
-} from "@gallery-agents/shared";
-import {
   Think,
   type ThinkScheduledTasks,
   type ThinkWallClockSchedule
 } from "@cloudflare/think";
+import {
+  createZineLanguageModel,
+  getMarketConfig,
+  type MarketCode
+} from "@gallery-agents/shared";
 import { getAgentByName } from "agents";
-import { generateText, Output, tool, type ToolSet } from "ai";
+import { generateText, Output, type ToolSet, tool } from "ai";
 import { z } from "zod";
 import {
   browserLinks,
@@ -19,12 +19,12 @@ import {
   selectProfileSourceUrls
 } from "./fetching";
 import {
+  type DirectoryDiscoveryMode,
   directoryConfigForMarket,
   listDirectoryEntryUrls,
   officialSiteHost,
   parseDirectoryEntry,
-  selectDirectoryEntryBatch,
-  type DirectoryDiscoveryMode
+  selectDirectoryEntryBatch
 } from "./market-directory";
 import {
   beginObservationRun,
@@ -33,28 +33,29 @@ import {
   listActiveMarketGalleries,
   loadGalleryBundle,
   observerDatabase,
-  registerMarketGallery,
-  persistObservation,
   persistGalleryProfile,
+  persistObservation,
   recordSnapshot,
   recordSourceFailure,
+  registerMarketGallery,
   stateForGallery,
   summarizeObservationRun,
   upsertGallerySource
 } from "./repository";
 import {
-  galleryObserverStateSchema,
-  fallbackObservationExtractionSchema,
+  type ConfiguredGalleryObserverState,
   fallbackGalleryProfileExtractionSchema,
+  fallbackObservationExtractionSchema,
   fromFallbackGalleryProfileExtraction,
   fromFallbackObservationExtraction,
-  registerGallerySchema,
-  type ConfiguredGalleryObserverState,
   type GalleryObserverState,
   type GalleryProfileExtraction,
   type GallerySource,
-  type ObservationExtraction
+  galleryObserverStateSchema,
+  type ObservationExtraction,
+  registerGallerySchema
 } from "./schemas";
+import { selectEventSourceUrls } from "./source-policy";
 import {
   assertAllowedSourceUrl,
   minuteToWallClock,
@@ -65,6 +66,17 @@ import {
 const INITIAL_OBSERVER_STATE: GalleryObserverState = {
   kind: "unconfigured"
 };
+
+const DIRECTORY_FETCH_CONCURRENCY = 3;
+
+function directoryEntityKey(value: string): string {
+  return value
+    .normalize("NFKC")
+    .toLocaleLowerCase("en-GB")
+    .replace(/[\p{P}\p{S}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function configuredObserverState(
   state: unknown
@@ -227,6 +239,30 @@ export class GalleryObserver extends Think<Env, GalleryObserverState> {
         url,
         "about",
         "profile",
+        1
+      );
+    }
+    return this.refreshGallerySources(this.state.galleryId);
+  }
+
+  async discoverEventSources(
+    source: GallerySource
+  ): Promise<GalleryObserverState> {
+    if (this.state.kind !== "configured") {
+      throw new Error("Gallery observer is not configured");
+    }
+    const candidates = selectEventSourceUrls(
+      await browserLinks(this.env.BROWSER, source.normalizedUrl),
+      source.normalizedUrl
+    );
+    const db = observerDatabase(this.env);
+    for (const candidate of candidates) {
+      await upsertGallerySource(
+        db,
+        this.state.galleryId,
+        candidate.url,
+        candidate.kind,
+        candidate.purpose,
         1
       );
     }
@@ -403,16 +439,21 @@ export class GalleryObserver extends Think<Env, GalleryObserverState> {
     contentHash: string,
     changed: boolean
   ) {
+    if (this.state.kind !== "configured") {
+      throw new Error("Gallery observer is not configured");
+    }
     return commitSourceSnapshot(observerDatabase(this.env), {
       sourceId: source.id,
+      galleryId: this.state.galleryId,
+      timezone: this.state.market.timezone,
       purpose: source.purpose,
       contentHash,
       changed
     });
   }
 
-  async markSourceFailed(sourceId: string) {
-    return recordSourceFailure(observerDatabase(this.env), { sourceId });
+  async markSourceFailed(sourceId: string, error: string) {
+    return recordSourceFailure(observerDatabase(this.env), { sourceId, error });
   }
 
   async summarizeRun(runId: string) {
@@ -545,7 +586,7 @@ export class LondonScout extends Think<Env, MarketScoutState> {
     const db = observerDatabase(this.env);
     const { data: knownRows, error: knownError } = await db
       .from("galleries")
-      .select("id, normalized_main_url")
+      .select("id, normalized_main_url, gallery_info(name, address, area)")
       .eq("market", market)
       .limit(1_000);
     if (knownError) {
@@ -559,8 +600,12 @@ export class LondonScout extends Think<Env, MarketScoutState> {
     let failed = 0;
     let observationsStarted = 0;
 
-    for (let offset = 0; offset < selected.length; offset += 5) {
-      const batch = selected.slice(offset, offset + 5);
+    for (
+      let offset = 0;
+      offset < selected.length;
+      offset += DIRECTORY_FETCH_CONCURRENCY
+    ) {
+      const batch = selected.slice(offset, offset + DIRECTORY_FETCH_CONCURRENCY);
       const results = await Promise.allSettled(
         batch.map(async (entryUrl) => {
           const html = await fetchDiscoveryHtml(entryUrl);
@@ -612,7 +657,26 @@ export class LondonScout extends Think<Env, MarketScoutState> {
               `Official site matches multiple ${getMarketConfig(market).city} galleries: ${officialHost}`
             );
           }
-          let galleryId = hostMatches[0]?.id;
+          const candidateName = directoryEntityKey(candidate.name);
+          const nameMatches = knownGalleries.filter((gallery) => {
+            const info = Array.isArray(gallery.gallery_info)
+              ? gallery.gallery_info[0]
+              : gallery.gallery_info;
+            const knownName = directoryEntityKey(info?.name ?? "");
+            return (
+              knownName.length >= 5 &&
+              (candidateName === knownName ||
+                candidateName.startsWith(`${knownName} `) ||
+                knownName.startsWith(`${candidateName} `))
+            );
+          });
+          const entityMatches = hostMatches.length > 0 ? hostMatches : nameMatches;
+          if (entityMatches.length > 1) {
+            throw new Error(
+              `Directory entity matches multiple ${getMarketConfig(market).city} galleries: ${candidate.name}`
+            );
+          }
+          let galleryId = entityMatches[0]?.id;
           if (!galleryId) {
             galleryId = await registerMarketGallery(
               db,
@@ -634,8 +698,49 @@ export class LondonScout extends Think<Env, MarketScoutState> {
           ) {
             knownGalleries.push({
               id: galleryId,
-              normalized_main_url: candidate.officialUrl
+              normalized_main_url: candidate.officialUrl,
+              gallery_info: {
+                name: candidate.name,
+                address:
+                  candidate.location.kind === "known" ||
+                  candidate.location.kind === "address_only"
+                    ? candidate.location.address
+                    : null,
+                area:
+                  candidate.location.kind === "known" ||
+                  candidate.location.kind === "area_only"
+                    ? candidate.location.area
+                    : null
+              }
             });
+          }
+          const knownGallery = knownGalleries.find(
+            (gallery) => gallery.id === galleryId
+          );
+          const knownInfo = Array.isArray(knownGallery?.gallery_info)
+            ? knownGallery.gallery_info[0]
+            : knownGallery?.gallery_info;
+          const locationUpdate = {
+            ...(!knownInfo?.address &&
+            (candidate.location.kind === "known" ||
+              candidate.location.kind === "address_only")
+              ? { address: candidate.location.address }
+              : {}),
+            ...(!knownInfo?.area &&
+            (candidate.location.kind === "known" ||
+              candidate.location.kind === "area_only")
+              ? { area: candidate.location.area }
+              : {}),
+            updated_at: new Date().toISOString()
+          };
+          if (Object.keys(locationUpdate).length > 1) {
+            const { error: locationError } = await db
+              .from("gallery_info")
+              .update(locationUpdate)
+              .eq("gallery_id", galleryId);
+            if (locationError) {
+              throw new Error(`[recordDirectoryLocation] ${locationError.message}`);
+            }
           }
           const { error } = await db
             .from("galleries")

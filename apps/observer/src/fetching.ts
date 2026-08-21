@@ -16,7 +16,8 @@ export function prepareContentForExtraction(content: string): string {
 
 async function readLimited(
   response: Response,
-  maxBytes = MAX_RESPONSE_BYTES
+  maxBytes = MAX_RESPONSE_BYTES,
+  truncate = false
 ): Promise<string> {
   if (!response.body) return "";
   const reader = response.body.getReader();
@@ -26,11 +27,17 @@ async function readLimited(
     const { value, done } = await reader.read();
     if (done) break;
     if (!value) continue;
-    total += value.byteLength;
-    if (total > maxBytes) {
+    if (total + value.byteLength > maxBytes) {
+      const remaining = Math.max(0, maxBytes - total);
+      if (truncate && remaining > 0) {
+        chunks.push(value.slice(0, remaining));
+        total += remaining;
+      }
       await reader.cancel("response exceeded observer limit");
+      if (truncate) break;
       throw new Error(`Source response exceeded ${maxBytes} bytes`);
     }
+    total += value.byteLength;
     chunks.push(value);
   }
   const combined = new Uint8Array(total);
@@ -116,7 +123,12 @@ async function httpHtml(url: string): Promise<FetchedSnapshot> {
   if (!/^(text\/|application\/xhtml\+xml)/.test(contentType)) {
     throw new Error(`Unsupported source content type: ${contentType}`);
   }
-  const content = (await readLimited(response)).slice(0, MAX_EXTRACTION_CHARS);
+  // Raw HTML can be safely truncated before extraction. Browser Run returns a
+  // JSON envelope, which must remain complete and therefore stays strict.
+  const content = (await readLimited(response, MAX_RESPONSE_BYTES, true)).slice(
+    0,
+    MAX_EXTRACTION_CHARS
+  );
   return {
     content,
     contentHash: await sha256(content),
@@ -184,18 +196,36 @@ export async function browserLinks(
 }
 
 export async function fetchDiscoveryHtml(url: string): Promise<string> {
-  const response = await fetch(url, {
-    redirect: "follow",
-    headers: {
-      accept: "text/html,application/xhtml+xml",
-      "user-agent": "ZineMarketScout/1.0 (+https://zinelocal.com)"
-    },
-    signal: AbortSignal.timeout(30_000)
-  });
-  if (!response.ok) {
-    throw new Error(`Directory fetch failed (${response.status})`);
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const response = await fetch(url, {
+      redirect: "follow",
+      headers: {
+        accept: "text/html,application/xhtml+xml",
+        "user-agent": "ZineMarketScout/1.0 (+https://zinelocal.com)"
+      },
+      signal: AbortSignal.timeout(30_000)
+    });
+    if (response.ok) return readLimited(response, 1_000_000);
+
+    const retryable = response.status === 429 || response.status >= 500;
+    if (!retryable || attempt === 3) {
+      throw new Error(`Directory fetch failed (${response.status})`);
+    }
+    await response.body?.cancel("retrying rate-limited directory request");
+    const retryAfter = Number(response.headers.get("retry-after"));
+    const random = new Uint16Array(1);
+    crypto.getRandomValues(random);
+    const jitterMs = (random[0] ?? 0) % 250;
+    const delayMs = Number.isFinite(retryAfter) && retryAfter > 0
+      ? Math.min(retryAfter * 1_000, 15_000)
+      : Math.min(750 * 2 ** attempt + jitterMs, 8_000);
+    if (typeof scheduler !== "undefined") {
+      await scheduler.wait(delayMs);
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
   }
-  return readLimited(response, 1_000_000);
+  throw new Error("Directory fetch exhausted retries");
 }
 
 export function selectProfileSourceUrls(

@@ -24,6 +24,35 @@ describe("market directory discovery", () => {
     ]);
   });
 
+  it("extracts the official London location supplied by LGW", () => {
+    expect(
+      parseDirectoryEntry(
+        "ldn",
+        [
+          '<div class="title">Blue Shop Gallery</div>',
+          '<div class="subtitle"><span class="subtitle_location">South</span></div>',
+          '<h1 class="hidden">Blue Shop Gallery</h1>',
+          '<div class="exhibitor_address exhibitor_contact_module">Blue Shop Gallery<br/>72 Brixton Rd<br/>London<br/>SW9 6BH<br/><br/></div>',
+          '<div class="link exhibitor_website"><a href="https://www.blueshopcottage.com/?utm_source=lgw">View website</a></div>'
+        ].join("\n"),
+        "https://londongalleryweekend.art/exhibitors/168-blue-shop-gallery/"
+      )
+    ).toEqual({
+      kind: "candidate",
+      candidate: {
+        name: "Blue Shop Gallery",
+        officialUrl: "https://www.blueshopcottage.com/",
+        entryUrl:
+          "https://londongalleryweekend.art/exhibitors/168-blue-shop-gallery/",
+        location: {
+          kind: "known",
+          address: "72 Brixton Rd, London, SW9 6BH",
+          area: "South"
+        }
+      }
+    });
+  });
+
   it("extracts a Warsaw official site and Warsaw address", () => {
     const parsed = parseDirectoryEntry(
       "waw",
@@ -121,5 +150,13 @@ describe("market directory discovery", () => {
     expect(officialSiteHost("https://www.Example.com/path")).toBe(
       "example.com"
     );
+  });
+
+  it("does not silently truncate a complete directory", () => {
+    const html = Array.from(
+      { length: 133 },
+      (_, index) => `<a href="/exhibitors/${index}-gallery/">Gallery</a>`
+    ).join("\n");
+    expect(listDirectoryEntryUrls("ldn", html)).toHaveLength(133);
   });
 });

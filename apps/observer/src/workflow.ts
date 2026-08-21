@@ -1,5 +1,5 @@
-import { ThinkWorkflow } from "@cloudflare/think/workflows";
 import type { ThinkWorkflowStep } from "@cloudflare/think/workflows";
+import { ThinkWorkflow } from "@cloudflare/think/workflows";
 import type { AgentWorkflowEvent } from "agents/workflows";
 import type { GalleryObserver } from "./agent";
 import type { ObservationExtraction } from "./schemas";
@@ -84,6 +84,23 @@ export class GalleryObservationWorkflow extends ThinkWorkflow<
             }`.slice(0, 1000)
           );
         }
+        try {
+          const eventRefreshed = await step.do(
+            `discover-event-sources:${homeSource.id}`,
+            {
+              retries: { limit: 2, delay: "5 seconds", backoff: "exponential" },
+              timeout: "1 minute"
+            },
+            async () => this.agent.discoverEventSources(homeSource)
+          );
+          if (eventRefreshed.kind === "configured") profileConfig = eventRefreshed;
+        } catch (error) {
+          discoveryErrors.push(
+            `${homeSource.normalizedUrl}: event link discovery failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`.slice(0, 1000)
+          );
+        }
       }
       const profileSources = prioritizedSources(
         profileConfig.sources.filter(
@@ -145,7 +162,10 @@ export class GalleryObservationWorkflow extends ThinkWorkflow<
           );
           try {
             await step.do(`record-profile-failure:${source.id}`, async () =>
-              this.agent.markSourceFailed(source.id)
+              this.agent.markSourceFailed(
+                source.id,
+                error instanceof Error ? error.message : String(error)
+              )
             );
           } catch {
             // The original profile error remains the actionable failure.
@@ -192,11 +212,42 @@ export class GalleryObservationWorkflow extends ThinkWorkflow<
     const attemptedSourceIds = new Set<string>();
     let currentConfig = config;
 
+    if (
+      event.payload.mode.kind === "force_extract" ||
+      event.payload.mode.kind === "unchecked_only"
+    ) {
+      for (const homeSource of config.sources.filter(
+        (source) => source.enabled && source.kind === "home"
+      )) {
+        try {
+          const refreshed = await step.do(
+            `discover-event-navigation:${homeSource.id}`,
+            {
+              retries: { limit: 2, delay: "5 seconds", backoff: "exponential" },
+              timeout: "1 minute"
+            },
+            async () => this.agent.discoverEventSources(homeSource)
+          );
+          if (refreshed.kind === "configured") currentConfig = refreshed;
+        } catch (error) {
+          errors.push(
+            `${homeSource.normalizedUrl}: event link discovery failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`.slice(0, 1000)
+          );
+        }
+      }
+    }
+
     for (let pass = 1; pass <= 3; pass += 1) {
       const sources = prioritizedSources(
         currentConfig.sources.filter(
           (entry) =>
             entry.enabled &&
+            !(
+              entry.quarantinedUntil &&
+              Date.parse(entry.quarantinedUntil) > event.payload.scheduledFor
+            ) &&
             entry.purpose !== "profile" &&
             !attemptedSourceIds.has(entry.id) &&
             (event.payload.mode.kind === "force_extract" ||
@@ -308,7 +359,11 @@ export class GalleryObservationWorkflow extends ThinkWorkflow<
                 retries: { limit: 1, delay: "5 seconds" },
                 timeout: "30 seconds"
               },
-              async () => this.agent.markSourceFailed(source.id)
+              async () =>
+                this.agent.markSourceFailed(
+                  source.id,
+                  error instanceof Error ? error.message : String(error)
+                )
             );
           } catch (failureRecordError) {
             errors.push(

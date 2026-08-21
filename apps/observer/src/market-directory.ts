@@ -1,6 +1,6 @@
 import type { MarketCode } from "@gallery-agents/shared";
 
-const MAX_DIRECTORY_ENTRIES = 100;
+const DIRECTORY_ENTRY_SAFETY_LIMIT = 500;
 const WEEKLY_BATCH_SIZE = 20;
 
 const DIRECTORY_CONFIG = {
@@ -32,7 +32,9 @@ export type DirectoryGalleryCandidate = {
   entryUrl: string;
   location:
     | { kind: "unknown" }
-    | { kind: "address_only"; address: string };
+    | { kind: "address_only"; address: string }
+    | { kind: "area_only"; area: string }
+    | { kind: "known"; address: string; area: string };
 };
 
 export type DirectoryEntryResult =
@@ -100,7 +102,12 @@ export function listDirectoryEntryUrls(
       // A malformed directory navigation link is not a gallery candidate.
     }
   }
-  return [...entries].sort().slice(0, MAX_DIRECTORY_ENTRIES);
+  if (entries.size > DIRECTORY_ENTRY_SAFETY_LIMIT) {
+    throw new Error(
+      `Directory exceeded the ${DIRECTORY_ENTRY_SAFETY_LIMIT}-entry safety limit`
+    );
+  }
+  return [...entries].sort();
 }
 
 export function selectDirectoryEntryBatch(
@@ -178,13 +185,43 @@ function parseLondonEntry(
   ) {
     return { kind: "skipped", reason: "no_dedicated_official_site" };
   }
+  const areaMatch =
+    /class=["'][^"']*subtitle_location[^"']*["'][^>]*>([\s\S]*?)<\//i.exec(
+      html
+    );
+  const area = areaMatch ? decodeDirectoryText(areaMatch[1]) : "";
+  const addressMatch =
+    /class=["'][^"']*exhibitor_address[^"']*["'][^>]*>([\s\S]*?)<\/div>/i.exec(
+      html
+    );
+  const addressParts = addressMatch
+    ? addressMatch[1]
+        .replace(/<br\s*\/?>/gi, "\n")
+        .split("\n")
+        .map(decodeDirectoryText)
+        .filter(Boolean)
+    : [];
+  if (addressParts[0]?.toLocaleLowerCase("en-GB") === name.toLocaleLowerCase("en-GB")) {
+    addressParts.shift();
+  }
+  const address = addressParts.some((part) => /^london$/i.test(part))
+    ? addressParts.join(", ")
+    : "";
+  const location =
+    address && area
+      ? ({ kind: "known", address, area } as const)
+      : address
+        ? ({ kind: "address_only", address } as const)
+        : area
+          ? ({ kind: "area_only", area } as const)
+          : ({ kind: "unknown" } as const);
   return {
     kind: "candidate",
     candidate: {
       name,
       officialUrl,
       entryUrl,
-      location: { kind: "unknown" }
+      location
     }
   };
 }

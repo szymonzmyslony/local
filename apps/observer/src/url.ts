@@ -1,3 +1,5 @@
+import type { ThinkTime } from "@cloudflare/think";
+
 const PRIVATE_HOST_PATTERNS = [
   /^localhost$/i,
   /\.localhost$/i,
@@ -39,9 +41,22 @@ export function normalizeSourceUrl(input: string): string {
       url.searchParams.delete(key);
     }
   }
-  // Browser markdown can append an accessibility label to extracted hrefs.
-  // It is presentation text, not part of the destination URL.
-  url.pathname = url.pathname.replace(/%20%22open%20.*%22$/i, "");
+  // Browser link extraction can append a quoted accessibility label after a
+  // literal space. It is presentation text, not part of the destination URL.
+  url.pathname = url.pathname.replace(/%20%22[^/]*%22$/i, "");
+  if (url.hostname.toLowerCase().replace(/^www\./, "") === "mnw.art.pl") {
+    // MNW serves ASCII and Polish-diacritic spellings as aliases. Keeping both
+    // creates duplicate source graphs, so use the site's stable ASCII form.
+    try {
+      url.pathname = decodeURIComponent(url.pathname)
+        .normalize("NFKD")
+        .replace(/\p{M}/gu, "")
+        .replace(/ł/g, "l")
+        .replace(/Ł/g, "L");
+    } catch {
+      // URL already validated; retain a malformed percent sequence verbatim.
+    }
+  }
   if (url.pathname !== "/") url.pathname = url.pathname.replace(/\/+$/, "");
   return url.toString();
 }
@@ -65,6 +80,99 @@ export function stableMinute(identifier: string, startMinute = 120, spanMinutes 
   return startMinute + ((hash >>> 0) % spanMinutes);
 }
 
+type LocalDateParts = {
+  year: number;
+  month: number;
+  day: number;
+};
+
+function localDateParts(at: Date, timezone: string): LocalDateParts {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(at);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value ?? "0");
+  return { year: value("year"), month: value("month"), day: value("day") };
+}
+
+function timezoneOffsetMs(at: Date, timezone: string): number {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(at);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value ?? "0");
+  return (
+    Date.UTC(
+      value("year"),
+      value("month") - 1,
+      value("day"),
+      value("hour"),
+      value("minute"),
+      value("second")
+    ) - at.valueOf()
+  );
+}
+
+function localWallClockInstant(
+  date: LocalDateParts,
+  minuteOfDay: number,
+  timezone: string
+): Date {
+  const wallClockUtc = Date.UTC(
+    date.year,
+    date.month - 1,
+    date.day,
+    Math.floor(minuteOfDay / 60),
+    minuteOfDay % 60
+  );
+  let instant = new Date(wallClockUtc);
+  // Re-evaluate twice because resolving the wall clock can cross a DST edge.
+  instant = new Date(wallClockUtc - timezoneOffsetMs(instant, timezone));
+  instant = new Date(wallClockUtc - timezoneOffsetMs(instant, timezone));
+  return instant;
+}
+
+/** Return the next fixed market-local alarm slot strictly after `after`. */
+export function nextAnchoredCheckAt(input: {
+  after: Date;
+  timezone: string;
+  minuteOfDay: number;
+  weekday?: number;
+}): string {
+  const local = localDateParts(input.after, input.timezone);
+  const base = Date.UTC(local.year, local.month - 1, local.day);
+  for (let dayOffset = 0; dayOffset <= 8; dayOffset += 1) {
+    const calendarDate = new Date(base + dayOffset * 24 * 60 * 60 * 1000);
+    if (
+      input.weekday !== undefined &&
+      calendarDate.getUTCDay() !== input.weekday
+    ) {
+      continue;
+    }
+    const candidate = localWallClockInstant(
+      {
+        year: calendarDate.getUTCFullYear(),
+        month: calendarDate.getUTCMonth() + 1,
+        day: calendarDate.getUTCDate()
+      },
+      input.minuteOfDay,
+      input.timezone
+    );
+    if (candidate.valueOf() > input.after.valueOf()) return candidate.toISOString();
+  }
+  throw new Error(`Could not resolve next ${input.timezone} schedule anchor`);
+}
+
 export function minuteToWallClock(minute: number): ThinkTime {
   const hours = Math.floor(minute / 60).toString().padStart(2, "0");
   const minutes = (minute % 60).toString().padStart(2, "0");
@@ -83,4 +191,3 @@ export async function workflowInstanceId(idempotencyKey: string): Promise<string
   // ID contract while retaining 96 bits of deterministic collision resistance.
   return `obs_${(await sha256(idempotencyKey)).slice(0, 24)}`;
 }
-import type { ThinkTime } from "@cloudflare/think";

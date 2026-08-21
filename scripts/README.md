@@ -12,6 +12,28 @@ bun run scripts/rollout-market-observers.ts \
   '{"mode":"activate_and_observe","market":"waw","observerUrl":"https://zine-observer.example.workers.dev","batchSize":5}'
 ```
 
+## repair-event-identities.ts
+
+Audits or applies deterministic UTC event fingerprints. Apply mode writes a
+reversible audit payload to an observation-run metadata record before
+reassigning candidates and merging exact duplicate events.
+
+```bash
+bun --env-file=apps/observer/.dev.vars scripts/repair-event-identities.ts \
+  '{"mode":"audit","market":"waw"}'
+```
+
+## repair-market-sources.ts
+
+Audits or applies URL canonicalization, MNW ephemeral-calendar rejection, home
+source correction, per-gallery source admission budgets, and fixed local-time
+polling anchors.
+
+```bash
+bun --env-file=apps/observer/.dev.vars scripts/repair-market-sources.ts \
+  '{"mode":"audit","market":"waw"}'
+```
+
 The command is a strict discriminated union. Use `activate_only` when schedules
 should be created without immediately starting observations.
 

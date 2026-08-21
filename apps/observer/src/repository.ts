@@ -1,18 +1,25 @@
 import {
   AI_CONFIG,
   createEmbedder,
+  type Database,
   getMarketConfig,
   getServiceClient,
   isMarketCode,
-  type MarketCode,
-  type Database,
   type Json,
+  type MarketCode,
   toPgVector
 } from "@gallery-agents/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  canonicalEventFingerprint,
+  eventMatchToleranceMs,
+  isSameCanonicalEvent,
+  normalizeEventTitle,
+  type ObservedEventIdentity
+} from "./event-identity";
 import type {
-  ExtractedEvent,
   ConfiguredGalleryObserverState,
+  ExtractedEvent,
   GalleryObserverState,
   GalleryProfileExtraction,
   GallerySource,
@@ -20,12 +27,15 @@ import type {
   RegisterGalleryInput
 } from "./schemas";
 import {
-  eventMatchToleranceMs,
-  isSameCanonicalEvent,
-  normalizeEventTitle,
-  type ObservedEventIdentity
-} from "./event-identity";
-import { normalizeSourceUrl, sha256 } from "./url";
+  classifyEventSourceUrl,
+  SOURCE_ADMISSION_LIMITS
+} from "./source-policy";
+import {
+  nextAnchoredCheckAt,
+  normalizeSourceUrl,
+  sha256,
+  stableMinute
+} from "./url";
 
 type DatabaseClient = SupabaseClient<Database>;
 
@@ -152,6 +162,11 @@ export async function stateForGallery(
       purpose: source.purpose,
       strategy: source.fetch_strategy,
       enabled: source.enabled,
+      failureKind: null,
+      quarantinedUntil:
+        source.purpose === "detail" && source.consecutive_failures >= 3
+          ? source.next_check_at
+          : null,
       polling: !source.last_checked_at
         ? { kind: "never_checked" }
         : isSourceDue(source.next_check_at)
@@ -292,9 +307,50 @@ export async function upsertGallerySource(
   kind: GallerySource["kind"],
   purpose: GallerySource["purpose"],
   confidence: number
-): Promise<void> {
-  if (confidence < 0.8) return;
+): Promise<boolean> {
+  if (confidence < 0.8) return false;
   const normalizedUrl = normalizeSourceUrl(url);
+  const { data: existing, error: existingError } = await db
+    .from("gallery_sources")
+    .select("id, enabled")
+    .eq("gallery_id", galleryId)
+    .eq("normalized_url", normalizedUrl)
+    .maybeSingle();
+  throwIfError("findGallerySourceForAdmission", existingError);
+  if (!existing?.enabled) {
+    if (existing) {
+      console.warn(
+        JSON.stringify({
+          event: "gallery_source_admission_rejected",
+          galleryId,
+          normalizedUrl,
+          purpose,
+          reason: "previously_disabled"
+        })
+      );
+      return false;
+    }
+    const { count, error: countError } = await db
+      .from("gallery_sources")
+      .select("id", { count: "exact", head: true })
+      .eq("gallery_id", galleryId)
+      .eq("purpose", purpose)
+      .eq("enabled", true);
+    throwIfError("countGallerySourcesForAdmission", countError);
+    if ((count ?? 0) >= SOURCE_ADMISSION_LIMITS[purpose]) {
+      console.warn(
+        JSON.stringify({
+          event: "gallery_source_admission_rejected",
+          galleryId,
+          normalizedUrl,
+          purpose,
+          reason: "purpose_limit_reached",
+          limit: SOURCE_ADMISSION_LIMITS[purpose]
+        })
+      );
+      return false;
+    }
+  }
   const { error } = await db.from("gallery_sources").upsert(
     {
       gallery_id: galleryId,
@@ -310,6 +366,7 @@ export async function upsertGallerySource(
     { onConflict: "gallery_id,normalized_url" }
   );
   throwIfError("upsertGallerySource", error);
+  return true;
 }
 
 export async function beginObservationRun(
@@ -441,37 +498,73 @@ export async function recordSnapshot(
 
 export async function recordSourceFailure(
   db: DatabaseClient,
-  input: { sourceId: string }
+  input: { sourceId: string; error: string }
 ): Promise<void> {
   const { data: source, error: sourceReadError } = await db
     .from("gallery_sources")
-    .select("consecutive_failures")
+    .select("consecutive_failures, purpose")
     .eq("id", input.sourceId)
     .single();
   throwIfError("readGallerySourceFailureCount", sourceReadError);
 
-  const now = new Date().toISOString();
+  const nowDate = new Date();
+  const now = nowDate.toISOString();
+  const failures = (source?.consecutive_failures ?? 0) + 1;
+  const failureKind = classifySourceFailure(input.error);
+  const quarantinedUntil =
+    source?.purpose === "detail" && failures >= 3
+      ? new Date(nowDate.valueOf() + 7 * 24 * 60 * 60 * 1000).toISOString()
+      : null;
+  const backoffHours = Math.min(2 ** Math.max(0, failures - 1), 24);
   const { error: sourceUpdateError } = await db
     .from("gallery_sources")
     .update({
       last_checked_at: now,
-      consecutive_failures: (source?.consecutive_failures ?? 0) + 1,
+      next_check_at:
+        quarantinedUntil ??
+        new Date(nowDate.valueOf() + backoffHours * 60 * 60 * 1000).toISOString(),
+      consecutive_failures: failures,
       updated_at: now
     })
     .eq("id", input.sourceId);
   throwIfError("recordGallerySourceFailure", sourceUpdateError);
+  console.warn(
+    JSON.stringify({
+      event: "gallery_source_failure_recorded",
+      sourceId: input.sourceId,
+      failureKind,
+      failures,
+      quarantinedUntil,
+      error: input.error.slice(0, 500)
+    })
+  );
+}
+
+export function classifySourceFailure(
+  error: string
+): NonNullable<GallerySource["failureKind"]> {
+  if (/exceeded \d+ bytes|size|too large/i.test(error)) return "size_limit";
+  if (/timeout|timed out|abort/i.test(error)) return "timeout";
+  if (/HTTP fetch failed|\bHTTP\b.*\(\d{3}\)/i.test(error)) return "http";
+  if (/Browser Run|Browser Rendering/i.test(error)) return "browser";
+  if (/JSON|parse|schema|non-JSON/i.test(error)) return "parse";
+  if (/network|fetch failed|ECONN|DNS/i.test(error)) return "network";
+  return "unknown";
 }
 
 export async function commitSourceSnapshot(
   db: DatabaseClient,
   input: {
     sourceId: string;
+    galleryId: string;
+    timezone: string;
     purpose: GallerySource["purpose"];
     contentHash: string;
     changed: boolean;
   }
 ): Promise<void> {
-  const now = new Date().toISOString();
+  const nowDate = new Date();
+  const now = nowDate.toISOString();
   const { data: current, error: readError } = await db
     .from("gallery_sources")
     .select("unchanged_checks")
@@ -483,14 +576,27 @@ export async function commitSourceSnapshot(
     : (current?.unchanged_checks ?? 0) + 1;
   const intervalHours =
     input.purpose === "listing" || input.purpose === "bootstrap" ? 24 : 168;
+  const minuteOfDay =
+    input.purpose === "profile"
+      ? stableMinute(`${input.galleryId}:profile`)
+      : stableMinute(input.galleryId);
+  const weekday =
+    input.purpose === "profile"
+      ? 1
+      : input.purpose === "detail"
+        ? stableMinute(input.sourceId, 0, 7)
+        : undefined;
   const { error } = await db
     .from("gallery_sources")
     .update({
       last_content_hash: input.contentHash,
       last_changed_at: input.changed ? now : undefined,
-      next_check_at: new Date(
-        Date.now() + intervalHours * 60 * 60 * 1000
-      ).toISOString(),
+      next_check_at: nextAnchoredCheckAt({
+        after: nowDate,
+        timezone: input.timezone,
+        minuteOfDay,
+        weekday
+      }),
       poll_interval_hours: intervalHours,
       unchanged_checks: unchangedChecks,
       enabled: !(input.purpose === "detail" && unchangedChecks >= 2),
@@ -507,15 +613,15 @@ async function classifyObservedSource(
   extraction: ObservationExtraction
 ): Promise<void> {
   const purpose: GallerySource["purpose"] =
-    source.kind === "about"
+    source.kind === "home"
+      ? "bootstrap"
+      : source.kind === "about"
       ? "profile"
       : extraction.page_kind === "event"
         ? "detail"
         : extraction.page_kind === "events" || extraction.page_kind === "calendar"
           ? "listing"
-          : source.kind === "home" && extraction.discovered_sources.length > 0
-            ? "profile"
-            : source.purpose;
+          : source.purpose;
   if (purpose === source.purpose) return;
   const { error } = await db
     .from("gallery_sources")
@@ -798,20 +904,24 @@ export async function persistObservation(
 
   await classifyObservedSource(db, input.source, input.extraction);
 
-  for (const discovered of input.extraction.discovered_sources) {
+  const canDiscoverFromSource =
+    input.source.purpose === "bootstrap" || input.source.purpose === "listing";
+  for (const discovered of canDiscoverFromSource
+    ? input.extraction.discovered_sources.slice(0, 20)
+    : []) {
     try {
-      const currentOrigin = new URL(input.source.normalizedUrl).origin;
-      if (
-        new URL(discovered.url, input.source.normalizedUrl).origin !==
-        currentOrigin
-      )
-        continue;
+      const admitted = classifyEventSourceUrl(
+        discovered.url,
+        input.source.normalizedUrl,
+        { kind: discovered.kind, purpose: discovered.purpose }
+      );
+      if (!admitted) continue;
       await upsertGallerySource(
         db,
         galleryId,
-        new URL(discovered.url, input.source.normalizedUrl).toString(),
-        discovered.kind,
-        discovered.purpose,
+        admitted.url,
+        admitted.kind,
+        admitted.purpose,
         discovered.confidence
       );
     } catch {
@@ -824,9 +934,14 @@ export async function persistObservation(
       event.title,
       input.state.market.locale
     );
-    const canonicalFingerprint = await sha256(
-      [galleryId, normalizedTitle, event.start_at ?? ""].join("|")
-    );
+    const canonicalFingerprint = event.start_at
+      ? await canonicalEventFingerprint({
+          galleryId,
+          title: event.title,
+          startAt: event.start_at,
+          locale: input.state.market.locale
+        })
+      : await sha256([galleryId, normalizedTitle, ""].join("|"));
     const candidateFingerprint = await sha256(
       [canonicalFingerprint, input.source.normalizedUrl].join("|")
     );
@@ -900,6 +1015,7 @@ export async function persistObservation(
           input.source.normalizedUrl,
         confidence: Math.max(event.confidence, existingEvent?.confidence ?? 0),
         published: true,
+        source_fingerprint: canonicalFingerprint,
         updated_at: now.toISOString()
       };
 
@@ -918,7 +1034,7 @@ export async function persistObservation(
         const { data: canonical, error: eventError } = await db
           .from("events")
           .upsert(
-            { ...canonicalValues, source_fingerprint: canonicalFingerprint },
+            canonicalValues,
             { onConflict: "gallery_id,source_fingerprint" }
           )
           .select("id")
