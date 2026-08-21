@@ -2,6 +2,7 @@ import type { ThinkWorkflowStep } from "@cloudflare/think/workflows";
 import { ThinkWorkflow } from "@cloudflare/think/workflows";
 import type { AgentWorkflowEvent } from "agents/workflows";
 import type { GalleryObserver } from "./agent";
+import { selectObservationRunSources } from "./observation-source-selection";
 import type { ObservationExtraction } from "./schemas";
 import { commitUnchangedSnapshotIfNeeded } from "./snapshot-lifecycle";
 
@@ -216,6 +217,7 @@ export class GalleryObservationWorkflow extends ThinkWorkflow<
     const errors: string[] = [];
 
     const attemptedSourceIds = new Set<string>();
+    const attemptedDetailSourceIds = new Set<string>();
     let currentConfig = config;
 
     if (
@@ -246,7 +248,7 @@ export class GalleryObservationWorkflow extends ThinkWorkflow<
     }
 
     for (let pass = 1; pass <= 3; pass += 1) {
-      const sources = prioritizedSources(
+      const eligibleSources = prioritizedSources(
         currentConfig.sources.filter(
           (entry) =>
             entry.enabled &&
@@ -263,10 +265,21 @@ export class GalleryObservationWorkflow extends ThinkWorkflow<
                 entry.polling.kind === "never_checked")
         )
       );
+      const sources = prioritizedSources(
+        selectObservationRunSources(eligibleSources, {
+          mode: event.payload.mode.kind,
+          galleryId: event.payload.galleryId,
+          scheduledFor: event.payload.scheduledFor,
+          detailSourcesAttempted: attemptedDetailSourceIds.size
+        })
+      );
       if (sources.length === 0) break;
 
       for (const source of sources) {
         attemptedSourceIds.add(source.id);
+        if (source.purpose === "detail") {
+          attemptedDetailSourceIds.add(source.id);
+        }
         sourcesAttempted += 1;
         try {
           const snapshot = await step.do(
